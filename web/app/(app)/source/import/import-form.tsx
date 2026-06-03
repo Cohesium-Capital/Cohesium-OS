@@ -54,9 +54,19 @@ function csvToPayloadJson(csv: string): string {
   return JSON.stringify({ organizations });
 }
 
-export function ImportForm({ msps }: { msps: MspOption[] }) {
-  const [kind, setKind] = useState<ImportKind>("msp");
-  const [targetMsp, setTargetMsp] = useState<string>(NO_TARGET);
+export function ImportForm({
+  msps,
+  initialTargetMspId,
+}: {
+  msps: MspOption[];
+  initialTargetMspId: string | null;
+}) {
+  const [kind, setKind] = useState<ImportKind>(
+    initialTargetMspId ? "customer" : "msp",
+  );
+  const [targetMsp, setTargetMsp] = useState<string>(
+    initialTargetMspId ?? NO_TARGET,
+  );
   const [json, setJson] = useState("");
   const [csv, setCsv] = useState("");
   const [tab, setTab] = useState("json");

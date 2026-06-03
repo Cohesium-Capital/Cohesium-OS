@@ -8,7 +8,7 @@ export type SourcingMode =
   | "research_customers"
   | "find_customers_for_msps";
 
-export type Msp = { name: string; domain: string | null };
+export type Msp = { id?: string; name: string; domain: string | null };
 
 export type PromptParams = {
   mode: SourcingMode;
@@ -63,6 +63,28 @@ const RULES = `Rules:
   full_name null, with confidence "low", if you cannot find the name.
 - Output the JSON object and nothing else.`;
 
+// Concrete, highest-yield ways to find an MSP's customers (and resolve
+// anonymized references). Appended to the customer-finding modes.
+const METHODS = `Where to look (highest-yield first):
+- The MSP's own site: case studies, testimonials, and "our clients" pages. Also
+  check indexed PDFs (site:<mspdomain> filetype:pdf) and the client logo wall —
+  read each logo's alt text, image filename, and link target to name the company.
+- Verified review sites: Clutch (lists the reviewer's company, industry, size),
+  plus G2, UpCity, TechBehemoths, GoodFirms, FeaturedCustomers, Google reviews.
+- Web-wide co-mentions via search operators: "<MSP>" (client OR customer OR
+  "partnered with"); "<MSP>" -site:<mspdomain> for third-party and news mentions;
+  intext:"<MSP>" filetype:pdf.
+- LinkedIn win/onboarding posts: site:linkedin.com/posts "<MSP>" (welcome OR
+  "new client" OR onboarded), and press releases, local business-journal news,
+  and award announcements naming the MSP.
+- If a source only gives an anonymized reference (e.g. "the IT Director at a
+  Richmond law firm"), resolve it: combine the clues (industry + city + title +
+  first name) and search LinkedIn / company sites to name the real company and
+  person. Only assert a match with two or more corroborating clues; otherwise
+  omit it or set confidence "low".
+A co-mention does not prove a client relationship — verify intent before
+including a company, and set confidence to match the strength of the evidence.`;
+
 export function buildPrompt(params: PromptParams): string {
   const region = params.region?.trim() || "the United States";
   const profile = params.profile?.trim();
@@ -91,6 +113,8 @@ export function buildPrompt(params: PromptParams): string {
       profile ? `Target profile: ${profile}.` : "",
       `For each company, estimate "current_msp_name" (the MSP they use) when you can find evidence, and set its "confidence" accordingly. Identify a contact who is the owner/decision-maker ("owner") or who leads IT ("head_of_it") when findable. Every organization you return is a customer (not an MSP).`,
       "",
+      METHODS,
+      "",
       CONTRACT,
       "",
       RULES,
@@ -115,6 +139,8 @@ export function buildPrompt(params: PromptParams): string {
     "",
     `MSPs:`,
     list,
+    "",
+    METHODS,
     "",
     CONTRACT,
     "",

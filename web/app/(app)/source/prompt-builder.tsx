@@ -43,30 +43,45 @@ function parseMspLines(text: string): Msp[] {
     .filter((m) => m.name);
 }
 
-export function PromptBuilder({ msps }: { msps: Msp[] }) {
-  const [mode, setMode] = useState<SourcingMode>("research_msps");
+export function PromptBuilder({
+  msps,
+  initialMspId,
+}: {
+  msps: Msp[];
+  initialMspId: string | null;
+}) {
+  const [mode, setMode] = useState<SourcingMode>(
+    initialMspId ? "find_customers_for_msps" : "research_msps",
+  );
   const [region, setRegion] = useState("");
   const [profile, setProfile] = useState("");
   const [count, setCount] = useState(25);
   const [countPer, setCountPer] = useState(10);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [selected, setSelected] = useState<Record<string, boolean>>(
+    initialMspId ? { [initialMspId]: true } : {},
+  );
   const [extraMsps, setExtraMsps] = useState("");
 
-  const chosenMsps = useMemo<Msp[]>(() => {
-    const picked = msps.filter((m) => selected[m.name]);
-    return [...picked, ...parseMspLines(extraMsps)];
-  }, [msps, selected, extraMsps]);
+  const pickedFromList = useMemo(
+    () => msps.filter((m) => m.id && selected[m.id]),
+    [msps, selected],
+  );
+
+  const chosenMsps = useMemo<Msp[]>(
+    () => [...pickedFromList, ...parseMspLines(extraMsps)],
+    [pickedFromList, extraMsps],
+  );
+
+  // If exactly one known MSP is targeted, carry it to Import so the run is
+  // attributed and yield tracking works.
+  const importHref =
+    mode === "find_customers_for_msps" && pickedFromList.length === 1
+      ? `/source/import?target=${pickedFromList[0].id}`
+      : "/source/import";
 
   const prompt = useMemo(
     () =>
-      buildPrompt({
-        mode,
-        region,
-        profile,
-        count,
-        countPer,
-        msps: chosenMsps,
-      }),
+      buildPrompt({ mode, region, profile, count, countPer, msps: chosenMsps }),
     [mode, region, profile, count, countPer, chosenMsps],
   );
 
@@ -84,11 +99,7 @@ export function PromptBuilder({ msps }: { msps: Msp[] }) {
             Build a research prompt, run it in Claude/ChatGPT, then import the JSON.
           </p>
         </div>
-        <Button
-          variant="outline"
-          nativeButton={false}
-          render={<Link href="/source/import" />}
-        >
+        <Button variant="outline" nativeButton={false} render={<Link href={importHref} />}>
           Import results →
         </Button>
       </div>
@@ -157,13 +168,13 @@ export function PromptBuilder({ msps }: { msps: Msp[] }) {
             <div className="grid gap-3">
               <Label>Target MSPs</Label>
               {msps.length > 0 && (
-                <div className="flex flex-col gap-2 rounded-md border p-3">
+                <div className="flex max-h-64 flex-col gap-2 overflow-auto rounded-md border p-3">
                   {msps.map((m) => (
-                    <label key={m.name} className="flex items-center gap-2 text-sm">
+                    <label key={m.id} className="flex items-center gap-2 text-sm">
                       <Checkbox
-                        checked={!!selected[m.name]}
+                        checked={!!(m.id && selected[m.id])}
                         onCheckedChange={(c) =>
-                          setSelected((s) => ({ ...s, [m.name]: !!c }))
+                          m.id && setSelected((s) => ({ ...s, [m.id!]: !!c }))
                         }
                       />
                       <span>

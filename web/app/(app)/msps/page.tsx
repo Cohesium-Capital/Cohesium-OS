@@ -10,13 +10,30 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MspControls } from "./msp-controls";
 
 type Status = "unexplored" | "productive" | "exhausted";
 
-// Actionable first (keep mining / start mining), tapped-out last.
-const RANK: Record<Status, number> = { productive: 0, unexplored: 1, exhausted: 2 };
+type MspStatRow = {
+  id: string;
+  name: string;
+  domain: string | null;
+  confidence: string | null;
+  reviewed: boolean;
+  customers: number;
+  contacts: number;
+  last_sourced: string | null;
+  targeted_runs: number;
+  last_yield: number | null;
+  status: Status;
+};
 
-const STATUS_BADGE: Record<Status, { label: string; variant: "default" | "secondary" | "outline" }> = {
+const PAGE_SIZE = 50;
+
+const STATUS_BADGE: Record<
+  Status,
+  { label: string; variant: "default" | "secondary" | "outline" }
+> = {
   productive: { label: "Productive", variant: "default" },
   unexplored: { label: "Unexplored", variant: "secondary" },
   exhausted: { label: "Exhausted — move on", variant: "outline" },
@@ -31,91 +48,45 @@ function fmtDate(iso: string | null): string {
   });
 }
 
-export default async function MspsPage() {
+export default async function MspsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; page?: string }>;
+}) {
+  const sp = await searchParams;
+  const q = (sp.q ?? "").trim();
+  const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
+  const from = (page - 1) * PAGE_SIZE;
+
   const supabase = await createClient();
+  let query = supabase.from("msp_stats").select("*", { count: "exact" });
+  if (q) query = query.ilike("name", `%${q}%`);
+  const { data, count } = await query
+    .order("status_rank", { ascending: true })
+    .order("customers", { ascending: false })
+    .range(from, from + PAGE_SIZE - 1);
 
-  const [{ data: mspsData }, { data: customersData }, { data: contactsData }, { data: runsData }] =
-    await Promise.all([
-      supabase
-        .from("organizations")
-        .select("id, name, domain, confidence, reviewed")
-        .eq("kind", "msp"),
-      supabase
-        .from("organizations")
-        .select("id, current_msp_id, created_at")
-        .eq("kind", "customer"),
-      supabase.from("contacts").select("organization_id"),
-      supabase
-        .from("sourcing_runs")
-        .select("target_msp_id, new_for_target, created_at")
-        .not("target_msp_id", "is", null)
-        .order("created_at", { ascending: false }),
-    ]);
-
-  const msps = mspsData ?? [];
-  const customers = customersData ?? [];
-  const runs = runsData ?? [];
-
-  // org id -> its MSP id, to tally contacts per MSP.
-  const orgToMsp = new Map<string, string | null>();
-  customers.forEach((c) => orgToMsp.set(c.id, c.current_msp_id));
-  const contactsByMsp = new Map<string, number>();
-  (contactsData ?? []).forEach((ct) => {
-    const mspId = orgToMsp.get(ct.organization_id as string);
-    if (mspId) contactsByMsp.set(mspId, (contactsByMsp.get(mspId) ?? 0) + 1);
-  });
-
-  const rows = msps
-    .map((m) => {
-      const myCustomers = customers.filter((c) => c.current_msp_id === m.id);
-      const lastSourced = myCustomers.reduce<string | null>(
-        (acc, c) => (!acc || c.created_at > acc ? c.created_at : acc),
-        null,
-      );
-      const targetedRuns = runs.filter((r) => r.target_msp_id === m.id); // already desc
-      const lastYield = targetedRuns[0]?.new_for_target ?? null;
-      const status: Status =
-        targetedRuns.length === 0
-          ? "unexplored"
-          : (targetedRuns[0].new_for_target ?? 0) === 0
-            ? "exhausted"
-            : "productive";
-      return {
-        id: m.id,
-        name: m.name,
-        domain: m.domain as string | null,
-        flagged: !m.reviewed || m.confidence === "low",
-        customers: myCustomers.length,
-        contacts: contactsByMsp.get(m.id) ?? 0,
-        lastSourced,
-        lastYield,
-        runs: targetedRuns.length,
-        status,
-      };
-    })
-    .sort((a, b) => RANK[a.status] - RANK[b.status] || b.customers - a.customers);
+  const rows = (data as MspStatRow[]) ?? [];
+  const total = count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">MSPs</h1>
-          <p className="text-sm text-muted-foreground">
-            Acquisition targets and how much customer coverage we have for each.
-          </p>
-        </div>
-        <Button variant="outline" nativeButton={false} render={<Link href="/source" />}>
-          Source customers →
-        </Button>
+      <div>
+        <h1 className="text-2xl font-semibold">MSPs</h1>
+        <p className="text-sm text-muted-foreground">
+          Acquisition targets and how much customer coverage we have for each.
+        </p>
       </div>
 
       <p className="text-sm text-muted-foreground">
         Status comes from targeted customer searches: a run that adds new customers keeps
         an MSP <strong>productive</strong>; a targeted run that adds zero marks it{" "}
         <strong>exhausted</strong>. MSPs with no targeted run yet are{" "}
-        <strong>unexplored</strong>. Run a targeted search from Import (set &ldquo;Targeting
-        one MSP&rdquo;).
+        <strong>unexplored</strong>. Use the per-row shortcut to run a targeted search.
       </p>
+
+      <MspControls q={q} page={page} pageCount={pageCount} total={total} />
 
       <div className="rounded-md border">
         <Table>
@@ -125,8 +96,9 @@ export default async function MspsPage() {
               <TableHead className="text-right">Customers</TableHead>
               <TableHead className="text-right">Contacts</TableHead>
               <TableHead>Last sourced</TableHead>
-              <TableHead className="text-right">Last run yield</TableHead>
+              <TableHead className="text-right">Last run</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -139,7 +111,7 @@ export default async function MspsPage() {
                       <div className="flex flex-col">
                         <span>
                           {r.name}
-                          {r.flagged && (
+                          {(!r.reviewed || r.confidence === "low") && (
                             <span className="ml-2 text-xs text-amber-600">flagged</span>
                           )}
                         </span>
@@ -150,21 +122,32 @@ export default async function MspsPage() {
                     </TableCell>
                     <TableCell className="text-right">{r.customers}</TableCell>
                     <TableCell className="text-right">{r.contacts}</TableCell>
-                    <TableCell>{fmtDate(r.lastSourced)}</TableCell>
+                    <TableCell>{fmtDate(r.last_sourced)}</TableCell>
                     <TableCell className="text-right">
-                      {r.lastYield === null ? "—" : `+${r.lastYield}`}
+                      {r.last_yield === null ? "—" : `+${r.last_yield}`}
                     </TableCell>
                     <TableCell>
                       <Badge variant={badge.variant}>{badge.label}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        nativeButton={false}
+                        render={<Link href={`/source?msp=${r.id}`} />}
+                      >
+                        Source customers
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
-                  No MSPs yet. Import some, or they appear automatically as customers link to
-                  them.
+                <TableCell colSpan={7} className="h-24 text-center">
+                  {q
+                    ? "No MSPs match that search."
+                    : "No MSPs yet. Import some, or they appear as customers link to them."}
                 </TableCell>
               </TableRow>
             )}

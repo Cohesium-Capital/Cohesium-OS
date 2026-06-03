@@ -7,8 +7,6 @@ import {
   type RowSelectionState,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { Flag, MoreHorizontal, ExternalLink, Check, Trash2 } from "lucide-react";
@@ -46,21 +44,40 @@ const PERSONA_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-export function ReviewGrid({ initialRows }: { initialRows: ReviewRow[] }) {
+export function ReviewGrid({
+  initialRows,
+  q,
+  flagged,
+  page,
+  pageCount,
+  total,
+}: {
+  initialRows: ReviewRow[];
+  q: string;
+  flagged: boolean;
+  page: number;
+  pageCount: number;
+  total: number;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [globalFilter, setGlobalFilter] = useState("");
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
-  // Default to all rows selected — the send screen sends to everyone unless you
-  // uncheck. Same default applies here for bulk review.
+  const [search, setSearch] = useState(q);
+  // Default to all rows on this page selected (send-to-all default). Component is
+  // keyed by page/query upstream, so this re-inits on navigation.
   const [rowSelection, setRowSelection] = useState<RowSelectionState>(() =>
     Object.fromEntries(initialRows.map((r) => [r.id, true])),
   );
 
-  const data = useMemo(
-    () => (flaggedOnly ? initialRows.filter((r) => !r.reviewed) : initialRows),
-    [initialRows, flaggedOnly],
-  );
+  function navigate(next: { q?: string; page?: number; flagged?: boolean }) {
+    const sp = new URLSearchParams();
+    const nq = next.q ?? q;
+    const np = next.page ?? 1;
+    const nf = next.flagged ?? flagged;
+    if (nq) sp.set("q", nq);
+    if (np > 1) sp.set("page", String(np));
+    if (nf) sp.set("flagged", "1");
+    router.push(`/review${sp.toString() ? `?${sp}` : ""}`);
+  }
 
   function run(fn: () => Promise<void>, ok: string) {
     startTransition(async () => {
@@ -92,7 +109,6 @@ export function ReviewGrid({ initialRows }: { initialRows: ReviewRow[] }) {
             onCheckedChange={(v) => row.toggleSelected(!!v)}
           />
         ),
-        enableSorting: false,
       },
       {
         id: "flag",
@@ -103,7 +119,6 @@ export function ReviewGrid({ initialRows }: { initialRows: ReviewRow[] }) {
               <Flag className="size-4" />
             </span>
           ),
-        enableSorting: false,
       },
       {
         accessorKey: "full_name",
@@ -212,79 +227,110 @@ export function ReviewGrid({ initialRows }: { initialRows: ReviewRow[] }) {
             </DropdownMenu>
           );
         },
-        enableSorting: false,
       },
     ],
-    // run is stable enough for v1; columns do not need to re-create per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
   const table = useReactTable({
-    data,
+    data: initialRows,
     columns,
-    state: { rowSelection, globalFilter },
+    state: { rowSelection },
     getRowId: (r) => r.id,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
-    onGlobalFilterChange: setGlobalFilter,
-    globalFilterFn: (row, _columnId, value) => {
-      const q = String(value).toLowerCase();
-      const r = row.original;
-      return [r.full_name, r.org_name, r.estimated_msp, r.org_domain].some((v) =>
-        (v ?? "").toLowerCase().includes(q),
-      );
-    },
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   const selectedIds = table.getSelectedRowModel().rows.map((r) => r.original.id);
-  const flaggedCount = initialRows.filter((r) => !r.reviewed).length;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Input
-          placeholder="Search company, contact, MSP…"
-          value={globalFilter}
-          onChange={(e) => setGlobalFilter(e.target.value)}
-          className="max-w-xs"
-        />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            navigate({ q: search.trim(), page: 1 });
+          }}
+          className="flex items-center gap-2"
+        >
+          <Input
+            placeholder="Search company…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-xs"
+          />
+          <Button type="submit" variant="outline" size="sm">
+            Search
+          </Button>
+          {q && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearch("");
+                navigate({ q: "", page: 1 });
+              }}
+            >
+              Clear
+            </Button>
+          )}
+        </form>
+
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
-            checked={flaggedOnly}
-            onCheckedChange={(v) => setFlaggedOnly(!!v)}
+            checked={flagged}
+            onCheckedChange={(v) => navigate({ flagged: !!v, page: 1 })}
           />
-          Flagged only ({flaggedCount})
+          Flagged only
         </label>
-        <div className="ml-auto flex items-center gap-2">
-          {selectedIds.length > 0 && (
-            <>
-              <span className="text-sm text-muted-foreground">
-                {selectedIds.length} selected
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pending}
-                onClick={() =>
-                  run(() => setReviewed(selectedIds, true), "Marked reviewed.")
-                }
-              >
-                Mark reviewed
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={pending}
-                onClick={() => run(() => deleteContacts(selectedIds), "Deleted.")}
-              >
-                Delete
-              </Button>
-            </>
-          )}
+
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {selectedIds.length} selected
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => run(() => setReviewed(selectedIds, true), "Marked reviewed.")}
+            >
+              Mark reviewed
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={pending}
+              onClick={() => run(() => deleteContacts(selectedIds), "Deleted.")}
+            >
+              Delete
+            </Button>
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
+          <span>
+            {total} row{total === 1 ? "" : "s"} · page {page} of {pageCount}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => navigate({ page: page - 1 })}
+          >
+            Prev
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= pageCount}
+            onClick={() => navigate({ page: page + 1 })}
+          >
+            Next
+          </Button>
         </div>
       </div>
 
@@ -317,13 +363,18 @@ export function ReviewGrid({ initialRows }: { initialRows: ReviewRow[] }) {
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No rows yet. Source and import some contacts to get started.
+                  {q || flagged
+                    ? "No rows match."
+                    : "No rows yet. Source and import some contacts to get started."}
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Selection and bulk actions apply to the current page.
+      </p>
     </div>
   );
 }
