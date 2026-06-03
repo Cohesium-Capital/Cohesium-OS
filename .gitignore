@@ -1,0 +1,12 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+
+# web app
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+web/next-env.d.ts
