@@ -84,7 +84,11 @@ export function PromptBuilder({ msps }: { msps: Msp[] }) {
             Build a research prompt, run it in Claude/ChatGPT, then import the JSON.
           </p>
         </div>
-        <Button variant="outline" render={<Link href="/source/import" />}>
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/source/import" />}
+        >
           Import results →
         </Button>
       </div>

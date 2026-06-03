@@ -109,7 +109,11 @@ export default function ImportPage() {
             Paste the JSON from your research, or upload a CSV of known MSPs.
           </p>
         </div>
-        <Button variant="outline" render={<Link href="/review" />}>
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/review" />}
+        >
           Go to Review →
         </Button>
       </div>
