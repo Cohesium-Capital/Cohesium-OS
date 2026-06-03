@@ -2,21 +2,22 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
-import { SourcingPayloadSchema, normalizeDomain } from "@/lib/contracts";
+import { SourcingPayloadSchema, normalizeDomain, nameKey } from "@/lib/contracts";
 import { type ImportKind, type ImportReport, EMPTY_REPORT } from "@/lib/sourcing/types";
 
 function fail(error: string): ImportReport {
   return { ...EMPTY_REPORT, ok: false, error };
 }
 
-// Validate a pasted/converted JSON payload, dedupe against the DB on domain,
-// resolve each customer's current_msp_name to an MSP id (creating flagged stubs
-// for unknown MSPs), then insert. Runs as the signed-in user, so RLS applies.
+// Validate a pasted/converted JSON payload, resolve customer->MSP links, dedupe
+// against the DB (by domain, falling back to name+MSP for rows with no domain),
+// insert, and log a sourcing run. Runs as the signed-in user, so RLS applies.
 export async function importSourced(input: {
   rawText: string;
   kind: ImportKind;
+  targetMspId?: string | null;
 }): Promise<ImportReport> {
-  await requireUser();
+  const user = await requireUser();
   const supabase = await createClient();
   const report: ImportReport = {
     ...EMPTY_REPORT,
@@ -45,36 +46,12 @@ export async function importSourced(input: {
     domain: normalizeDomain(o.domain),
   }));
 
-  // 2. Dedupe against existing rows (by domain) and within the payload.
-  const domains = [...new Set(orgs.map((o) => o.domain).filter(Boolean))] as string[];
-  const existingDomains = new Set<string>();
-  if (domains.length) {
-    const { data } = await supabase
-      .from("organizations")
-      .select("domain")
-      .in("domain", domains);
-    data?.forEach((r) => r.domain && existingDomains.add(r.domain));
-  }
-  const seen = new Set<string>();
-  const deduped = orgs.filter((o) => {
-    if (o.domain && existingDomains.has(o.domain)) return false; // already in DB
-    if (o.domain && seen.has(o.domain)) return false; // dup within payload
-    if (o.domain) seen.add(o.domain);
-    return true;
-  });
-  report.skippedDuplicates = orgs.length - deduped.length;
-
-  if (!deduped.length) {
-    report.messages.push("Nothing new to import — every row already exists.");
-    return report;
-  }
-
-  // 3. For customer imports, resolve current_msp_name to an MSP id, creating a
-  //    flagged stub MSP for any name we do not already have.
+  // 2. Resolve current_msp_name -> MSP id (creating flagged stubs for unknowns).
+  //    Done before dedup because null-domain customers dedupe on name + MSP id.
   const mspIdByName = new Map<string, string>();
   if (input.kind === "customer") {
     const names = [
-      ...new Set(deduped.map((o) => o.current_msp_name).filter(Boolean)),
+      ...new Set(orgs.map((o) => o.current_msp_name).filter(Boolean)),
     ] as string[];
     if (names.length) {
       const { data: existingMsps } = await supabase
@@ -105,69 +82,145 @@ export async function importSourced(input: {
       }
     }
   }
+  const resolvedMspId = (o: (typeof orgs)[number]): string | null =>
+    input.kind === "customer" && o.current_msp_name
+      ? mspIdByName.get(o.current_msp_name.toLowerCase()) ?? null
+      : null;
 
-  // 4. Insert the organizations.
-  const orgRows = deduped.map((o) => ({
-    name: o.name,
-    domain: o.domain,
-    kind: input.kind,
-    is_acq_target: input.kind === "msp",
-    current_msp_id:
-      input.kind === "customer" && o.current_msp_name
-        ? mspIdByName.get(o.current_msp_name.toLowerCase()) ?? null
-        : null,
-    hq_city: o.hq_city ?? null,
-    hq_state: o.hq_state ?? null,
-    source_url: o.source_url ?? null,
-    confidence: o.confidence,
-    reviewed: false,
-  }));
-
-  const { data: insertedOrgs, error: orgErr } = await supabase
-    .from("organizations")
-    .insert(orgRows)
-    .select("id, domain, name");
-  if (orgErr) return fail(`Insert failed: ${orgErr.message}`);
-  report.inserted.organizations += insertedOrgs?.length ?? 0;
-
-  // 5. Insert contacts, mapped back to their org by domain (unique) or name.
-  const idByDomain = new Map<string, string>();
-  const idByName = new Map<string, string>();
-  insertedOrgs?.forEach((r) => {
-    if (r.domain) idByDomain.set(r.domain, r.id);
-    idByName.set(r.name.toLowerCase(), r.id);
-  });
-
-  const contactRows: Record<string, unknown>[] = [];
-  for (const o of deduped) {
-    const orgId =
-      (o.domain && idByDomain.get(o.domain)) || idByName.get(o.name.toLowerCase());
-    if (!orgId) continue;
-    for (const c of o.contacts) {
-      contactRows.push({
-        organization_id: orgId,
-        full_name: c.full_name ?? null,
-        persona: c.persona,
-        title: c.title ?? null,
-        linkedin_url: c.linkedin_url ?? null,
-        source_url: c.source_url ?? null,
-        confidence: c.confidence,
-        source: "sourced",
-        stage: "sourced",
-        enrichment_status: "pending",
-        reviewed: false,
-      });
-    }
+  // 3. Build dedup sets: existing domains, plus name-keys for no-domain rows.
+  const domains = [...new Set(orgs.map((o) => o.domain).filter(Boolean))] as string[];
+  const existingDomains = new Set<string>();
+  if (domains.length) {
+    const { data } = await supabase
+      .from("organizations")
+      .select("domain")
+      .in("domain", domains);
+    data?.forEach((r) => r.domain && existingDomains.add(r.domain));
   }
-  if (contactRows.length) {
-    const { data: insertedContacts, error: contactErr } = await supabase
-      .from("contacts")
-      .insert(contactRows)
-      .select("id");
-    if (contactErr) report.messages.push(`Contacts insert error: ${contactErr.message}`);
-    else report.inserted.contacts = insertedContacts?.length ?? 0;
+
+  const existingNameKeys = new Set<string>();
+  if (input.kind === "customer") {
+    const { data } = await supabase
+      .from("organizations")
+      .select("name, current_msp_id")
+      .eq("kind", "customer");
+    data?.forEach((r) =>
+      existingNameKeys.add(`${nameKey(r.name)}|${r.current_msp_id ?? ""}`),
+    );
+  } else {
+    const { data } = await supabase
+      .from("organizations")
+      .select("name")
+      .eq("kind", "msp");
+    data?.forEach((r) => existingNameKeys.add(nameKey(r.name)));
+  }
+
+  // Key for a no-domain row: customers by name+MSP, MSPs by name.
+  const nameKeyOf = (o: (typeof orgs)[number]): string =>
+    input.kind === "customer"
+      ? `${nameKey(o.name)}|${resolvedMspId(o) ?? ""}`
+      : nameKey(o.name);
+
+  const seenDomain = new Set<string>();
+  const seenNameKey = new Set<string>();
+  const deduped = orgs.filter((o) => {
+    if (o.domain) {
+      if (existingDomains.has(o.domain) || seenDomain.has(o.domain)) return false;
+      seenDomain.add(o.domain);
+      return true;
+    }
+    const key = nameKeyOf(o);
+    if (existingNameKeys.has(key) || seenNameKey.has(key)) return false;
+    seenNameKey.add(key);
+    return true;
+  });
+  report.skippedDuplicates = orgs.length - deduped.length;
+
+  // 4. Insert organizations (skip if nothing new — we still log the run below).
+  let insertedOrgs:
+    | { id: string; domain: string | null; name: string; current_msp_id: string | null }[]
+    | null = [];
+  if (deduped.length) {
+    const orgRows = deduped.map((o) => ({
+      name: o.name,
+      domain: o.domain,
+      kind: input.kind,
+      is_acq_target: input.kind === "msp",
+      current_msp_id: resolvedMspId(o),
+      hq_city: o.hq_city ?? null,
+      hq_state: o.hq_state ?? null,
+      source_url: o.source_url ?? null,
+      confidence: o.confidence,
+      reviewed: false,
+    }));
+    const { data, error } = await supabase
+      .from("organizations")
+      .insert(orgRows)
+      .select("id, domain, name, current_msp_id");
+    if (error) return fail(`Insert failed: ${error.message}`);
+    insertedOrgs = data ?? [];
+    report.inserted.organizations += insertedOrgs.length;
+
+    // 5. Insert contacts, mapped back to their org by domain or name-key.
+    const idByDomain = new Map<string, string>();
+    const idByKey = new Map<string, string>();
+    insertedOrgs.forEach((r) => {
+      if (r.domain) idByDomain.set(r.domain, r.id);
+      const k =
+        input.kind === "customer"
+          ? `${nameKey(r.name)}|${r.current_msp_id ?? ""}`
+          : nameKey(r.name);
+      idByKey.set(k, r.id);
+    });
+
+    const contactRows: Record<string, unknown>[] = [];
+    for (const o of deduped) {
+      const orgId = (o.domain && idByDomain.get(o.domain)) || idByKey.get(nameKeyOf(o));
+      if (!orgId) continue;
+      for (const c of o.contacts) {
+        contactRows.push({
+          organization_id: orgId,
+          full_name: c.full_name ?? null,
+          persona: c.persona,
+          title: c.title ?? null,
+          linkedin_url: c.linkedin_url ?? null,
+          source_url: c.source_url ?? null,
+          confidence: c.confidence,
+          source: "sourced",
+          stage: "sourced",
+          enrichment_status: "pending",
+          reviewed: false,
+        });
+      }
+    }
+    if (contactRows.length) {
+      const { data: insertedContacts, error: contactErr } = await supabase
+        .from("contacts")
+        .insert(contactRows)
+        .select("id");
+      if (contactErr) report.messages.push(`Contacts insert error: ${contactErr.message}`);
+      else report.inserted.contacts = insertedContacts?.length ?? 0;
+    }
+  } else {
+    report.messages.push("Nothing new to import — every row already exists.");
   }
 
   report.flagged = deduped.filter((o) => o.confidence === "low" || !o.domain).length;
+
+  // 6. Log the run. A targeted run records new customers for that MSP, so the
+  //    dashboard can mark it exhausted when a targeted run adds zero.
+  const newForTarget = input.targetMspId
+    ? (insertedOrgs ?? []).filter((r) => r.current_msp_id === input.targetMspId).length
+    : null;
+  await supabase.from("sourcing_runs").insert({
+    kind: input.kind,
+    target_msp_id: input.targetMspId ?? null,
+    inserted_orgs: report.inserted.organizations,
+    inserted_contacts: report.inserted.contacts,
+    skipped_duplicates: report.skippedDuplicates,
+    new_for_target: newForTarget,
+    created_by: user.id,
+  });
+
   return report;
 }

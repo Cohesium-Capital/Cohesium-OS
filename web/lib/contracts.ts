@@ -67,3 +67,10 @@ export function normalizeDomain(raw: string | null | undefined): string | null {
   d = d.split("/")[0].split("?")[0].trim();
   return d || null;
 }
+
+// Collapse a company name to a comparison key: lowercase, alphanumeric only.
+// "Custom Metal Fabricators, Inc." -> "custommetalfabricatorsinc". Used to dedupe
+// rows that arrive with no domain.
+export function nameKey(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}

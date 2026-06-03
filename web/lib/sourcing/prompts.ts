@@ -55,6 +55,12 @@ const RULES = `Rules:
   stated relationship (e.g. which MSP they use) is true. Reserve "high" for
   facts backed by a clear, citable source.
 - Always include a "source_url" when you can. Put a real URL or null.
+- Find each company's website "domain" by searching its name (e.g. "<company>
+  official website"). Only use null if you genuinely cannot determine it. A bare
+  host like "acme.com" — no https://, no path.
+- Prefer a real "full_name" for each contact. If a source names only a role
+  (e.g. "Office Manager"), search for the person in that role; only leave
+  full_name null, with confidence "low", if you cannot find the name.
 - Output the JSON object and nothing else.`;
 
 export function buildPrompt(params: PromptParams): string {
