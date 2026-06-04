@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { ReviewRow } from "@/lib/sourcing/types";
+import { Button } from "@/components/ui/button";
 import { ReviewGrid } from "./review-grid";
 
 type ContactRow = {
@@ -84,11 +86,20 @@ export default async function ReviewPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Review</h1>
-        <p className="text-sm text-muted-foreground">
-          Sourced contacts. Flagged rows need a look before enrichment.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Review</h1>
+          <p className="text-sm text-muted-foreground">
+            Sourced contacts. Flagged rows need a look before enrichment.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/api/enrichment/export" prefetch={false} />}
+        >
+          Export pending for Clay
+        </Button>
       </div>
       <ReviewGrid
         key={`${page}|${q}|${flagged ? 1 : 0}`}
