@@ -68,9 +68,25 @@ export function normalizeDomain(raw: string | null | undefined): string | null {
   return d || null;
 }
 
-// Collapse a company name to a comparison key: lowercase, alphanumeric only.
-// "Custom Metal Fabricators, Inc." -> "custommetalfabricatorsinc". Used to dedupe
-// rows that arrive with no domain.
+// Tokens that don't help identify a company — legal suffixes and stopwords.
+// Dropped before building the comparison key so name variants collapse together.
+const NAME_NOISE = new Set([
+  "inc", "incorporated", "llc", "llp", "pllc", "lllp", "pc", "pa", "corp",
+  "corporation", "co", "company", "ltd", "limited", "lp", "llp", "foundation",
+  "group", "holdings", "na", "the", "and", "of", "a", "an",
+]);
+
+// Collapse a company name to a comparison key for deduping. Lowercase, drop
+// parentheticals, strip punctuation, and remove legal-suffix/stopword tokens so
+// "Virginia Horse Center", "Virginia Horse Center Foundation", and
+// "PBI Performance Products, Inc." all reduce to a stable key.
 export function nameKey(s: string | null | undefined): string {
-  return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ") // drop parentheticals
+    .replace(/[^a-z0-9\s]/g, " ") // punctuation -> space
+    .split(/\s+/)
+    .filter((w) => w && !NAME_NOISE.has(w))
+    .join("");
 }

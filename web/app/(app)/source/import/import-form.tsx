@@ -224,8 +224,8 @@ export function ImportForm({
                   and <strong>{report.inserted.contacts}</strong> contact(s).
                 </p>
                 <p className="text-muted-foreground">
-                  {report.flagged} flagged for review · {report.skippedDuplicates} skipped as
-                  duplicates.
+                  {report.merged} existing enriched · {report.flagged} flagged ·{" "}
+                  {report.skippedDuplicates} skipped as duplicates.
                 </p>
               </>
             ) : (

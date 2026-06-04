@@ -98,60 +98,82 @@ export async function importPayload(
       ? mspIdByName.get(o.current_msp_name.toLowerCase()) ?? null
       : null;
 
-  // 3. Dedup: existing domains, plus name-keys for no-domain rows.
-  const domains = [...new Set(orgs.map((o) => o.domain).filter(Boolean))] as string[];
-  const existingDomains = new Set<string>();
-  if (domains.length) {
-    const { data } = await supabase
-      .from("organizations")
-      .select("domain")
-      .in("domain", domains);
-    data?.forEach((r) => r.domain && existingDomains.add(r.domain));
-  }
-
-  const existingNameKeys = new Set<string>();
-  if (input.kind === "customer") {
-    const { data } = await supabase
-      .from("organizations")
-      .select("name, current_msp_id")
-      .eq("kind", "customer");
-    data?.forEach((r) =>
-      existingNameKeys.add(`${nameKey(r.name)}|${r.current_msp_id ?? ""}`),
-    );
-  } else {
-    const { data } = await supabase
-      .from("organizations")
-      .select("name")
-      .eq("kind", "msp");
-    data?.forEach((r) => existingNameKeys.add(nameKey(r.name)));
-  }
-
   const nameKeyOf = (o: (typeof orgs)[number]): string =>
     input.kind === "customer"
       ? `${nameKey(o.name)}|${resolvedMspId(o) ?? ""}`
       : nameKey(o.name);
 
-  const seenDomain = new Set<string>();
-  const seenNameKey = new Set<string>();
-  const deduped = orgs.filter((o) => {
-    if (o.domain) {
-      if (existingDomains.has(o.domain) || seenDomain.has(o.domain)) return false;
-      seenDomain.add(o.domain);
-      return true;
-    }
-    const key = nameKeyOf(o);
-    if (existingNameKeys.has(key) || seenNameKey.has(key)) return false;
-    seenNameKey.add(key);
-    return true;
+  const contactRow = (
+    organizationId: string,
+    c: (typeof orgs)[number]["contacts"][number],
+  ) => ({
+    organization_id: organizationId,
+    full_name: c.full_name ?? null,
+    persona: c.persona,
+    title: c.title ?? null,
+    linkedin_url: c.linkedin_url ?? null,
+    source_url: c.source_url ?? null,
+    confidence: c.confidence,
+    source: "sourced",
+    stage: "sourced",
+    enrichment_status: "pending",
+    reviewed: false,
   });
-  report.skippedDuplicates = orgs.length - deduped.length;
 
-  // 4. Insert organizations.
-  let insertedOrgs:
-    | { id: string; domain: string | null; name: string; current_msp_id: string | null }[]
-    | null = [];
-  if (deduped.length) {
-    const orgRows = deduped.map((o) => ({
+  // 3. Load existing orgs of this kind to match against (domain or name+MSP).
+  type ExistingOrg = {
+    id: string;
+    name: string;
+    domain: string | null;
+    current_msp_id: string | null;
+    hq_city: string | null;
+    hq_state: string | null;
+    source_url: string | null;
+  };
+  const { data: existingOrgs } = await supabase
+    .from("organizations")
+    .select("id, name, domain, current_msp_id, hq_city, hq_state, source_url")
+    .eq("kind", input.kind);
+
+  const keyOfExisting = (e: ExistingOrg) =>
+    input.kind === "customer"
+      ? `${nameKey(e.name)}|${e.current_msp_id ?? ""}`
+      : nameKey(e.name);
+  const byDomain = new Map<string, ExistingOrg>();
+  const byKey = new Map<string, ExistingOrg>();
+  for (const e of (existingOrgs as ExistingOrg[] | null) ?? []) {
+    if (e.domain) byDomain.set(e.domain, e);
+    const k = keyOfExisting(e);
+    if (!byKey.has(k)) byKey.set(k, e);
+  }
+
+  // 4. Partition incoming rows: merge into an existing org, insert as new, or
+  //    skip as an intra-payload duplicate.
+  const seenDomain = new Set<string>();
+  const seenKey = new Set<string>();
+  const toInsert: typeof orgs = [];
+  const toMerge: { existing: ExistingOrg; incoming: (typeof orgs)[number] }[] = [];
+  for (const o of orgs) {
+    const dk = o.domain;
+    const nk = nameKeyOf(o);
+    if ((dk && seenDomain.has(dk)) || seenKey.has(nk)) continue; // dup within payload
+    if (dk) seenDomain.add(dk);
+    seenKey.add(nk);
+    const match = (dk ? byDomain.get(dk) : undefined) ?? byKey.get(nk);
+    if (match) toMerge.push({ existing: match, incoming: o });
+    else toInsert.push(o);
+  }
+  report.skippedDuplicates = orgs.length - toInsert.length - toMerge.length;
+
+  // 5. Insert genuinely-new orgs and all their contacts.
+  let insertedOrgs: {
+    id: string;
+    domain: string | null;
+    name: string;
+    current_msp_id: string | null;
+  }[] = [];
+  if (toInsert.length) {
+    const orgRows = toInsert.map((o) => ({
       name: o.name,
       domain: o.domain,
       kind: input.kind,
@@ -171,7 +193,6 @@ export async function importPayload(
     insertedOrgs = data ?? [];
     report.inserted.organizations += insertedOrgs.length;
 
-    // 5. Insert contacts, mapped back to their org by domain or name-key.
     const idByDomain = new Map<string, string>();
     const idByKey = new Map<string, string>();
     insertedOrgs.forEach((r) => {
@@ -183,43 +204,78 @@ export async function importPayload(
       idByKey.set(k, r.id);
     });
 
-    const contactRows: Record<string, unknown>[] = [];
-    for (const o of deduped) {
+    const newContacts: ReturnType<typeof contactRow>[] = [];
+    for (const o of toInsert) {
       const orgId = (o.domain && idByDomain.get(o.domain)) || idByKey.get(nameKeyOf(o));
       if (!orgId) continue;
-      for (const c of o.contacts) {
-        contactRows.push({
-          organization_id: orgId,
-          full_name: c.full_name ?? null,
-          persona: c.persona,
-          title: c.title ?? null,
-          linkedin_url: c.linkedin_url ?? null,
-          source_url: c.source_url ?? null,
-          confidence: c.confidence,
-          source: "sourced",
-          stage: "sourced",
-          enrichment_status: "pending",
-          reviewed: false,
-        });
+      for (const c of o.contacts) newContacts.push(contactRow(orgId, c));
+    }
+    if (newContacts.length) {
+      const { data: ic, error: ce } = await supabase
+        .from("contacts")
+        .insert(newContacts)
+        .select("id");
+      if (ce) report.messages.push(`Contacts insert error: ${ce.message}`);
+      else report.inserted.contacts += ic?.length ?? 0;
+    }
+  }
+
+  // 6. Merge: enrich each matched existing org (fill null fields) and add any
+  //    contacts it doesn't already have. This is how re-sourcing improves data
+  //    instead of duplicating it.
+  if (toMerge.length) {
+    const mergeIds = toMerge.map((m) => m.existing.id);
+    const { data: existingContacts } = await supabase
+      .from("contacts")
+      .select("organization_id, full_name")
+      .in("organization_id", mergeIds);
+    const haveContact = new Set<string>();
+    (existingContacts ?? []).forEach(
+      (c) => c.full_name && haveContact.add(`${c.organization_id}|${nameKey(c.full_name)}`),
+    );
+
+    const mergeContacts: ReturnType<typeof contactRow>[] = [];
+    for (const { existing, incoming } of toMerge) {
+      const patch: Record<string, unknown> = {};
+      if (!existing.domain && incoming.domain) patch.domain = incoming.domain;
+      if (!existing.hq_city && incoming.hq_city) patch.hq_city = incoming.hq_city;
+      if (!existing.hq_state && incoming.hq_state) patch.hq_state = incoming.hq_state;
+      if (!existing.source_url && incoming.source_url) patch.source_url = incoming.source_url;
+      if (Object.keys(patch).length) {
+        const { error } = await supabase
+          .from("organizations")
+          .update(patch)
+          .eq("id", existing.id);
+        if (error) report.messages.push(`Enrich "${existing.name}": ${error.message}`);
+      }
+      for (const c of incoming.contacts) {
+        if (!c.full_name) continue; // don't add placeholder contacts on merge
+        const ck = `${existing.id}|${nameKey(c.full_name)}`;
+        if (haveContact.has(ck)) continue;
+        haveContact.add(ck);
+        mergeContacts.push(contactRow(existing.id, c));
       }
     }
-    if (contactRows.length) {
-      const { data: insertedContacts, error: contactErr } = await supabase
+    report.merged = toMerge.length;
+    if (mergeContacts.length) {
+      const { data: mc, error: me } = await supabase
         .from("contacts")
-        .insert(contactRows)
+        .insert(mergeContacts)
         .select("id");
-      if (contactErr) report.messages.push(`Contacts insert error: ${contactErr.message}`);
-      else report.inserted.contacts = insertedContacts?.length ?? 0;
+      if (me) report.messages.push(`Merged contacts error: ${me.message}`);
+      else report.inserted.contacts += mc?.length ?? 0;
     }
-  } else {
+  }
+
+  if (!toInsert.length && !toMerge.length) {
     report.messages.push("Nothing new to import — every row already exists.");
   }
 
-  report.flagged = deduped.filter((o) => o.confidence === "low" || !o.domain).length;
+  report.flagged = toInsert.filter((o) => o.confidence === "low" || !o.domain).length;
 
-  // 6. Log the run.
+  // 7. Log the run. new_for_target counts only genuinely-new orgs.
   const newForTarget = input.targetMspId
-    ? (insertedOrgs ?? []).filter((r) => r.current_msp_id === input.targetMspId).length
+    ? insertedOrgs.filter((r) => r.current_msp_id === input.targetMspId).length
     : null;
   await supabase.from("sourcing_runs").insert({
     kind: input.kind,

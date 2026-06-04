@@ -7,14 +7,16 @@ export type ImportReport = {
   ok: boolean;
   error?: string;
   inserted: { organizations: number; contacts: number };
+  merged: number; // existing orgs enriched (matched, not re-inserted)
   flagged: number; // orgs with low confidence or a missing domain
-  skippedDuplicates: number;
+  skippedDuplicates: number; // intra-payload duplicates collapsed
   messages: string[];
 };
 
 export const EMPTY_REPORT: ImportReport = {
   ok: true,
   inserted: { organizations: 0, contacts: 0 },
+  merged: 0,
   flagged: 0,
   skippedDuplicates: 0,
   messages: [],
