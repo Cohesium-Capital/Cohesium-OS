@@ -61,6 +61,9 @@ const RULES = `Rules:
 - Prefer a real "full_name" for each contact. If a source names only a role
   (e.g. "Office Manager"), search for the person in that role; only leave
   full_name null, with confidence "low", if you cannot find the name.
+- For each named contact, find their LinkedIn profile URL by searching their
+  name plus the company (e.g. "Jane Doe Acme LinkedIn") and set "linkedin_url".
+  Use null only if you genuinely cannot find their profile.
 - Output the JSON object and nothing else.`;
 
 // Concrete, highest-yield ways to find an MSP's customers (and resolve
