@@ -67,11 +67,14 @@ export async function POST(req: Request) {
     if (personalization) patch.personalization = personalization;
     if (status === "enriched") patch.stage = "enriched";
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("contacts")
       .update(patch)
-      .eq("id", r.contact_id);
+      .eq("id", r.contact_id)
+      .select("id");
     if (error) errors.push(`${r.contact_id}: ${error.message}`);
+    else if (!data || data.length === 0)
+      errors.push(`${r.contact_id}: no matching contact (check the contact_id mapping)`);
     else updated++;
   }
 
