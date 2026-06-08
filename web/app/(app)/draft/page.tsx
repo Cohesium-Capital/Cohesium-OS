@@ -24,7 +24,17 @@ export default async function DraftPage() {
     )
     .or("email.not.is.null,linkedin_url.not.is.null");
 
-  const rows = (data ?? []) as unknown as Row[];
+  const all = (data ?? []) as unknown as Row[];
+
+  // Skip contacts that already have a drafted (planned) touch, so each batch
+  // advances to fresh contacts.
+  const { data: drafted } = await supabase
+    .from("touches")
+    .select("contact_id")
+    .eq("status", "planned")
+    .eq("direction", "outbound");
+  const draftedIds = new Set((drafted ?? []).map((t) => t.contact_id));
+  const rows = all.filter((r) => !draftedIds.has(r.id));
 
   const mspIds = [
     ...new Set(rows.map((r) => r.organizations?.current_msp_id).filter(Boolean)),
