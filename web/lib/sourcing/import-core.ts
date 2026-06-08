@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { SourcingPayloadSchema, normalizeDomain, nameKey } from "../contracts";
+import {
+  SourcingPayloadSchema,
+  normalizeDomain,
+  nameKey,
+  contactNameMatch,
+} from "../contracts";
 import { type ImportKind, type ImportReport, EMPTY_REPORT } from "./types";
 
 // Client-agnostic import engine. The web app calls this with a user-session
@@ -229,10 +234,14 @@ export async function importPayload(
       .from("contacts")
       .select("organization_id, full_name")
       .in("organization_id", mergeIds);
-    const haveContact = new Set<string>();
-    (existingContacts ?? []).forEach(
-      (c) => c.full_name && haveContact.add(`${c.organization_id}|${nameKey(c.full_name)}`),
-    );
+    // org id -> existing contact names, for fuzzy person-level dedup.
+    const namesByOrg = new Map<string, string[]>();
+    (existingContacts ?? []).forEach((c) => {
+      if (!c.full_name) return;
+      const arr = namesByOrg.get(c.organization_id) ?? [];
+      arr.push(c.full_name);
+      namesByOrg.set(c.organization_id, arr);
+    });
 
     const mergeContacts: ReturnType<typeof contactRow>[] = [];
     for (const { existing, incoming } of toMerge) {
@@ -248,11 +257,16 @@ export async function importPayload(
           .eq("id", existing.id);
         if (error) report.messages.push(`Enrich "${existing.name}": ${error.message}`);
       }
+      let names = namesByOrg.get(existing.id);
+      if (!names) {
+        names = [];
+        namesByOrg.set(existing.id, names);
+      }
       for (const c of incoming.contacts) {
         if (!c.full_name) continue; // don't add placeholder contacts on merge
-        const ck = `${existing.id}|${nameKey(c.full_name)}`;
-        if (haveContact.has(ck)) continue;
-        haveContact.add(ck);
+        // Skip if we already have this person (fuzzy: Rob/Robert, Joe/Joseph).
+        if (names.some((n) => contactNameMatch(n, c.full_name))) continue;
+        names.push(c.full_name);
         mergeContacts.push(contactRow(existing.id, c));
       }
     }

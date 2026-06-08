@@ -76,6 +76,61 @@ const NAME_NOISE = new Set([
   "group", "holdings", "na", "the", "and", "of", "a", "an",
 ]);
 
+// Person-name suffixes/credentials to ignore when comparing contact names.
+const NAME_SUFFIX = new Set([
+  "jr", "sr", "ii", "iii", "iv", "v", "dmd", "dds", "md", "do", "phd", "esq",
+  "cpa", "mba", "pe", "rn", "np", "pa", "pc",
+]);
+
+// Common nickname -> canonical first name, so "Rob"/"Robert" and "Joe"/"Joseph"
+// match. Not exhaustive; covers the frequent cases.
+const NICKNAMES: Record<string, string> = {
+  rob: "robert", bob: "robert", bobby: "robert", robbie: "robert",
+  joe: "joseph", joey: "joseph",
+  bill: "william", will: "william", billy: "william",
+  jim: "james", jimmy: "james", jamie: "james",
+  mike: "michael", mick: "michael",
+  dave: "david", tom: "thomas", tommy: "thomas",
+  dan: "daniel", danny: "daniel",
+  chris: "christopher", matt: "matthew",
+  rick: "richard", rich: "richard", dick: "richard",
+  steve: "stephen", chuck: "charles", charlie: "charles",
+  ed: "edward", eddie: "edward",
+  tony: "anthony", nick: "nicholas", sam: "samuel",
+  ben: "benjamin", greg: "gregory", jeff: "jeffrey",
+  ken: "kenneth", andy: "andrew", drew: "andrew",
+  liz: "elizabeth", beth: "elizabeth", betty: "elizabeth",
+  kate: "katherine", katie: "katherine", maggie: "margaret",
+};
+
+function personTokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t && !NAME_SUFFIX.has(t));
+}
+
+// True if two contact names likely refer to the same person: same surname AND a
+// matching first name (exact, prefix like rob/robert, or a known nickname like
+// joe/joseph). Used to dedupe contacts within an organization.
+export function contactNameMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  const ta = personTokens(a);
+  const tb = personTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta[ta.length - 1] !== tb[tb.length - 1]) return false; // surnames differ
+  const fa = ta[0];
+  const fb = tb[0];
+  if (fa === fb) return true;
+  if (fa.startsWith(fb) || fb.startsWith(fa)) return true;
+  return (NICKNAMES[fa] ?? fa) === (NICKNAMES[fb] ?? fb);
+}
+
 // Collapse a company name to a comparison key for deduping. Lowercase, drop
 // parentheticals, strip punctuation, and remove legal-suffix/stopword tokens so
 // "Virginia Horse Center", "Virginia Horse Center Foundation", and
