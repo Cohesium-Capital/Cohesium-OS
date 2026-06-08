@@ -6,6 +6,7 @@ import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { QueueRow } from "@/lib/drafting/types";
 import { setApproved, updateDraft, deleteDraft } from "@/lib/drafting/queue-actions";
+import { sendApproved } from "@/lib/send/send";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +42,30 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
   const [editing, setEditing] = useState<QueueRow | null>(null);
   const [draftSubject, setDraftSubject] = useState("");
   const [draftBody, setDraftBody] = useState("");
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function doSend() {
+    setSending(true);
+    try {
+      const r = await sendApproved();
+      if (r.ok) {
+        toast.success(
+          `Pushed ${r.emailSent} email + ${r.linkedinSent} LinkedIn to campaigns.` +
+            (r.skippedResponded ? ` Skipped ${r.skippedResponded} who replied.` : ""),
+        );
+      } else {
+        toast.error(r.error ?? r.errors[0] ?? "Send failed.");
+      }
+      if (r.errors.length) r.errors.forEach((e) => toast.error(e));
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Send failed.");
+    } finally {
+      setSending(false);
+      setSendOpen(false);
+    }
+  }
 
   function run(fn: () => Promise<void>, ok: string) {
     startTransition(async () => {
@@ -74,9 +99,17 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
-        {approvedCount} of {initialRows.length} approved.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {approvedCount} of {initialRows.length} approved.
+        </p>
+        <Button
+          disabled={approvedCount === 0 || sending}
+          onClick={() => setSendOpen(true)}
+        >
+          Send approved →
+        </Button>
+      </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -155,6 +188,27 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={sendOpen} onOpenChange={(o) => !sending && setSendOpen(o)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send approved messages?</DialogTitle>
+            <DialogDescription>
+              This adds the {approvedCount} approved message(s) to your Smartlead (email)
+              and HeyReach (LinkedIn) campaigns, which send on their own schedules.
+              Anyone who has already replied is skipped. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendOpen(false)} disabled={sending}>
+              Cancel
+            </Button>
+            <Button onClick={doSend} disabled={sending}>
+              {sending ? "Sending…" : "Send to campaigns"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
