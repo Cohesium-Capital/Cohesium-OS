@@ -31,6 +31,9 @@ export default async function AppLayout({
               <Link href="/msps" className="hover:text-foreground">
                 MSPs
               </Link>
+              <Link href="/draft" className="hover:text-foreground">
+                Draft
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
