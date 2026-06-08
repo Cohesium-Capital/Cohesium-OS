@@ -6,7 +6,7 @@
 export const SENDER = {
   name: "Ripley",
   // The one-line "who I am". Refer to the firm only as "Cohesium".
-  intro: "I'm on the investment team at Cohesium, an investment firm",
+  intro: "I'm a cofounder of Cohesium, an investment firm",
 };
 
 export type DraftContact = {
@@ -46,9 +46,15 @@ const RULES = `Structure (model this on warm investor outreach that works)
   what actually matters and what pain points still need solving in a market, and
   it lets us build a network of sharp people we can be useful to over time
   (intros, hiring, advisor roles).
-- Personalize with ONE true, verifiable detail about their company or something
-  they have publicly said, then credit their perspective on how companies like
-  theirs work with managed IT.
+- Personalize with ONE true, verifiable detail, and strongly prefer something
+  from the LAST 12 MONTHS: a recent talk, panel, podcast, or conference
+  appearance (speaking engagements are especially good), a recent company
+  announcement or news, or a recent post. Then credit their perspective on how
+  companies like theirs work with managed IT.
+- VERIFY every specific claim with web search before using it. Only state a fact
+  you can confirm from a citable source. If you cannot verify a recent, specific
+  detail, do not invent one — open with an honest observation about their role or
+  industry instead.
 - Close with a soft ask: a few minutes to chat in the next week or two, and say
   plainly you are not selling anything.
 
@@ -60,8 +66,11 @@ Persona angle
 - other: a neutral version of the owner angle.
 
 Length and channel
-- email: short. Two or three sentences of intro and approach, one personalized
-  sentence, one ask. A short, specific subject line. Sign as ${SENDER.name}.
+- email: keep it under about 130 words. Format as two or three SHORT paragraphs
+  separated by a blank line: (1) "Hi <first name>," then a line or two on who you
+  are and the approach, (2) one or two sentences of personalized relevance, (3)
+  the ask. Sign off with "Thanks," then "${SENDER.name}" on their own lines. A
+  short, specific subject line.
 - linkedin: no subject, 300 characters maximum, one line of relevance and one
   light ask.
 
@@ -69,10 +78,8 @@ Voice: direct, warm, conversational, a little humble. No em-dashes. No
 semicolons. No bullet points. No corporate filler. It must read as written by a
 person.
 
-Honesty: NEVER invent a detail, an event, a mutual connection, or a claim. If you
-cannot verify something specific, open with an honest observation relevant to
-their role or industry. Plain and credible beats clever. Refer to the firm only
-as "Cohesium".`;
+Honesty: never invent a detail, event, mutual connection, or claim. Plain and
+credible beats clever. Refer to the firm only as "Cohesium".`;
 
 export function buildDraftPrompt(contacts: DraftContact[]): string {
   const lines = contacts.map((c, i) => {
