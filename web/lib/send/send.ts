@@ -127,7 +127,8 @@ export async function sendApproved(): Promise<SendReport> {
           firstName: first,
           lastName: last,
           companyName: orgName.get(t.contacts!.organization_id),
-          customUserFields: [{ name: "connection_note", value: t.body }],
+          // Field name must match the sequence variable exactly: {CONNECTION_NOTE}.
+          customUserFields: [{ name: "CONNECTION_NOTE", value: t.body }],
         };
       });
       const r = await heyreachAddLeads(key, campaign, account, leads);
