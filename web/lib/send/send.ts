@@ -3,12 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
-import {
-  smartleadAddLeads,
-  heyreachAddLeads,
-  type SmartleadLead,
-  type HeyreachLead,
-} from "./providers";
+import { heyreachAddLeads, type HeyreachLead } from "./providers";
 import { type SendReport, EMPTY_SEND_REPORT } from "./types";
 
 type TouchRow = {
@@ -67,46 +62,17 @@ export async function sendApproved(): Promise<SendReport> {
     orgs?.forEach((o) => orgName.set(o.id, o.name));
   }
 
-  // --- Email -> Smartlead -------------------------------------------------
+  // --- Email -> queue for the SMTP drip worker ----------------------------
+  // We don't blast; we mark approved email touches 'queued' and the cron route
+  // (/api/cron/email) drip-sends them from cohesium.co a few at a time.
   const emailTouches = active.filter((t) => t.channel === "email" && t.contacts!.email);
   if (emailTouches.length) {
-    const key = process.env.SMARTLEAD_API_KEY;
-    const campaign = process.env.SMARTLEAD_CAMPAIGN_ID;
-    if (!key || !campaign) {
-      report.errors.push("Smartlead not configured (SMARTLEAD_API_KEY / SMARTLEAD_CAMPAIGN_ID).");
-    } else {
-      const leads: SmartleadLead[] = emailTouches.map((t) => {
-        const { first, last } = splitName(t.contacts!.full_name);
-        return {
-          email: t.contacts!.email!,
-          first_name: first,
-          last_name: last,
-          company_name: orgName.get(t.contacts!.organization_id),
-          custom_fields: { email_subject: t.subject ?? "", email_body: t.body },
-        };
-      });
-      let ok = true;
-      for (let i = 0; i < leads.length; i += 400) {
-        const r = await smartleadAddLeads(key, campaign, leads.slice(i, i + 400));
-        if (!r.ok) {
-          report.errors.push(r.error!);
-          ok = false;
-          break;
-        }
-      }
-      if (ok) {
-        const { error: ue } = await supabase
-          .from("touches")
-          .update({
-            status: "sent",
-            sent_at: new Date().toISOString(),
-            provider: "smartlead",
-          })
-          .in("id", emailTouches.map((t) => t.id));
-        if (ue) report.errors.push(`Mark sent (email): ${ue.message}`);
-        else report.emailSent = emailTouches.length;
-      }
-    }
+    const { error: ue } = await supabase
+      .from("touches")
+      .update({ status: "queued" })
+      .in("id", emailTouches.map((t) => t.id));
+    if (ue) report.errors.push(`Queue email: ${ue.message}`);
+    else report.emailQueued = emailTouches.length;
   }
 
   // --- LinkedIn -> HeyReach ----------------------------------------------
@@ -149,7 +115,7 @@ export async function sendApproved(): Promise<SendReport> {
     }
   }
 
-  if (report.errors.length && !report.emailSent && !report.linkedinSent) {
+  if (report.errors.length && !report.emailQueued && !report.linkedinSent) {
     report.ok = false;
   }
   revalidatePath("/draft/queue");

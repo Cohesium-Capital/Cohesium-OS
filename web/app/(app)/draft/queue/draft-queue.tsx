@@ -51,7 +51,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
       const r = await sendApproved();
       if (r.ok) {
         toast.success(
-          `Pushed ${r.emailSent} email + ${r.linkedinSent} LinkedIn to campaigns.` +
+          `Queued ${r.emailQueued} email (drips out), pushed ${r.linkedinSent} LinkedIn.` +
             (r.skippedResponded ? ` Skipped ${r.skippedResponded} who replied.` : ""),
         );
       } else {
@@ -194,9 +194,9 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
           <DialogHeader>
             <DialogTitle>Send approved messages?</DialogTitle>
             <DialogDescription>
-              This adds the {approvedCount} approved message(s) to your Smartlead (email)
-              and HeyReach (LinkedIn) campaigns, which send on their own schedules.
-              Anyone who has already replied is skipped. This cannot be undone.
+              This queues the {approvedCount} approved message(s): email drips out from
+              cohesium.co on a schedule, LinkedIn pushes to HeyReach. Anyone who has
+              already replied is skipped. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
