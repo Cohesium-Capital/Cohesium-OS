@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,28 @@ const URL_ERRORS: Record<string, string> = {
 function LoginInner() {
   const params = useSearchParams();
   const urlError = params.get("error");
+  // Magic-link code can land here if Supabase's Site URL points at /login.
+  // Forward it to the real callback (which exchanges it and enforces the allowlist).
+  const code = params.get("code");
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (code) {
+      window.location.replace(`/auth/callback?code=${encodeURIComponent(code)}`);
+    }
+  }, [code]);
+
+  if (code) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">Signing you in…</p>
+      </div>
+    );
+  }
 
   async function sendLink(e: React.FormEvent) {
     e.preventDefault();
