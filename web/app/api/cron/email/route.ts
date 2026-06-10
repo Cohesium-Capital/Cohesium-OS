@@ -54,17 +54,32 @@ export async function GET(req: Request) {
     }
   }
 
-  // 2. Drip-send queued emails (skip anyone who has since replied).
+  // 2. Daily cap (warmup-friendly): never exceed EMAIL_DAILY_CAP sends per
+  //    rolling 24h, regardless of how often the cron runs.
+  const dailyCap = Number(process.env.EMAIL_DAILY_CAP ?? 20);
+  const since24 = new Date(Date.now() - 86_400_000).toISOString();
+  const { count: sentToday } = await supabase
+    .from("touches")
+    .select("id", { count: "exact", head: true })
+    .eq("provider", "smtp")
+    .gte("sent_at", since24);
+  const remaining = Math.max(0, dailyCap - (sentToday ?? 0));
+  if (remaining <= 0) {
+    return NextResponse.json({ ...result, note: "daily cap reached" });
+  }
+  const take = Math.min(batch, remaining);
+
+  // 3. Drip-send queued emails (skip anyone who has since replied).
   const { data: queued } = await supabase
     .from("touches")
     .select("id, subject, body, contacts!inner(email, responded)")
     .eq("status", "queued")
     .eq("channel", "email")
     .eq("direction", "outbound")
-    .limit(batch * 3);
+    .limit(take * 3);
   const sendable = ((queued ?? []) as unknown as QueuedTouch[])
     .filter((t) => t.contacts && !t.contacts.responded && t.contacts.email)
-    .slice(0, batch);
+    .slice(0, take);
 
   for (const t of sendable) {
     const r = await sendMail({
