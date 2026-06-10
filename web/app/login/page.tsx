@@ -33,9 +33,14 @@ function LoginInner() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (code) {
-      window.location.replace(`/auth/callback?code=${encodeURIComponent(code)}`);
-    }
+    if (!code) return;
+    // Exchange in the browser — the PKCE verifier is in this browser's storage,
+    // which the server can't reliably read. On success the session cookies are
+    // set, then a full reload lets the server see the session.
+    const supabase = createClient();
+    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+      window.location.replace(error ? "/login?error=auth" : "/review");
+    });
   }, [code]);
 
   if (code) {
@@ -53,7 +58,7 @@ function LoginInner() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: { emailRedirectTo: `${window.location.origin}/login` },
     });
     setLoading(false);
     if (error) setError(error.message);
