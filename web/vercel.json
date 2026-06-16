@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm ci",
   "crons": [
     { "path": "/api/cron/email", "schedule": "0 14 * * 1-5" }
   ]
