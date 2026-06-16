@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { ReviewRow } from "@/lib/sourcing/types";
 import { Button } from "@/components/ui/button";
 import { ReviewGrid } from "./review-grid";
+import { PushToClayButton } from "./push-to-clay-button";
 
 type ContactRow = {
   id: string;
@@ -93,13 +94,16 @@ export default async function ReviewPage({
             Sourced contacts. Flagged rows need a look before enrichment.
           </p>
         </div>
-        <Button
-          variant="outline"
-          nativeButton={false}
-          render={<Link href="/api/enrichment/export" prefetch={false} />}
-        >
-          Export pending for Clay
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href="/api/enrichment/export" prefetch={false} />}
+          >
+            Export pending for Clay
+          </Button>
+          <PushToClayButton />
+        </div>
       </div>
       <ReviewGrid
         key={`${page}|${q}|${flagged ? 1 : 0}`}
