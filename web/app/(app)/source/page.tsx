@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { PromptBuilder } from "./prompt-builder";
+import { RunSourceBuilder } from "./run-source-builder";
 import type { Msp } from "@/lib/sourcing/prompts";
 
 // Server component: load already-sourced MSPs so the "find customers for these
@@ -18,5 +18,5 @@ export default async function SourcePage({
     .eq("kind", "msp")
     .order("name");
 
-  return <PromptBuilder msps={(data as Msp[]) ?? []} initialMspId={sp.msp ?? null} />;
+  return <RunSourceBuilder msps={(data as Msp[]) ?? []} initialMspId={sp.msp ?? null} />;
 }

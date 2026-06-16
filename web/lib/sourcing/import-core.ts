@@ -5,7 +5,15 @@ import {
   nameKey,
   contactNameMatch,
 } from "../contracts";
+import { isSampled } from "../grading/math";
 import { type ImportKind, type ImportReport, EMPTY_REPORT } from "./types";
+
+// Evidence for a sourced row: the provenance URL(s) backing the claim. Stored on
+// organizations.evidence / contacts.evidence (jsonb). Mirrors Gradebook's
+// evidence discipline against our source_url field.
+type Evidence = { url: string; via: "sourcing" };
+const evidenceFrom = (url: string | null | undefined): Evidence[] =>
+  url && url.trim() ? [{ url: url.trim(), via: "sourcing" }] : [];
 
 // Client-agnostic import engine. The web app calls this with a user-session
 // client (RLS applies); a CLI/worker calls it with a service-role client. Keeping
@@ -23,8 +31,18 @@ export async function importPayload(
     kind: ImportKind;
     targetMspId?: string | null;
     createdBy?: string | null;
+    // Run/eval-layer wiring (P2). When omitted, behaves like the legacy direct
+    // import: no batch, no sampling, evidence not enforced.
+    batchId?: string | null;
+    runId?: string | null;
+    sampleRate?: number; // fraction of inserted contacts flagged for grading
+    requireEvidence?: boolean; // reject orgs lacking a source_url to rejected_ingest
   },
 ): Promise<ImportReport> {
+  const batchId = input.batchId ?? null;
+  const runId = input.runId ?? null;
+  const sampleRate = input.sampleRate ?? 1;
+  const requireEvidence = input.requireEvidence ?? false;
   const report: ImportReport = {
     ...EMPTY_REPORT,
     inserted: { organizations: 0, contacts: 0 },
@@ -46,7 +64,7 @@ export async function importPayload(
     return fail(`Validation failed — ${issues.join("; ")}`);
   }
 
-  const orgs = result.data.organizations.map((o) => ({
+  let orgs = result.data.organizations.map((o) => ({
     ...o,
     kind: input.kind,
     domain: normalizeDomain(o.domain),
@@ -60,6 +78,33 @@ export async function importPayload(
       return fail(
         `${withMsp} of ${orgs.length} rows name an MSP (current_msp_name), so these look like customers, not MSPs. Set Row kind to "Customers".`,
       );
+    }
+  }
+
+  // Evidence-required ingest (run path only): an org with no source_url is
+  // unverifiable. Log it to rejected_ingest and drop it rather than poison the
+  // dataset. The legacy direct-import path (requireEvidence=false) is unaffected.
+  if (requireEvidence) {
+    const kept: typeof orgs = [];
+    const rejects: { payload: unknown; reason: string }[] = [];
+    for (const o of orgs) {
+      if (evidenceFrom(o.source_url).length) kept.push(o);
+      else rejects.push({ payload: o, reason: "organization has no source_url (evidence)" });
+    }
+    if (rejects.length) {
+      await supabase
+        .from("rejected_ingest")
+        .insert(rejects.map((r) => ({ run_id: runId, payload: r.payload, reason: r.reason })));
+      report.rejected += rejects.length;
+      report.messages.push(
+        `${rejects.length} organization(s) dropped for missing evidence (logged to rejected_ingest).`,
+      );
+    }
+    orgs = kept;
+    if (!orgs.length) {
+      report.messages.push("Every row lacked evidence — nothing imported.");
+      report.batchId = batchId;
+      return report;
     }
   }
 
@@ -123,7 +168,28 @@ export async function importPayload(
     stage: "sourced",
     enrichment_status: "pending",
     reviewed: false,
+    // Eval-layer tagging. batch_id is null on the legacy direct path. sampled
+    // defaults true and review_status pending_review; sampleContacts() below
+    // demotes the unsampled to skipped_sampling when sampleRate < 1.
+    batch_id: batchId,
+    evidence: evidenceFrom(c.source_url),
   });
+
+  // After a contact insert, mark which rows are sampled for grading (deterministic
+  // FNV-1a on the contact id). At sampleRate ≥ 1 every row is sampled (the seeded
+  // default), so this is a no-op fast path.
+  const sampleContacts = async (ids: string[]): Promise<number> => {
+    if (!ids.length || sampleRate >= 1) return ids.length;
+    const sampled = ids.filter((id) => isSampled(id, sampleRate));
+    const skipped = ids.filter((id) => !isSampled(id, sampleRate));
+    if (skipped.length) {
+      await supabase
+        .from("contacts")
+        .update({ sampled: false, review_status: "skipped_sampling" })
+        .in("id", skipped);
+    }
+    return sampled.length;
+  };
 
   // 3. Load existing orgs of this kind to match against (domain or name+MSP).
   type ExistingOrg = {
@@ -189,6 +255,7 @@ export async function importPayload(
       source_url: o.source_url ?? null,
       confidence: o.confidence,
       reviewed: false,
+      evidence: evidenceFrom(o.source_url),
     }));
     const { data, error } = await supabase
       .from("organizations")
@@ -221,7 +288,10 @@ export async function importPayload(
         .insert(newContacts)
         .select("id");
       if (ce) report.messages.push(`Contacts insert error: ${ce.message}`);
-      else report.inserted.contacts += ic?.length ?? 0;
+      else {
+        report.inserted.contacts += ic?.length ?? 0;
+        report.sampledCount += await sampleContacts((ic ?? []).map((r) => r.id));
+      }
     }
   }
 
@@ -277,7 +347,10 @@ export async function importPayload(
         .insert(mergeContacts)
         .select("id");
       if (me) report.messages.push(`Merged contacts error: ${me.message}`);
-      else report.inserted.contacts += mc?.length ?? 0;
+      else {
+        report.inserted.contacts += mc?.length ?? 0;
+        report.sampledCount += await sampleContacts((mc ?? []).map((r) => r.id));
+      }
     }
   }
 
@@ -301,5 +374,6 @@ export async function importPayload(
     created_by: input.createdBy ?? null,
   });
 
+  report.batchId = batchId;
   return report;
 }

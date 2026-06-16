@@ -35,6 +35,7 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-2: var(--primary-2);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -49,24 +50,30 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.985 0.004 285);
+  --foreground: oklch(0.18 0.02 285);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.18 0.02 285);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.18 0.02 285);
+  /* Material indigo → violet. --primary-2 is the gradient end. */
+  --primary: oklch(0.52 0.2 277);
+  --primary-2: oklch(0.55 0.21 312);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.01 286);
+  --secondary-foreground: oklch(0.3 0.04 280);
+  --muted: oklch(0.967 0.007 286);
+  --muted-foreground: oklch(0.55 0.02 286);
+  --accent: oklch(0.95 0.03 290);
+  --accent-foreground: oklch(0.35 0.08 280);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.91 0.008 286);
+  --input: oklch(0.91 0.008 286);
+  --ring: oklch(0.52 0.2 277);
+  /* Material elevation. */
+  --shadow-elev-1: 0 1px 2px 0 oklch(0.2 0.04 280 / 0.08), 0 1px 3px 1px oklch(0.2 0.04 280 / 0.07);
+  --shadow-elev-2: 0 1px 2px 0 oklch(0.2 0.04 280 / 0.08), 0 3px 8px 2px oklch(0.2 0.04 280 / 0.09);
+  --shadow-elev-3: 0 4px 10px 3px oklch(0.2 0.04 280 / 0.12), 0 2px 4px 0 oklch(0.2 0.04 280 / 0.1);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -84,24 +91,28 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.17 0.02 285);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.22 0.02 285);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.22 0.02 285);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: oklch(0.7 0.16 285);
+  --primary-2: oklch(0.7 0.17 320);
+  --primary-foreground: oklch(0.17 0.02 285);
+  --secondary: oklch(0.28 0.02 285);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --muted: oklch(0.28 0.02 285);
+  --muted-foreground: oklch(0.72 0.02 286);
+  --accent: oklch(0.32 0.05 290);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
+  --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.7 0.16 285);
+  --shadow-elev-1: 0 1px 2px 0 oklch(0 0 0 / 0.3), 0 1px 3px 1px oklch(0 0 0 / 0.25);
+  --shadow-elev-2: 0 1px 2px 0 oklch(0 0 0 / 0.3), 0 3px 8px 2px oklch(0 0 0 / 0.3);
+  --shadow-elev-3: 0 4px 10px 3px oklch(0 0 0 / 0.4), 0 2px 4px 0 oklch(0 0 0 / 0.3);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -123,8 +134,35 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Soft Material backdrop: faint indigo/violet glows behind the content. */
+    background-image:
+      radial-gradient(60rem 60rem at 110% -10%, oklch(0.52 0.2 277 / 0.06), transparent 60%),
+      radial-gradient(50rem 50rem at -10% 0%, oklch(0.55 0.21 312 / 0.05), transparent 55%);
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
   }
+}
+
+/* Material elevation utilities (token-driven so dark mode adjusts). */
+@utility shadow-elev-1 {
+  box-shadow: var(--shadow-elev-1);
+}
+@utility shadow-elev-2 {
+  box-shadow: var(--shadow-elev-2);
+}
+@utility shadow-elev-3 {
+  box-shadow: var(--shadow-elev-3);
+}
+
+/* Brand gradient (indigo → violet) for primary actions and accents. */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(135deg, var(--primary), var(--primary-2));
+}
+@utility text-brand-gradient {
+  background-image: linear-gradient(135deg, var(--primary), var(--primary-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }

@@ -10,7 +10,9 @@ type Row = {
   city: string | null;
   email: string | null;
   linkedin_url: string | null;
+  batch_id: string | null;
   organizations: { name: string; domain: string | null; current_msp_id: string | null } | null;
+  batches: { gate_status: string } | null;
 };
 
 // Contacts with at least one address (email or LinkedIn) are draftable. Channels
@@ -20,11 +22,16 @@ export default async function DraftPage() {
   const { data } = await supabase
     .from("contacts")
     .select(
-      "id, full_name, persona, title, city, email, linkedin_url, organizations(name, domain, current_msp_id)",
+      "id, full_name, persona, title, city, email, linkedin_url, batch_id, organizations(name, domain, current_msp_id), batches(gate_status)",
     )
     .or("email.not.is.null,linkedin_url.not.is.null");
 
-  const all = (data ?? []) as unknown as Row[];
+  // Gate guard: a contact can be drafted only once its batch has passed the eval
+  // gate. Legacy direct-import contacts sit in a batch seeded 'passed', so they
+  // remain draftable; new-run contacts wait until their batch clears grading.
+  const all = ((data ?? []) as unknown as Row[]).filter(
+    (r) => !r.batch_id || r.batches?.gate_status === "passed",
+  );
 
   // Skip contacts that already have a drafted (planned) touch, so each batch
   // advances to fresh contacts.

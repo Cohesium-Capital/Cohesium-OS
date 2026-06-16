@@ -10,6 +10,9 @@ export type ImportReport = {
   merged: number; // existing orgs enriched (matched, not re-inserted)
   flagged: number; // orgs with low confidence or a missing domain
   skippedDuplicates: number; // intra-payload duplicates collapsed
+  rejected: number; // evidence-less rows logged to rejected_ingest (run path)
+  sampledCount: number; // inserted contacts selected for grading
+  batchId?: string | null; // batch the run's records were written into
   messages: string[];
 };
 
@@ -19,6 +22,8 @@ export const EMPTY_REPORT: ImportReport = {
   merged: 0,
   flagged: 0,
   skippedDuplicates: 0,
+  rejected: 0,
+  sampledCount: 0,
   messages: [],
 };
 

@@ -52,22 +52,31 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="border-b">
+      <header className="sticky top-0 z-30 border-b border-transparent bg-card/80 shadow-elev-1 backdrop-blur-md [background-image:linear-gradient(to_right,oklch(0.52_0.2_277/0.06),oklch(0.55_0.21_312/0.06))]">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-6">
-            <span className="font-semibold">Cohesium Intel</span>
+            <span className="text-brand-gradient font-semibold tracking-tight">Cohesium Intel</span>
             <nav className="flex items-center gap-4 text-sm text-muted-foreground">
               <Link href="/source" className="hover:text-foreground">
                 Source
               </Link>
+              <Link href="/runs" className="hover:text-foreground">
+                Runs
+              </Link>
               <Link href="/review" className="hover:text-foreground">
                 Review
+              </Link>
+              <Link href="/review/grade" className="hover:text-foreground">
+                Grade
               </Link>
               <Link href="/msps" className="hover:text-foreground">
                 MSPs
               </Link>
               <Link href="/draft" className="hover:text-foreground">
                 Draft
+              </Link>
+              <Link href="/settings" className="hover:text-foreground">
+                Settings
               </Link>
             </nav>
           </div>
