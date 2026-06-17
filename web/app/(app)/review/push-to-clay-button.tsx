@@ -16,13 +16,15 @@ export function PushToClayButton() {
   function push() {
     startTransition(async () => {
       try {
-        const { total, pushed, failed } = await pushPendingToClay();
+        const { total, pushed, failed, error } = await pushPendingToClay();
         if (total === 0) {
           toast.info("Nothing pending to push.");
         } else if (failed === 0) {
           toast.success(`Pushed ${pushed} to Clay.`);
         } else {
-          toast.warning(`Pushed ${pushed} to Clay, ${failed} failed.`);
+          toast.warning(
+            `Pushed ${pushed} to Clay, ${failed} failed${error ? ` (${error})` : ""}.`,
+          );
         }
         router.refresh();
       } catch (e) {
