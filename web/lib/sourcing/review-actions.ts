@@ -34,9 +34,9 @@ export async function deleteContacts(ids: string[]) {
 // echoes contact_id back to POST /api/enrichment. The payload mirrors the export
 // columns so the Clay table schema is identical whichever ingest you use.
 //
-// Successfully-pushed rows flip to enrichment_status "enriching" so repeated
-// clicks don't re-send (and burn Clay credits); the write-back moves them on to
-// "enriched"/"failed".
+// Like the CSV export, this does not change enrichment_status — rows stay
+// "pending" until the write-back flips them to "enriched"/"failed". Configure
+// the Clay table to dedupe on contact_id so a re-push doesn't duplicate work.
 
 type ClayPendingRow = {
   id: string;
@@ -99,30 +99,17 @@ export async function pushPendingToClay(): Promise<{
 
   // Fixed-size worker pool over a shared cursor — bounded concurrency without a
   // dependency.
-  const succeeded: string[] = [];
+  let pushed = 0;
   let cursor = 0;
   async function worker() {
     while (cursor < rows.length) {
       const row = rows[cursor++];
-      if (await postClayRow(url!, row)) succeeded.push(row.id);
+      if (await postClayRow(url!, row)) pushed++;
     }
   }
   await Promise.all(
     Array.from({ length: Math.min(CLAY_PUSH_CONCURRENCY, rows.length) }, worker),
   );
 
-  if (succeeded.length) {
-    const { error: updateError } = await supabase
-      .from("contacts")
-      .update({ enrichment_status: "enriching" })
-      .in("id", succeeded);
-    if (updateError) throw new Error(updateError.message);
-    revalidatePath("/review");
-  }
-
-  return {
-    total: rows.length,
-    pushed: succeeded.length,
-    failed: rows.length - succeeded.length,
-  };
+  return { total: rows.length, pushed, failed: rows.length - pushed };
 }
