@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
+import { fetchAllPendingContacts, type PendingContact } from "@/lib/enrichment/pending";
 
 // Mutations for the review grid. Run as the signed-in user (RLS applies) and
 // revalidate the page so the grid reflects the change.
@@ -38,15 +39,6 @@ export async function deleteContacts(ids: string[]) {
 // "pending" until the write-back flips them to "enriched"/"failed". Configure
 // the Clay table to dedupe on contact_id so a re-push doesn't duplicate work.
 
-type ClayPendingRow = {
-  id: string;
-  full_name: string | null;
-  title: string | null;
-  persona: string | null;
-  linkedin_url: string | null;
-  organizations: { name: string; domain: string | null } | null;
-};
-
 // Conservative concurrency + retry/backoff: Clay's webhook source rate-limits
 // bursts (429), so a single-shot fan-out drops a large share of rows. We retry
 // transient failures (429 / 5xx / network / timeout), honoring Retry-After.
@@ -58,7 +50,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function postClayRow(
   url: string,
-  row: ClayPendingRow,
+  row: PendingContact,
 ): Promise<{ ok: boolean; reason?: string }> {
   const body = JSON.stringify({
     contact_id: row.id,
@@ -120,15 +112,7 @@ export async function pushPendingToClay(): Promise<{
   if (!url) throw new Error("CLAY_TABLE_WEBHOOK_URL is not set.");
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("contacts")
-    .select(
-      "id, full_name, title, persona, linkedin_url, organizations!inner(name, domain)",
-    )
-    .eq("enrichment_status", "pending");
-  if (error) throw new Error(error.message);
-
-  const rows = (data ?? []) as unknown as ClayPendingRow[];
+  const rows = await fetchAllPendingContacts(supabase);
   if (!rows.length) return { total: 0, pushed: 0, failed: 0 };
 
   // Fixed-size worker pool over a shared cursor — bounded concurrency without a

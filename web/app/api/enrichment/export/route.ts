@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllPendingContacts } from "@/lib/enrichment/pending";
 
 // CSV of contacts still pending enrichment, for loading into Clay. Authenticated
 // by the user session (a founder hits this from the app). Clay enriches and
 // echoes contact_id back to POST /api/enrichment.
-
-type Row = {
-  id: string;
-  full_name: string | null;
-  title: string | null;
-  persona: string | null;
-  linkedin_url: string | null;
-  organizations: { name: string; domain: string | null } | null;
-};
 
 function cell(v: string | null | undefined): string {
   const s = String(v ?? "");
@@ -26,15 +18,7 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { data, error } = await supabase
-    .from("contacts")
-    .select(
-      "id, full_name, title, persona, linkedin_url, organizations!inner(name, domain)",
-    )
-    .eq("enrichment_status", "pending");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const rows = (data ?? []) as unknown as Row[];
+  const rows = await fetchAllPendingContacts(supabase);
   const header = [
     "contact_id",
     "full_name",
