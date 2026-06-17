@@ -26,7 +26,9 @@ export async function GET(req: Request) {
   }
 
   const supabase = createAdminClient();
-  const batch = Number(process.env.EMAIL_BATCH ?? 8);
+  // One cron run per weekday sends up to EMAIL_BATCH, bounded by the rolling-24h
+  // EMAIL_DAILY_CAP — so the effective rate is ~20/weekday at the defaults.
+  const batch = Number(process.env.EMAIL_BATCH ?? 20);
   const result = { sent: 0, repliesDetected: 0, errors: [] as string[] };
 
   // 1. Reply poll → responded stop-flag.
