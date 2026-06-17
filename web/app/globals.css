@@ -139,9 +139,16 @@
       radial-gradient(60rem 60rem at 110% -10%, oklch(0.52 0.2 277 / 0.06), transparent 60%),
       radial-gradient(50rem 50rem at -10% 0%, oklch(0.55 0.21 312 / 0.05), transparent 55%);
     background-attachment: fixed;
+    /* Inter: enable contextual alternates + the single-storey a for a cleaner UI feel. */
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
   }
   html {
     @apply font-sans;
+  }
+  h1, h2, h3, h4 {
+    @apply font-heading tracking-tight;
+    text-wrap: balance;
   }
 }
 
