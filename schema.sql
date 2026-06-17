@@ -54,7 +54,7 @@ create table touches (
     direction     text not null check (direction in ('outbound','inbound')),
     sequence_step int,
     status        text not null default 'planned'
-                    check (status in ('planned','sent','delivered','bounced','replied','failed')),
+                    check (status in ('planned','queued','sent','delivered','bounced','replied','failed')),
     scheduled_at  timestamptz,
     sent_at       timestamptz,
     created_at    timestamptz not null default now()
