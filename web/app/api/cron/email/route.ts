@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   // One cron run per weekday sends up to EMAIL_BATCH, bounded by the rolling-24h
   // EMAIL_DAILY_CAP — so the effective rate is ~20/weekday at the defaults.
   const batch = Number(process.env.EMAIL_BATCH ?? 20);
-  const result = { sent: 0, repliesDetected: 0, errors: [] as string[] };
+  const result = { sent: 0, copiedToSent: 0, repliesDetected: 0, errors: [] as string[] };
 
   // 1. Reply poll → responded stop-flag.
   const replies = await fetchRecentSenders(3);
@@ -95,6 +95,7 @@ export async function GET(req: Request) {
         .update({ status: "sent", sent_at: new Date().toISOString(), provider: "smtp" })
         .eq("id", t.id);
       result.sent++;
+      if (r.copiedToSent) result.copiedToSent++;
     } else {
       result.errors.push(`${t.contacts!.email}: ${r.error}`);
     }
