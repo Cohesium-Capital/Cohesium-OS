@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { computeGate } from "@/lib/grading/gate";
+import { computeGate, type GateMetrics } from "@/lib/grading/gate";
 import { Button } from "@/components/ui/button";
 import { GradeQueue, type GradeContact } from "./grade-queue";
 
-// Keyboard-driven grading queue. Grades the sampled, not-yet-graded contacts of
-// one batch; the batch gate flips to passed/failed as the sample fills in. A
-// batch can't advance (enrich/draft/send) until it passes.
+// Keyboard-driven grading queue. By default it loads EVERY sampled, not-yet-graded
+// contact across all batches into one continuous pass, so you can grade the whole
+// backlog in one sitting; each grade still finalizes against its own batch and
+// flips that batch's gate. Pass ?batch=<id> to grade a single batch in isolation
+// (the per-row "Grade" buttons on /runs use this). A batch can't advance
+// (enrich/draft/send) until it passes.
 
 type ContactRow = {
   id: string;
@@ -22,6 +25,7 @@ type ContactRow = {
   source_url: string | null;
   evidence: unknown;
   organizations: { name: string; domain: string | null } | null;
+  batches: { module: string; label: string } | null;
 };
 
 export default async function GradePage({
@@ -30,24 +34,28 @@ export default async function GradePage({
   searchParams: Promise<{ batch?: string }>;
 }) {
   const sp = await searchParams;
+  const batchId = sp.batch ?? null;
   const supabase = await createClient();
 
-  // Pick the batch to grade: explicit ?batch= or the oldest with pending sample.
-  let batchId = sp.batch ?? null;
-  if (!batchId) {
-    const { data: next } = await supabase
-      .from("contacts")
-      .select("batch_id")
-      .eq("sampled", true)
-      .eq("review_status", "pending_review")
-      .not("batch_id", "is", null)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    batchId = (next?.batch_id as string | null) ?? null;
-  }
+  // All sampled contacts still awaiting a grade — across every batch, or scoped
+  // to one when ?batch= is given. Ordered by batch so same-module records (and
+  // the editable fields they share) stay contiguous as you advance.
+  let query = supabase
+    .from("contacts")
+    .select(
+      "id, batch_id, full_name, title, persona, email, phone, linkedin_url, personalization, confidence, source_url, evidence, organizations!inner(name, domain), batches!inner(module, label)",
+      { count: "exact" },
+    )
+    .eq("sampled", true)
+    .eq("review_status", "pending_review");
+  if (batchId) query = query.eq("batch_id", batchId);
+  const { data, count } = await query
+    .order("batch_id", { ascending: true })
+    .order("created_at", { ascending: true });
 
-  if (!batchId) {
+  const rows = (data ?? []) as unknown as ContactRow[];
+
+  if (!rows.length) {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold">Grade</h1>
@@ -61,27 +69,11 @@ export default async function GradePage({
     );
   }
 
-  const { data: batch } = await supabase
-    .from("batches")
-    .select("id, module, label, gate_status")
-    .eq("id", batchId)
-    .single();
-
-  const { data, count } = await supabase
-    .from("contacts")
-    .select(
-      "id, batch_id, full_name, title, persona, email, phone, linkedin_url, personalization, confidence, source_url, evidence, organizations!inner(name, domain)",
-      { count: "exact" },
-    )
-    .eq("batch_id", batchId)
-    .eq("sampled", true)
-    .eq("review_status", "pending_review")
-    .order("created_at", { ascending: true });
-
-  const rows = (data ?? []) as unknown as ContactRow[];
   const contacts: GradeContact[] = rows.map((c) => ({
     id: c.id,
     batch_id: c.batch_id,
+    module: c.batches?.module ?? "sourcing",
+    batch_label: c.batches?.label ?? "—",
     full_name: c.full_name,
     title: c.title,
     persona: c.persona,
@@ -98,7 +90,12 @@ export default async function GradePage({
     org_domain: c.organizations?.domain ?? null,
   }));
 
-  const metrics = await computeGate(supabase, batchId);
+  // One gate per distinct batch in the queue, computed once up front; the queue
+  // updates the relevant entry as each contact is graded.
+  const batchIds = [...new Set(contacts.map((c) => c.batch_id).filter(Boolean))] as string[];
+  const computed = await Promise.all(batchIds.map((id) => computeGate(supabase, id)));
+  const metricsByBatch: Record<string, GateMetrics> = {};
+  batchIds.forEach((id, i) => (metricsByBatch[id] = computed[i]));
 
   return (
     <div className="flex flex-col gap-6">
@@ -106,20 +103,16 @@ export default async function GradePage({
         <div>
           <h1 className="text-2xl font-semibold">Grade</h1>
           <p className="text-sm text-muted-foreground">
-            Batch <span className="font-medium">{batch?.label}</span> · {batch?.module} ·{" "}
-            {count ?? 0} awaiting grade
+            {count ?? contacts.length} awaiting grade across {batchIds.length} batch
+            {batchIds.length === 1 ? "" : "es"}
+            {batchId ? " (single batch)" : ""}.
           </p>
         </div>
         <Button variant="outline" nativeButton={false} render={<Link href="/runs" />}>
           All runs
         </Button>
       </div>
-      <GradeQueue
-        module={batch?.module ?? "sourcing"}
-        batchId={batchId}
-        initialMetrics={metrics}
-        contacts={contacts}
-      />
+      <GradeQueue contacts={contacts} initialMetricsByBatch={metricsByBatch} />
     </div>
   );
 }

@@ -81,23 +81,69 @@ person.
 Honesty: never invent a detail, event, mutual connection, or claim. Plain and
 credible beats clever. Refer to the firm only as "Cohesium".`;
 
-export function buildDraftPrompt(contacts: DraftContact[]): string {
-  const lines = contacts.map((c, i) => {
-    const company = c.company_domain
-      ? `${c.company_name} (${c.company_domain})`
-      : c.company_name;
-    const parts = [
-      `[${i + 1}] contact_id=${c.contact_id}`,
-      `name=${c.full_name ?? "unknown"}`,
-      `persona=${c.persona ?? "other"}`,
-      c.title ? `title=${c.title}` : "",
-      `company=${company}`,
-      c.city ? `city=${c.city}` : "",
-      c.current_msp ? `current_msp=${c.current_msp}` : "",
-      `channels: ${c.channels.join(", ")}`,
-    ].filter(Boolean);
-    return parts.join("; ");
-  });
+function renderContactLines(contacts: DraftContact[]): string {
+  return contacts
+    .map((c, i) => {
+      const company = c.company_domain
+        ? `${c.company_name} (${c.company_domain})`
+        : c.company_name;
+      const parts = [
+        `[${i + 1}] contact_id=${c.contact_id}`,
+        `name=${c.full_name ?? "unknown"}`,
+        `persona=${c.persona ?? "other"}`,
+        c.title ? `title=${c.title}` : "",
+        `company=${company}`,
+        c.city ? `city=${c.city}` : "",
+        c.current_msp ? `current_msp=${c.current_msp}` : "",
+        `channels: ${c.channels.join(", ")}`,
+      ].filter(Boolean);
+      return parts.join("; ");
+    })
+    .join("\n");
+}
 
-  return [HEADER, "", RULES, "", "Contacts:", lines.join("\n")].join("\n");
+export function buildDraftPrompt(contacts: DraftContact[]): string {
+  return [HEADER, "", RULES, "", "Contacts:", renderContactLines(contacts)].join("\n");
+}
+
+// Orchestration prompt for Claude Code: instead of pasting one chunk into a chat,
+// hand the WHOLE list to Claude Code and let it fan the work out to subagents,
+// each web-researching and drafting a slice, then merge into one drafts JSON to
+// paste back into the importer. Same per-message rules and JSON contract as the
+// single-shot prompt above.
+export function buildDraftAgentPrompt(
+  contacts: DraftContact[],
+  chunkSize = 15,
+): string {
+  const n = contacts.length;
+  const chunks = Math.max(1, Math.ceil(n / chunkSize));
+  const orchestration = `You are running a batch cold-outreach drafting job in Claude Code for
+${SENDER.name} at Cohesium. There are ${n} contacts below. Do NOT draft them all
+yourself in one pass — fan the work out so each message gets real research:
+
+1. Split the ${n} contacts into ${chunks} chunk(s) of up to ${chunkSize}.
+2. Spawn one subagent per chunk with the Task tool, running them in parallel.
+   Give each subagent its slice of contact lines, the rules below, and the
+   instruction to use web search.
+3. Each subagent, for every contact in its slice, web-researches ONE true,
+   verifiable, recent detail and drafts a message for EACH channel on that
+   contact's line, following the rules below exactly. It returns a JSON array of
+   { "contact_id", "channel", "subject", "body" } objects — nothing else.
+4. When every subagent has returned, merge all of their drafts into ONE JSON
+   object and print it as your FINAL message, with NO surrounding prose or
+   markdown, so it can be pasted straight back into the importer:
+
+{
+  "drafts": [
+    { "contact_id": string, "channel": "email" | "linkedin", "subject": string | null, "body": string }
+  ]
+}
+
+Use the exact contact_id from each line. Sign emails as ${SENDER.name}. "subject"
+is a short line for email and null for linkedin. Draft a message for every
+channel listed on a contact's line.`;
+
+  return [orchestration, "", RULES, "", `Contacts (${n}):`, renderContactLines(contacts)].join(
+    "\n",
+  );
 }

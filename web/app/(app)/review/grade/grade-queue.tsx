@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 export type GradeContact = {
   id: string;
   batch_id: string | null;
+  module: string;
+  batch_label: string;
   full_name: string | null;
   title: string | null;
   persona: string | null;
@@ -54,35 +56,42 @@ function statusVariant(s: string): "default" | "secondary" | "destructive" {
 }
 
 export function GradeQueue({
-  module,
-  batchId,
-  initialMetrics,
   contacts,
+  initialMetricsByBatch,
 }: {
-  module: string;
-  batchId: string;
-  initialMetrics: GateMetrics;
   contacts: GradeContact[];
+  initialMetricsByBatch: Record<string, GateMetrics>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [index, setIndex] = useState(0);
-  const [metrics, setMetrics] = useState(initialMetrics);
+  const [metricsByBatch, setMetricsByBatch] = useState(initialMetricsByBatch);
   const [correcting, setCorrecting] = useState(false);
 
-  const current = contacts[index];
-  const fields = useMemo(() => FIELDS_BY_MODULE[module] ?? FIELDS_BY_MODULE.sourcing, [module]);
+  // Snapshot the list on mount so grading the whole queue is stable: submitGrade
+  // revalidates this route, which would otherwise re-render us with a shorter
+  // contacts prop and shift the record under our index. We advance through the
+  // original snapshot and only update gate metrics from each grade's result.
+  const [queue] = useState(() => contacts);
+  const current = queue[index];
+  const currentModule = current?.module ?? "sourcing";
+  const fields = useMemo(
+    () => FIELDS_BY_MODULE[currentModule] ?? FIELDS_BY_MODULE.sourcing,
+    [currentModule],
+  );
+  const currentMetrics = current?.batch_id ? metricsByBatch[current.batch_id] : undefined;
 
   const draftsFor = useCallback(
     (c: GradeContact | undefined): Record<string, string> => {
       const d: Record<string, string> = {};
-      if (c) for (const f of fields) d[f.field] = (c[f.prop] as string | null) ?? "";
+      const fs = c ? FIELDS_BY_MODULE[c.module] ?? FIELDS_BY_MODULE.sourcing : [];
+      if (c) for (const f of fs) d[f.field] = (c[f.prop] as string | null) ?? "";
       return d;
     },
-    [fields],
+    [],
   );
 
-  const [drafts, setDrafts] = useState<Record<string, string>>(() => draftsFor(contacts[0]));
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => draftsFor(queue[0]));
 
   // Reset editable state when the queue advances to a new contact (the React
   // "adjust state during render on prop change" pattern — not an effect).
@@ -100,25 +109,32 @@ export function GradeQueue({
   const grade = useCallback(
     (decision: "approved" | "corrected" | "rejected", fieldGrades?: FieldGrade[]) => {
       if (!current) return;
+      const batchId = current.batch_id;
+      const prevStatus = batchId ? metricsByBatch[batchId]?.status : undefined;
       startTransition(async () => {
         try {
           const m = await submitGrade({
             contactId: current.id,
-            module,
+            module: current.module,
             batchId,
             decision,
             fieldGrades,
           });
-          if (m) setMetrics(m);
+          if (m && batchId) setMetricsByBatch((prev) => ({ ...prev, [batchId]: m }));
           advance();
-          if (m?.status === "failed") toast.error("Batch gate FAILED — error rate over threshold.");
-          else if (m?.status === "passed") toast.success("Batch gate PASSED.");
+          // Only announce a gate result when it actually flips for this batch.
+          if (m && m.status !== prevStatus) {
+            if (m.status === "failed")
+              toast.error(`Batch "${current.batch_label}" gate FAILED — error rate over threshold.`);
+            else if (m.status === "passed")
+              toast.success(`Batch "${current.batch_label}" gate PASSED.`);
+          }
         } catch (e) {
           toast.error(e instanceof Error ? e.message : "Grade failed.");
         }
       });
     },
-    [current, module, batchId, advance],
+    [current, metricsByBatch, advance],
   );
 
   const saveCorrection = useCallback(() => {
@@ -157,36 +173,54 @@ export function GradeQueue({
     return () => window.removeEventListener("keydown", onKey);
   }, [grade, pending]);
 
-  const done = index >= contacts.length;
+  const done = index >= queue.length;
+  const batchSummary = useMemo(() => {
+    const vals = Object.values(metricsByBatch);
+    return {
+      passed: vals.filter((m) => m.status === "passed").length,
+      failed: vals.filter((m) => m.status === "failed").length,
+      open: vals.filter((m) => m.status === "open").length,
+      total: vals.length,
+    };
+  }, [metricsByBatch]);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Gate header */}
+      {/* Gate header — reflects the CURRENT contact's batch */}
       <div className="flex flex-wrap items-center gap-4 rounded-md border p-3 text-sm">
-        <Badge variant={statusVariant(metrics.status)}>gate: {metrics.status}</Badge>
-        <span className="text-muted-foreground">
-          graded {metrics.gradedCount}/{metrics.sampleSize}
-        </span>
-        <span className="text-muted-foreground">
-          errors {metrics.errorCount} ({(metrics.errorRate * 100).toFixed(0)}%)
-        </span>
-        <span className="text-muted-foreground">
-          threshold {(metrics.threshold * 100).toFixed(0)}%
-        </span>
+        {currentMetrics ? (
+          <>
+            <Badge variant={statusVariant(currentMetrics.status)}>
+              gate: {currentMetrics.status}
+            </Badge>
+            <span className="text-muted-foreground">
+              graded {currentMetrics.gradedCount}/{currentMetrics.sampleSize}
+            </span>
+            <span className="text-muted-foreground">
+              errors {currentMetrics.errorCount} ({(currentMetrics.errorRate * 100).toFixed(0)}%)
+            </span>
+            <span className="text-muted-foreground">
+              threshold {(currentMetrics.threshold * 100).toFixed(0)}%
+            </span>
+          </>
+        ) : (
+          <span className="text-muted-foreground">
+            {batchSummary.passed} passed · {batchSummary.failed} failed · {batchSummary.open} open
+          </span>
+        )}
         <span className="ml-auto text-muted-foreground">
-          {done ? "queue complete" : `${index + 1} of ${contacts.length}`}
+          {done ? "queue complete" : `${index + 1} of ${queue.length}`}
         </span>
       </div>
 
       {done ? (
         <div className="flex flex-col items-start gap-3 rounded-md border p-6">
           <p className="text-sm">
-            Graded everything in this batch.{" "}
-            {metrics.status === "passed"
-              ? "It passed — its records can now advance to enrichment/drafting."
-              : metrics.status === "failed"
-                ? "It failed — revise the prompt and re-run rather than advancing."
-                : "Gate still open (sample not yet sufficient)."}
+            Graded everything in the queue — {batchSummary.total} batch
+            {batchSummary.total === 1 ? "" : "es"}: {batchSummary.passed} passed,{" "}
+            {batchSummary.failed} failed, {batchSummary.open} still open (sample not yet
+            sufficient). Passed batches can advance to enrichment/drafting; failed ones should be
+            re-run with a revised prompt.
           </p>
           <div className="flex gap-2">
             <Button variant="outline" nativeButton={false} render={<Link href="/runs" />}>
@@ -211,6 +245,7 @@ export function GradeQueue({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <Badge variant="outline">{current.batch_label}</Badge>
                 {current.persona && <Badge variant="outline">{current.persona}</Badge>}
                 {current.confidence && <Badge variant="secondary">{current.confidence}</Badge>}
               </div>
