@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { buildDraftPrompt, type DraftContact } from "@/lib/drafting/prompt";
+import { buildDraftAgentPrompt, type DraftContact } from "@/lib/drafting/prompt";
 import { importDrafts } from "@/lib/drafting/import";
 import type { DraftReport } from "@/lib/drafting/types";
 import { Button } from "@/components/ui/button";
@@ -16,21 +16,23 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-const BATCH = 20;
+// Subagents draft this many contacts each. The fan-out prompt tells Claude Code
+// to split the full list into chunks of this size and run one subagent per chunk.
+const CHUNK = 15;
 
 export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
   const [json, setJson] = useState("");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<DraftReport | null>(null);
 
-  // Cap the prompt to a manageable batch so the model gives each message
-  // attention (and the paste stays readable).
-  const batch = useMemo(() => contacts.slice(0, BATCH), [contacts]);
-  const prompt = useMemo(() => buildDraftPrompt(batch), [batch]);
+  // Hand the whole list to Claude Code at once; the prompt fans it out to
+  // subagents (chunks of CHUNK) that research + draft, then merge to one JSON.
+  const prompt = useMemo(() => buildDraftAgentPrompt(contacts, CHUNK), [contacts]);
+  const chunks = Math.max(1, Math.ceil(contacts.length / CHUNK));
 
   async function copyPrompt() {
     await navigator.clipboard.writeText(prompt);
-    toast.success("Prompt copied. Paste into Claude/ChatGPT with web search on.");
+    toast.success("Prompt copied. Run it in Claude Code, then paste the JSON it returns below.");
   }
 
   async function run() {
@@ -68,17 +70,15 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>1. Copy the drafting prompt</CardTitle>
+          <CardTitle>1. Copy the Claude Code drafting prompt</CardTitle>
           <CardDescription>
-            {contacts.length} contact(s) have an address.{" "}
-            {contacts.length > BATCH
-              ? `Showing the first ${BATCH} — import them, then come back for the rest.`
-              : "All are included below."}{" "}
-            Paste into Claude/ChatGPT with web search on so it can personalize honestly.
+            All {contacts.length} contact(s) with an address are included below. Run this in
+            Claude Code — it fans the list out to {chunks} subagent(s) of up to {CHUNK} each that
+            web-research and draft every contact, then return one combined JSON to paste below.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {batch.length === 0 ? (
+          {contacts.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No contacts with an email or LinkedIn yet. Run enrichment first.
             </p>
