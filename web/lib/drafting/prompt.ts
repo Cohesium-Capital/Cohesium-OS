@@ -39,13 +39,47 @@ line. Return ONLY a single JSON object, no markdown and no commentary:
 Use the exact contact_id from each line. Sign emails as ${SENDER.name}. "subject"
 is a short line for email and null for linkedin.`;
 
+// One worked example per channel. Showing the voice beats describing it, and it
+// is the surest way to stop the model from leaking a meta-label like "this is a
+// cold email" as a subject or body line.
+const GOLD = `Gold examples (imitate this voice and shape, never copy the facts)
+
+Email —
+Subject: quick question on your IT setup
+
+Hi Trish,
+
+Apologies for the cold note. ${SENDER.intro}, and the way we learn a market is by
+talking with the people running it day to day. It also lets us build a network of
+sharp operators we can be useful to over time, through intros, hiring, and advisor
+roles.
+
+I've been digging into how growing practices actually work with their managed IT
+providers, and where that relationship helps versus where it just adds overhead. I
+figured someone in your seat would have a clear read on it.
+
+Any chance you'd have a few minutes in the next week or two? I'm not selling
+anything, just trying to understand the space.
+
+Thanks,
+${SENDER.name}
+
+LinkedIn —
+Hi Jim, apologies for the cold note. ${SENDER.intro} researching how companies
+work with their managed IT providers. Would value your take. Open to a quick chat
+in the next week or two? Not selling anything.`;
+
 const RULES = `Structure (model this on warm investor outreach that works)
-- Open casually and acknowledge it is a cold email.
+- Open with a brief, human apology for the cold note, woven into who you are and
+  the approach. Do NOT label the message: never write "this is a cold email",
+  "cold note", "[subject]", or any placeholder as a subject or a line of the
+  body. The acknowledgment is a natural apology inside the first sentence, exactly
+  like the gold example.
 - Say who you are in one line: "${SENDER.intro}".
-- Give the approach briefly: we learn by talking to experienced operators about
-  what actually matters and what pain points still need solving in a market, and
-  it lets us build a network of sharp people we can be useful to over time
-  (intros, hiring, advisor roles).
+- Give the approach briefly: we learn a market by talking with the experienced
+  people running it, about what matters and what pain points still need solving,
+  and it lets us build a network of sharp operators we can be useful to over time,
+  through intros, hiring, and advisor roles.
 - Personalize with ONE true, verifiable detail, and strongly prefer something
   from the LAST 12 MONTHS: a recent talk, panel, podcast, or conference
   appearance (speaking engagements are especially good), a recent company
@@ -53,41 +87,55 @@ const RULES = `Structure (model this on warm investor outreach that works)
   companies like theirs work with managed IT.
 - VERIFY every specific claim with web search before using it. Only state a fact
   you can confirm from a citable source. If you cannot verify a recent, specific
-  detail, do not invent one — open with an honest observation about their role or
+  detail, do not invent one. Open with an honest observation about their role or
   industry instead.
 - Close with a soft ask: a few minutes to chat in the next week or two, and say
   plainly you are not selling anything.
 
-Persona angle
+Persona angle (the relevance hook)
 - owner: keeping technology and security dependable as the business grows,
   without IT becoming a distraction.
 - head_of_it: where managed services genuinely help versus where they just
   commoditize the work.
 - other: a neutral version of the owner angle.
 
-Length and channel
-- email: 130 words MAXIMUM (count them). Format as two or three SHORT paragraphs
-  separated by a blank line: (1) "Hi <first name>," then a line or two on who you
-  are and the approach, (2) one or two sentences of personalized relevance, (3)
-  the ask. Sign off with "Thanks," then "${SENDER.name}" on their own lines. A
-  short, specific subject line.
-- linkedin: no subject. The body is a HARD 300-character maximum, including
-  spaces. Count the characters and rewrite until it fits — a note over 300 will
-  be rejected. One line of relevance and one light ask.
+Email
+- 80 to 120 words, never over 130 (count them). Three SHORT paragraphs separated
+  by a blank line: (1) "Hi <first name>," then the apology woven into who you are
+  and the approach, (2) one or two sentences of personalized relevance using the
+  persona angle, (3) the soft ask. Sign off with "Thanks," then "${SENDER.name}"
+  on their own lines.
+- Subject: short and specific, ideally under 40 characters, written to look like
+  a note a colleague would send. A light question or a plain topic works. Good
+  shapes: "quick question on your IT setup", "your take on managed IT",
+  "Cohesium + <company>". Never use the words cold, free, or guaranteed, a fake
+  "Re:", all caps, or exclamation points.
+
+LinkedIn
+- No subject. The body is a HARD 300-character maximum including spaces; aim for
+  roughly 180 to 260. One line of who you are and what you are researching, then
+  one light ask whose only job is to earn the accept, not to pitch. Count the
+  characters and keep it tight — a note over 300 will be rejected.
 
 Voice: direct, warm, conversational, a little humble. No em-dashes. No
 semicolons. No bullet points. No corporate filler. It must read as written by a
-person.
+person. Never open with "I hope this finds you well" or "My name is". Refer to
+the firm only as "Cohesium".
 
-Honesty: never invent a detail, event, mutual connection, or claim. Plain and
-credible beats clever. Refer to the firm only as "Cohesium".
+Honesty: never invent a detail, event, mutual connection, or claim. With no
+verifiable detail, open with an honest observation about their role or industry
+rather than a fabricated specific. Plain and credible beats clever.
 
-Before you return the JSON, re-read every draft and fix any that fail: the
-personalized detail must be real and verifiable (or replaced with an honest
-role/industry observation), each LinkedIn body must be 300 characters or fewer,
-each email must be 130 words or fewer, and there must be no em-dashes,
-semicolons, bullet points, or filler. Quality over quantity — if you cannot
-personalize a contact honestly, keep it simple and credible rather than clever.`;
+${GOLD}
+
+Before you return the JSON, re-read every draft and fix any that fail: no
+meta-label or placeholder as a subject or a body line, the personalized detail is
+real and verifiable (or replaced with an honest role/industry observation), each
+email is 80 to 120 words (never over 130) with a subject under ~40 characters and
+no spam words, each LinkedIn body is 300 characters or fewer, and there are no
+em-dashes, semicolons, bullet points, or filler. Quality over quantity — if you
+cannot personalize a contact honestly, keep it simple and credible rather than
+clever.`;
 
 function renderContactLines(contacts: DraftContact[]): string {
   return contacts
