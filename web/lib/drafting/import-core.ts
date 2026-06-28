@@ -45,17 +45,20 @@ export async function storeDrafts(
       report.skippedNoAddress++;
       continue;
     }
-    let body = d.body;
-    if (d.channel === "linkedin" && body.length > 300) {
-      body = body.slice(0, 297).trimEnd() + "...";
-    }
+    // A LinkedIn note over the 300-char hard limit is a bad draft. Rather than
+    // silently mangle it with an ellipsis, keep the full text and store it
+    // UNAPPROVED so it surfaces in the queue and flows back into re-drafting.
+    const body = d.body;
+    const overLimit = d.channel === "linkedin" && body.length > 300;
+    const approved = !overLimit;
+    if (overLimit) report.flaggedOverLimit++;
     const subject = d.channel === "email" ? d.subject ?? null : null;
 
     const existingId = existingKey.get(`${d.contact_id}|${d.channel}`);
     if (existingId) {
       const { error } = await supabase
         .from("touches")
-        .update({ subject, body, status: "planned", approved: true })
+        .update({ subject, body, status: "planned", approved })
         .eq("id", existingId);
       if (error) report.messages.push(`update ${d.contact_id}/${d.channel}: ${error.message}`);
       else report.updated++;
@@ -68,7 +71,7 @@ export async function storeDrafts(
         status: "planned",
         subject,
         body,
-        approved: true,
+        approved,
       });
     }
   }
@@ -80,6 +83,11 @@ export async function storeDrafts(
   }
   if (!report.drafted && !report.updated) {
     report.messages.push("No drafts written — check contact_ids and that contacts have an address.");
+  }
+  if (report.flaggedOverLimit) {
+    report.messages.push(
+      `${report.flaggedOverLimit} LinkedIn draft(s) were over 300 characters — stored unapproved so you can re-draft them.`,
+    );
   }
   return report;
 }

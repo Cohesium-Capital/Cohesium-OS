@@ -33,15 +33,20 @@ export default async function DraftPage() {
     (r) => !r.batch_id || r.batches?.gate_status === "passed",
   );
 
-  // Skip contacts that already have a drafted (planned) touch, so each batch
-  // advances to fresh contacts.
+  // A contact drops off the draft list once it has an APPROVED planned touch, so
+  // each batch advances to fresh contacts. Unapproving a draft in the queue
+  // ("send back to drafting") brings the contact back here for regeneration —
+  // storeDrafts overwrites the existing draft in place, so nothing is lost.
   const { data: drafted } = await supabase
     .from("touches")
-    .select("contact_id")
+    .select("contact_id, approved")
     .eq("status", "planned")
     .eq("direction", "outbound");
-  const draftedIds = new Set((drafted ?? []).map((t) => t.contact_id));
-  const rows = all.filter((r) => !draftedIds.has(r.id));
+  const hasPlanned = new Set((drafted ?? []).map((t) => t.contact_id));
+  const hasUnapproved = new Set(
+    (drafted ?? []).filter((t) => !t.approved).map((t) => t.contact_id),
+  );
+  const rows = all.filter((r) => !hasPlanned.has(r.id) || hasUnapproved.has(r.id));
 
   const mspIds = [
     ...new Set(rows.map((r) => r.organizations?.current_msp_id).filter(Boolean)),
