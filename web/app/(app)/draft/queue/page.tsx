@@ -52,8 +52,9 @@ export default async function QueuePage() {
       <div>
         <h1 className="text-2xl font-semibold">Draft queue</h1>
         <p className="text-sm text-muted-foreground">
-          Approved messages send to all unless you uncheck them. Sending (Smartlead /
-          HeyReach) is the next step — this is review and approve.
+          Approved messages send unless you uncheck them. To redo a batch, select rows and
+          Send back to drafting — those contacts reappear on the Draft page to regenerate,
+          with nothing deleted.
         </p>
       </div>
       <DraftQueue initialRows={rows} />

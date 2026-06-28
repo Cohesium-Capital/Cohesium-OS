@@ -66,20 +66,28 @@ Persona angle
 - other: a neutral version of the owner angle.
 
 Length and channel
-- email: keep it under about 130 words. Format as two or three SHORT paragraphs
+- email: 130 words MAXIMUM (count them). Format as two or three SHORT paragraphs
   separated by a blank line: (1) "Hi <first name>," then a line or two on who you
   are and the approach, (2) one or two sentences of personalized relevance, (3)
   the ask. Sign off with "Thanks," then "${SENDER.name}" on their own lines. A
   short, specific subject line.
-- linkedin: no subject, 300 characters maximum, one line of relevance and one
-  light ask.
+- linkedin: no subject. The body is a HARD 300-character maximum, including
+  spaces. Count the characters and rewrite until it fits — a note over 300 will
+  be rejected. One line of relevance and one light ask.
 
 Voice: direct, warm, conversational, a little humble. No em-dashes. No
 semicolons. No bullet points. No corporate filler. It must read as written by a
 person.
 
 Honesty: never invent a detail, event, mutual connection, or claim. Plain and
-credible beats clever. Refer to the firm only as "Cohesium".`;
+credible beats clever. Refer to the firm only as "Cohesium".
+
+Before you return the JSON, re-read every draft and fix any that fail: the
+personalized detail must be real and verifiable (or replaced with an honest
+role/industry observation), each LinkedIn body must be 300 characters or fewer,
+each email must be 130 words or fewer, and there must be no em-dashes,
+semicolons, bullet points, or filler. Quality over quantity — if you cannot
+personalize a contact honestly, keep it simple and credible rather than clever.`;
 
 function renderContactLines(contacts: DraftContact[]): string {
   return contacts

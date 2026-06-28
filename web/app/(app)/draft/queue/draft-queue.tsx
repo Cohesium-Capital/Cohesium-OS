@@ -2,10 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import type { QueueRow } from "@/lib/drafting/types";
-import { setApproved, updateDraft, deleteDraft } from "@/lib/drafting/queue-actions";
+import {
+  setApproved,
+  setApprovedBulk,
+  updateDraft,
+  deleteDraft,
+  deleteDraftsBulk,
+} from "@/lib/drafting/queue-actions";
 import { sendApproved } from "@/lib/send/send";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +50,38 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
   const [draftBody, setDraftBody] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleOne(id: string, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  function toggleAll(on: boolean) {
+    setSelected(on ? new Set(initialRows.map((r) => r.id)) : new Set());
+  }
+
+  function runBulk(fn: () => Promise<void>, ok: string, withRedraftLink = false) {
+    startTransition(async () => {
+      try {
+        await fn();
+        if (withRedraftLink) {
+          toast.success(ok, {
+            action: { label: "Go to Draft", onClick: () => router.push("/draft") },
+          });
+        } else {
+          toast.success(ok);
+        }
+        setSelected(new Set());
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Action failed.");
+      }
+    });
+  }
 
   async function doSend() {
     setSending(true);
@@ -96,12 +134,29 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
   }
 
   const approvedCount = initialRows.filter((r) => r.approved).length;
+  const unapprovedCount = initialRows.length - approvedCount;
+  const selectedIds = [...selected];
+  const allSelected = initialRows.length > 0 && selected.size === initialRows.length;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          {approvedCount} of {initialRows.length} approved.
+          {approvedCount} of {initialRows.length} approved
+          {unapprovedCount > 0 && (
+            <>
+              {" · "}
+              <span className="text-foreground">{unapprovedCount} need re-drafting</span>{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() => router.push("/draft")}
+              >
+                (regenerate on Draft →)
+              </button>
+            </>
+          )}
+          .
         </p>
         <Button
           disabled={approvedCount === 0 || sending}
@@ -110,10 +165,56 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
           Send approved →
         </Button>
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+          <span className="text-sm text-muted-foreground">{selectedIds.length} selected</span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending}
+            onClick={() =>
+              runBulk(
+                () => setApprovedBulk(selectedIds, false),
+                `${selectedIds.length} sent back to drafting. Regenerate them on the Draft page.`,
+                true,
+              )
+            }
+          >
+            <Undo2 className="size-4" />
+            Send back to drafting
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending}
+            onClick={() => runBulk(() => setApprovedBulk(selectedIds, true), "Approved.")}
+          >
+            Approve
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={pending}
+            onClick={() => runBulk(() => deleteDraftsBulk(selectedIds), "Deleted.")}
+          >
+            <Trash2 className="size-4" />
+            Delete
+          </Button>
+        </div>
+      )}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  aria-label="Select all"
+                  checked={allSelected}
+                  disabled={initialRows.length === 0}
+                  onCheckedChange={(v) => toggleAll(!!v)}
+                />
+              </TableHead>
               <TableHead className="w-10">Send</TableHead>
               <TableHead>Contact</TableHead>
               <TableHead>Channel</TableHead>
@@ -124,7 +225,14 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
           <TableBody>
             {initialRows.length ? (
               initialRows.map((r) => (
-                <TableRow key={r.id}>
+                <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      aria-label="Select row"
+                      checked={selected.has(r.id)}
+                      onCheckedChange={(v) => toggleOne(r.id, !!v)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={r.approved}
@@ -132,7 +240,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
                       onCheckedChange={(v) =>
                         run(
                           () => setApproved(r.id, !!v),
-                          v ? "Approved." : "Unapproved.",
+                          v ? "Approved." : "Sent back to drafting.",
                         )
                       }
                     />
@@ -144,7 +252,14 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{r.channel}</Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline">{r.channel}</Badge>
+                      {!r.approved && (
+                        <Badge variant="secondary" className="text-[0.65rem]">
+                          needs re-draft
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="max-w-md">
                     {r.subject && <div className="font-medium">{r.subject}</div>}
@@ -180,7 +295,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
+                <TableCell colSpan={6} className="h-24 text-center">
                   No drafts yet. Generate some on the Draft page.
                 </TableCell>
               </TableRow>
