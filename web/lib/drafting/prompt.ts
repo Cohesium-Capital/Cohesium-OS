@@ -49,14 +49,12 @@ Subject: quick question on your IT setup
 
 Hi Trish,
 
-Apologies for the cold note. ${SENDER.intro}, and the way we learn a market is by
-talking with the people running it day to day. It also lets us build a network of
-sharp operators we can be useful to over time, through intros, hiring, and advisor
-roles.
+I've been digging into how growing pediatric practices actually work with their
+managed IT providers, where it helps and where it just adds overhead, and figured
+someone in your seat would have a clear read on it.
 
-I've been digging into how growing practices actually work with their managed IT
-providers, and where that relationship helps versus where it just adds overhead. I
-figured someone in your seat would have a clear read on it.
+${SENDER.intro}. We learn a market by talking with the people running it day to
+day, and it lets us build a network of operators we can be useful to over time.
 
 Any chance you'd have a few minutes in the next week or two? I'm not selling
 anything, just trying to understand the space.
@@ -70,11 +68,11 @@ work with their managed IT providers. Would value your take. Open to a quick cha
 in the next week or two? Not selling anything.`;
 
 const RULES = `Structure (model this on warm investor outreach that works)
-- Open with a brief, human apology for the cold note, woven into who you are and
-  the approach. Do NOT label the message: never write "this is a cold email",
-  "cold note", "[subject]", or any placeholder as a subject or a line of the
-  body. The acknowledgment is a natural apology inside the first sentence, exactly
-  like the gold example.
+- Open with relevance to the recipient. Where the opener goes differs by channel
+  (see the per-channel sections below): an email leads with relevance, while a
+  LinkedIn note may open with a brief apology. Do NOT label the message: never
+  write "this is a cold email", "cold note", "[subject]", or any placeholder as a
+  subject or a line of the body.
 - Say who you are in one line: "${SENDER.intro}".
 - Give the approach briefly: we learn a market by talking with the experienced
   people running it, about what matters and what pain points still need solving,
@@ -101,15 +99,29 @@ Persona angle (the relevance hook)
 
 Email
 - 80 to 120 words, never over 130 (count them). Three SHORT paragraphs separated
-  by a blank line: (1) "Hi <first name>," then the apology woven into who you are
-  and the approach, (2) one or two sentences of personalized relevance using the
-  persona angle, (3) the soft ask. Sign off with "Thanks," then "${SENDER.name}"
-  on their own lines.
+  by a blank line:
+  (1) "Hi <first name>," then open with relevance to the recipient: the persona
+  angle, plus the verified personalization hook if one is provided. The first
+  sentence must be about them or about what you are researching in their world. It
+  must never be about you and never an apology.
+  (2) Who you are and why it is worth their time: "${SENDER.intro}". We learn a
+  market by talking with the people running it day to day, and it lets us build a
+  network of operators we can be useful to over time.
+  (3) The soft ask, and that you are not selling anything. A brief, light
+  acknowledgment that you came in cold is optional and goes here only, never in
+  paragraph one and never in the subject.
+  Sign off with "Thanks," then "${SENDER.name}" on their own lines.
+- The first sentence is about the recipient, not about us. No apology and no
+  self-introduction in the first sentence.
+- With a verified hook, lead the first sentence with it. With no hook, lead with a
+  true observation about their role or industry. Never use an apology as a stand-in
+  for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
   shapes: "quick question on your IT setup", "your take on managed IT",
-  "Cohesium + <company>". Never use the words cold, free, or guaranteed, a fake
-  "Re:", all caps, or exclamation points.
+  "Cohesium + <company>". Never put "sorry", "apologies", or "cold" in the subject.
+  Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
+  points.
 
 LinkedIn
 - No subject. The body is a HARD 300-character maximum including spaces; aim for
