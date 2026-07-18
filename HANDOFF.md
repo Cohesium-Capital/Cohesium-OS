@@ -1,7 +1,8 @@
 # Session Handoff Brief — Cohesium-OS
 
-Last updated: 2026-07-18. Purpose: full context for continuing work in a new
-chat session. Read this top to bottom before doing anything.
+Last updated: 2026-07-18 (evening, post-commit). Purpose: full context for
+continuing work in a new chat session. Read this top to bottom before doing
+anything.
 
 ## What this project is
 
@@ -30,7 +31,7 @@ talking to their customers; (2) run honest outreach to those customers at scale.
 | Thing | Value |
 |---|---|
 | Local dev server | http://localhost:3000 (`npm run dev` in `web/`, must run OUTSIDE sandbox — macOS sandbox blocks a syscall Next.js needs) |
-| Git branch | `feature/learning-loop` (created off latest main; nothing committed yet) |
+| Git branch | `feature/learning-loop`, pushed to origin. Phase 1 committed as `78921d4`. Two untracked leftovers deliberately not committed: `supabase/setup-dev-db.sql`, `setup-dev-db-part2.sql` (one-off dev bootstrap, already applied) |
 | DEV Supabase | project `stsjidclcinuahzstrxc` ("cohesium-dev") — full schema applied (schema.sql + migrations 003–014), safe to iterate |
 | Credentials | all in `web/.env.local` (gitignored): anon key, `SUPABASE_SERVICE_ROLE_KEY` (dev), `SUPABASE_URL`, and `DEV_DATABASE_URL` (Postgres session-pooler conn string, password URL-encoded) |
 | SQL runner | `cd web && set -a && source .env.local && set +a && npx tsx scripts/run-sql.ts <file.sql>` — executes any SQL file against dev via `DEV_DATABASE_URL` |
@@ -67,7 +68,7 @@ layer. Agreed phased roadmap:
 - **Phase 4 — UX flow polish**: merge/rename the two "review" concepts, surface
   enrichment as a pipeline step, next-action guidance, fix nav naming.
 
-## Work completed on `feature/learning-loop` (uncommitted!)
+## Work completed on `feature/learning-loop` (committed & pushed, `78921d4`)
 
 Phase 1 is code-complete, applied to dev DB, tests pass, verified end-to-end:
 
@@ -90,10 +91,10 @@ Phase 1 is code-complete, applied to dev DB, tests pass, verified end-to-end:
    `web/app/api/cron/email/route.ts`, `web/app/api/smartlead/route.ts`,
    `web/app/api/heyreach/route.ts`.
 
-Also created (uncommitted): `supabase/setup-dev-db.sql` and
-`setup-dev-db-part2.sql` (dev bootstrap, already applied), `seed-dev-data.sql`
-(fake demo data, currently in the dev DB), `web/scripts/run-sql.ts`, and
-`pg`/`@types/pg` added to web devDependencies.
+Also in that commit: `supabase/seed-dev-data.sql` (fake demo data, currently
+loaded in the dev DB — about to be wiped, see next steps),
+`web/scripts/run-sql.ts`, `pg`/`@types/pg` in web devDependencies, and this
+handoff doc.
 
 ## IMMEDIATE NEXT STEPS (what we were about to do)
 
@@ -120,8 +121,12 @@ research brain. Later, good data found in dev can be imported into prod.
    createRun+ingestRun is the way.
 5. **User then grades the batch in the app** (/review/grade) — exercises the
    whole eval gate with real data.
-6. After that: commit Phase 1 work to the branch, then Phase 2 (outcomes
-   dashboard).
+6. After that: Phase 2 (outcomes dashboard surfacing `draft_outcomes` in the
+   app UI).
+
+Status when the last session ended: service-role key in place, research not
+yet started (two web searches for VA/NC MSPs were kicked off but interrupted).
+Nothing has been wiped or ingested yet — start at step 1.
 
 ## Deferred / open items
 
@@ -134,4 +139,6 @@ research brain. Later, good data found in dev can be imported into prod.
   scripts; `npm test` covers grading math.
 - Auto-escalation (`shouldEscalate`) and `error_category` capture exist in
   schema/code but are unwired (candidate Phase 3 items).
-- Uncommitted `web/package.json`/`package-lock.json` changes: pg devDependency.
+- A PR can be opened anytime:
+  https://github.com/Cohesium-Capital/Cohesium-OS/pull/new/feature/learning-loop
+  — but do NOT merge to main until migration 014 has been applied to prod.
