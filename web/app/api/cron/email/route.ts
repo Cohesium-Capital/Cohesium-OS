@@ -48,7 +48,7 @@ export async function GET(req: Request) {
         .eq("id", c.id);
       await supabase
         .from("touches")
-        .update({ status: "replied" })
+        .update({ status: "replied", replied_at: new Date().toISOString() })
         .eq("contact_id", c.id)
         .eq("channel", "email")
         .eq("direction", "outbound");

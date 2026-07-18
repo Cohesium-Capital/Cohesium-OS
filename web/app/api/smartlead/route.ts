@@ -32,10 +32,13 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (!contact) return NextResponse.json({ ok: true, note: "no matching contact" });
 
-  async function updateEmailTouches(status: string, onlyFromSent = false) {
+  async function updateEmailTouches(
+    patch: Record<string, unknown>,
+    onlyFromSent = false,
+  ) {
     let q = supabase
       .from("touches")
-      .update({ status })
+      .update(patch)
       .eq("contact_id", contact!.id)
       .eq("channel", "email")
       .eq("direction", "outbound");
@@ -52,11 +55,11 @@ export async function POST(req: Request) {
         stage: "responded",
       })
       .eq("id", contact.id);
-    await updateEmailTouches("replied");
+    await updateEmailTouches({ status: "replied", replied_at: new Date().toISOString() });
   } else if (event.includes("BOUNCE")) {
-    await updateEmailTouches("bounced");
+    await updateEmailTouches({ status: "bounced", bounced_at: new Date().toISOString() });
   } else if (event.includes("SENT")) {
-    await updateEmailTouches("delivered", true);
+    await updateEmailTouches({ status: "delivered" }, true);
   }
 
   return NextResponse.json({ ok: true });

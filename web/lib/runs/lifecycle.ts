@@ -83,7 +83,7 @@ export async function ingestRun(
 ): Promise<IngestOutcome & { batchId?: string | null }> {
   const { data: run, error: rerr } = await supabase
     .from("runs")
-    .select("id, module, batch_id, config")
+    .select("id, module, batch_id, prompt_version_id, config")
     .eq("id", opts.runId)
     .single();
   if (rerr || !run) {
@@ -109,6 +109,7 @@ export async function ingestRun(
   const outcome = await mod.ingest(supabase, parsed.data, {
     runId: run.id,
     batchId: run.batch_id,
+    promptVersionId: run.prompt_version_id ?? null,
     config: (run.config as Record<string, unknown>) ?? {},
     sampleRate,
     requireEvidence: opts.requireEvidence ?? requiresEvidence(run.module as ModuleKey),

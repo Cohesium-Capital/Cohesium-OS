@@ -49,7 +49,7 @@ export async function POST(req: Request) {
       .eq("id", contact.id);
     await supabase
       .from("touches")
-      .update({ status: "replied" })
+      .update({ status: "replied", replied_at: new Date().toISOString() })
       .eq("contact_id", contact.id)
       .eq("channel", "linkedin")
       .eq("direction", "outbound");

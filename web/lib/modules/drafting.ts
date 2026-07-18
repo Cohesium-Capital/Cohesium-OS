@@ -38,8 +38,11 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
     return { ok: true, data: result.data };
   },
 
-  async ingest(supabase, output): Promise<IngestOutcome> {
-    const report = await storeDrafts(supabase, output.drafts);
+  async ingest(supabase, output, ctx): Promise<IngestOutcome> {
+    const report = await storeDrafts(supabase, output.drafts, {
+      runId: ctx.runId,
+      promptVersionId: ctx.promptVersionId ?? null,
+    });
     return {
       ok: report.ok,
       error: report.error,

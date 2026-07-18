@@ -2,6 +2,30 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Draft } from "./contracts";
 import { type DraftReport, EMPTY_DRAFT_REPORT } from "./types";
 
+// Provenance stamped on every stored draft: which run and prompt version
+// produced it. This is what lets reply outcomes be attributed back to the
+// prompt that wrote the message (the learning loop's first edge).
+export type DraftProvenance = {
+  runId?: string | null;
+  promptVersionId?: string | null;
+};
+
+// Resolve the active drafting prompt version, for callers that store drafts
+// outside a run (the Draft page's paste flow, the headless workflow script).
+export async function activeDraftPromptVersion(
+  supabase: SupabaseClient,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("prompt_versions")
+    .select("id")
+    .eq("module", "drafting")
+    .eq("active", true)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 // Client-agnostic draft storage. The web action calls it with a user-session
 // client (RLS); the drafting workflow's headless store calls it with a
 // service-role client. Writes each draft as a planned outbound touch, gated by
@@ -9,6 +33,7 @@ import { type DraftReport, EMPTY_DRAFT_REPORT } from "./types";
 export async function storeDrafts(
   supabase: SupabaseClient,
   drafts: Draft[],
+  provenance: DraftProvenance = {},
 ): Promise<DraftReport> {
   const report: DraftReport = { ...EMPTY_DRAFT_REPORT, messages: [] };
   const ids = [...new Set(drafts.map((d) => d.contact_id))];
@@ -54,11 +79,16 @@ export async function storeDrafts(
     if (overLimit) report.flaggedOverLimit++;
     const subject = d.channel === "email" ? d.subject ?? null : null;
 
+    const prov = {
+      run_id: provenance.runId ?? null,
+      prompt_version_id: provenance.promptVersionId ?? null,
+    };
+
     const existingId = existingKey.get(`${d.contact_id}|${d.channel}`);
     if (existingId) {
       const { error } = await supabase
         .from("touches")
-        .update({ subject, body, status: "planned", approved })
+        .update({ subject, body, status: "planned", approved, ...prov })
         .eq("id", existingId);
       if (error) report.messages.push(`update ${d.contact_id}/${d.channel}: ${error.message}`);
       else report.updated++;
@@ -72,6 +102,7 @@ export async function storeDrafts(
         subject,
         body,
         approved,
+        ...prov,
       });
     }
   }

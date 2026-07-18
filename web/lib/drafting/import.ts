@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { DraftsPayloadSchema } from "./contracts";
-import { storeDrafts } from "./import-core";
+import { activeDraftPromptVersion, storeDrafts } from "./import-core";
 import { type DraftReport, EMPTY_DRAFT_REPORT } from "./types";
 
 function fail(error: string): DraftReport {
@@ -30,5 +30,8 @@ export async function importDrafts(rawText: string): Promise<DraftReport> {
       .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
     return fail(`Validation failed — ${issues.join("; ")}`);
   }
-  return storeDrafts(supabase, result.data.drafts);
+  // The paste flow runs outside a tracked run; still attribute the drafts to
+  // the active prompt version so outcomes can be traced back to it.
+  const promptVersionId = await activeDraftPromptVersion(supabase);
+  return storeDrafts(supabase, result.data.drafts, { promptVersionId });
 }
