@@ -306,7 +306,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
                     className="text-foreground underline underline-offset-2"
                     onClick={() => router.push("/draft")}
                   >
-                    Draft messages (step 5)
+                    Draft messages (step 4)
                   </button>{" "}
                   or check{" "}
                   <button

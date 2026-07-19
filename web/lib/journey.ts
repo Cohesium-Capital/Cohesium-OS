@@ -15,7 +15,7 @@ export type NextAction = {
 };
 
 export async function getNextAction(supabase: SupabaseClient): Promise<NextAction> {
-  const [contactsTotal, unreviewed, awaitingGrade, queued] = await Promise.all([
+  const [contactsTotal, unreviewed, awaitingGrade, pendingEnrich, queued] = await Promise.all([
     supabase.from("contacts").select("id", { count: "exact", head: true }),
     supabase
       .from("contacts")
@@ -27,6 +27,10 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       .eq("sampled", true)
       .eq("review_status", "pending_review")
       .not("batch_id", "is", null),
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("enrichment_status", "pending"),
     supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
@@ -60,7 +64,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
     };
   }
 
-  // 3. Review backlog.
+  // 3. Review backlog (vet before enrich).
   if ((unreviewed.count ?? 0) > 0) {
     const n = unreviewed.count!;
     return {
@@ -68,27 +72,21 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       cta: "Review contacts",
       headline: `${n} contact${n === 1 ? "" : "s"} to review`,
       detail:
-        "Vet the sourced contacts, then send the keepers to enrichment so they pick up an email address for drafting.",
+        "On Review & Enrich: first vet the rows (A), then push keepers to Clay for work emails (B).",
       step: 2,
     };
   }
 
-  // 4. Enrichment: gate-passed contacts that still lack an address can't be
-  //    drafted. Count contacts pending enrichment in passed batches.
-  const { count: needEnrichment } = await supabase
-    .from("contacts")
-    .select("id, batches!inner(gate_status)", { count: "exact", head: true })
-    .eq("enrichment_status", "pending")
-    .eq("batches.gate_status", "passed");
-  if ((needEnrichment ?? 0) > 0) {
-    const n = needEnrichment!;
+  // 4. Enrichment backlog — Clay lives on the same Review page (part B).
+  if ((pendingEnrich.count ?? 0) > 0) {
+    const n = pendingEnrich.count!;
     return {
-      href: "/enrich",
-      cta: "Send to Clay",
-      headline: `${n} contact${n === 1 ? "" : "s"} ready for enrichment`,
+      href: "/review",
+      cta: "Push to Clay",
+      headline: `${n} contact${n === 1 ? "" : "s"} waiting on enrichment`,
       detail:
-        "Their batch passed the gate but they still need an email or phone. Send them through Clay from the Enrich page.",
-      step: 4,
+        "Push pending rows to Clay from Review & Enrich (part B). Clay fills work email — the field drafting needs — plus phone and LinkedIn when it can.",
+      step: 2,
     };
   }
 
@@ -125,7 +123,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       headline: `${draftable} contact${draftable === 1 ? "" : "s"} ready to draft`,
       detail:
         "Their batches passed the gate and they have an address. Copy the drafting prompt, run it, and paste the JSON back.",
-      step: 5,
+      step: 4,
     };
   }
 
@@ -138,7 +136,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       headline: `${n} message${n === 1 ? "" : "s"} queued for review`,
       detail:
         "Read each draft, edit anything that's off, then send the approved ones. Edits are logged as quality signals.",
-      step: 6,
+      step: 5,
     };
   }
 

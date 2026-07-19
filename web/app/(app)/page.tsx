@@ -3,7 +3,6 @@ import {
   Radar,
   ClipboardCheck,
   GraduationCap,
-  Sparkles,
   PenLine,
   Send,
   Activity,
@@ -56,6 +55,12 @@ export default async function HomePage() {
     getNextAction(supabase),
   ]);
 
+  // Review & Enrich shares one card: prefer "to review", else show Clay backlog.
+  const reviewCount = toReview.count ?? 0;
+  const enrichCount = pendingEnrich.count ?? 0;
+  const reviewCardCount = reviewCount > 0 ? reviewCount : enrichCount > 0 ? enrichCount : null;
+  const reviewCardNoun = reviewCount > 0 ? "to review" : "pending Clay";
+
   const steps: Step[] = [
     {
       href: "/source",
@@ -69,11 +74,11 @@ export default async function HomePage() {
     {
       href: "/review",
       step: 2,
-      label: "Review",
+      label: "Review & Enrich",
       icon: ClipboardCheck,
-      blurb: "Vet sourced contacts before they advance.",
-      count: toReview.count ?? null,
-      countNoun: "to review",
+      blurb: "Vet contacts, then push them to Clay for work emails.",
+      count: reviewCardCount,
+      countNoun: reviewCardNoun,
     },
     {
       href: "/review/grade",
@@ -85,17 +90,8 @@ export default async function HomePage() {
       countNoun: "awaiting grade",
     },
     {
-      href: "/enrich",
-      step: 4,
-      label: "Enrich",
-      icon: Sparkles,
-      blurb: "Fill in emails and phones via Clay.",
-      count: pendingEnrich.count ?? null,
-      countNoun: "pending",
-    },
-    {
       href: "/draft",
-      step: 5,
+      step: 4,
       label: "Draft",
       icon: PenLine,
       blurb: "Write outreach for contacts whose batch has passed.",
@@ -104,7 +100,7 @@ export default async function HomePage() {
     },
     {
       href: "/draft/queue",
-      step: 6,
+      step: 5,
       label: "Send",
       icon: Send,
       blurb: "Approve and send the queued outreach touches.",
@@ -142,7 +138,7 @@ export default async function HomePage() {
         </Button>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {steps.map((s) => {
           const Icon = s.icon;
           return (

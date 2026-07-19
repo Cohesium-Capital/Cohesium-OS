@@ -2,7 +2,15 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { ReviewRow } from "@/lib/sourcing/types";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ReviewGrid } from "./review-grid";
+import { PushToClayButton } from "./push-to-clay-button";
 
 type ContactRow = {
   id: string;
@@ -84,10 +92,11 @@ export default async function ReviewPage({
   const total = count ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Enrichment progress across ALL contacts (not just this page), so the
-  // Clay round-trip is visible as a pipeline stage instead of two mystery
-  // buttons: pending → (Clay) → enriched/failed.
-  const [pendingEnrich, enriched, failedEnrich] = await Promise.all([
+  const [unreviewed, pendingEnrich, enriched, failedEnrich] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("reviewed", false),
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
@@ -101,7 +110,8 @@ export default async function ReviewPage({
       .select("id", { count: "exact", head: true })
       .in("enrichment_status", ["failed", "low_confidence"]),
   ]);
-  const enrichCounts = {
+  const counts = {
+    unreviewed: unreviewed.count ?? 0,
     pending: pendingEnrich.count ?? 0,
     enriched: enriched.count ?? 0,
     failed: failedEnrich.count ?? 0,
@@ -109,56 +119,104 @@ export default async function ReviewPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Review</h1>
-          <p className="text-sm text-muted-foreground">
-            Sourced contacts. Flagged rows need a look before enrichment.
-          </p>
-        </div>
-        <Button variant="outline" nativeButton={false} render={<Link href="/enrich" />}>
-          Enrichment (step 4) →
-        </Button>
+      <div>
+        <h1 className="text-2xl font-semibold">Review &amp; Enrich</h1>
+        <p className="text-sm text-muted-foreground">
+          Two jobs on this page: vet the sourced contacts, then send keepers through Clay so they
+          get a work email (and phone / LinkedIn) before drafting.
+        </p>
       </div>
 
-      {/* Enrichment progress at a glance; the actions live on /enrich. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border px-4 py-2.5 text-sm">
-        <span className="text-[0.68rem] font-semibold uppercase tracking-wider text-muted-foreground/70">
-          Enrichment
-        </span>
-        <span>
-          <span className="font-semibold tabular-nums">{enrichCounts.pending}</span>{" "}
-          <span className="text-muted-foreground">pending</span>
-        </span>
-        <span>
-          <span className="font-semibold tabular-nums">{enrichCounts.enriched}</span>{" "}
-          <span className="text-muted-foreground">enriched</span>
-        </span>
-        <span>
-          <span className="font-semibold tabular-nums">{enrichCounts.failed}</span>{" "}
-          <span className="text-muted-foreground">failed / low-confidence</span>
-        </span>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {enrichCounts.pending > 0 ? (
-            <>
-              <Link href="/enrich" className="text-foreground underline underline-offset-2">
-                Send pending to Clay (step 4)
-              </Link>{" "}
-              — rows flip to enriched when Clay writes back.
-            </>
-          ) : enrichCounts.enriched > 0 ? (
-            <>
-              Enriched contacts are ready to{" "}
-              <Link href="/draft" className="text-foreground underline underline-offset-2">
-                draft (step 5)
-              </Link>{" "}
-              once their batch passes the gate.
-            </>
-          ) : (
-            <>Nothing to enrich yet — source contacts first.</>
-          )}
-        </span>
+      {/* How-to: make the Review → Enrich sequence self-evident. */}
+      <div className="grid gap-3 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
+                A
+              </span>
+              Vet the contacts
+            </CardTitle>
+            <CardDescription>
+              Scan the grid below. Flagged / unreviewed rows need a look — check company, title,
+              LinkedIn, and estimated MSP. Delete junk; mark keepers as reviewed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <span className="font-semibold tabular-nums">{counts.unreviewed}</span>{" "}
+            <span className="text-muted-foreground">still unreviewed</span>
+            {counts.unreviewed > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-3"
+                nativeButton={false}
+                render={<Link href="/review?flagged=1" />}
+              >
+                Show unreviewed
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className={counts.pending > 0 ? "border-primary/30 bg-primary/5" : undefined}>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
+                B
+              </span>
+              Enrich via Clay
+            </CardTitle>
+            <CardDescription>
+              Clay finds the missing <strong>work email</strong> (plus phone / LinkedIn when it
+              can). Contacts can&rsquo;t be drafted until they have an address. Push or export
+              pending rows; statuses flip when Clay writes back.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span>
+                <span className="font-semibold tabular-nums">{counts.pending}</span>{" "}
+                <span className="text-muted-foreground">pending</span>
+              </span>
+              <span>
+                <span className="font-semibold tabular-nums">{counts.enriched}</span>{" "}
+                <span className="text-muted-foreground">enriched</span>
+              </span>
+              <span>
+                <span className="font-semibold tabular-nums">{counts.failed}</span>{" "}
+                <span className="text-muted-foreground">failed</span>
+              </span>
+            </div>
+            {counts.pending > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <PushToClayButton />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link href="/api/enrichment/export" prefetch={false} />}
+                >
+                  Export CSV for Clay
+                </Button>
+              </div>
+            ) : counts.enriched > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing pending. Enriched contacts with an address can{" "}
+                <Link href="/draft" className="text-foreground underline underline-offset-2">
+                  draft (step 4)
+                </Link>{" "}
+                once their batch passes Grade.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Nothing to enrich yet — finish a sourcing run first.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
       <ReviewGrid
         key={`${page}|${q}|${flagged ? 1 : 0}`}
         initialRows={rows}

@@ -105,7 +105,7 @@ export default async function DraftPage() {
       reason = {
         text: "Every draftable contact already has a message in the send queue. Review and send those, or send some back here for re-drafting.",
         href: "/draft/queue",
-        cta: "Open the send queue (step 6)",
+        cta: "Open the send queue (step 5)",
       };
     } else if ((data ?? []).length > 0) {
       reason = {
@@ -115,15 +115,15 @@ export default async function DraftPage() {
       };
     } else if ((pendingEnrichment ?? 0) > 0) {
       reason = {
-        text: `${pendingEnrichment} contact${(pendingEnrichment ?? 0) === 1 ? " is" : "s are"} still waiting on enrichment — no email or LinkedIn yet. Send them through Clay.`,
-        href: "/enrich",
-        cta: "Go to Enrich (step 4)",
+        text: `${pendingEnrichment} contact${(pendingEnrichment ?? 0) === 1 ? " is" : "s are"} still waiting on enrichment — no email or LinkedIn yet. On Review & Enrich, push pending rows to Clay (part B).`,
+        href: "/review",
+        cta: "Go to Review & Enrich (step 2)",
       };
     } else {
       reason = {
-        text: "No contact has an email or LinkedIn address to write to. Check enrichment results, or source more contacts.",
-        href: "/enrich",
-        cta: "Go to Enrich (step 4)",
+        text: "No contact has an email or LinkedIn address to write to. Check Clay results on Review & Enrich, or source more contacts.",
+        href: "/review",
+        cta: "Go to Review & Enrich (step 2)",
       };
     }
 

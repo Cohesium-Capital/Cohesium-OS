@@ -209,7 +209,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
               {report.ok && report.drafted + report.updated > 0 && (
                 <div>
                   <Button size="sm" nativeButton={false} render={<Link href="/draft/queue" />}>
-                    Review & send (step 6) →
+                    Review & send (step 5) →
                   </Button>
                 </div>
               )}
