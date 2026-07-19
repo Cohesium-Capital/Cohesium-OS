@@ -22,7 +22,7 @@ production:
 | Variable | Purpose |
 |----------|---------|
 | `CLAY_TABLE_WEBHOOK_URL` | The webhook-source URL of your Clay table. Required for the "Push pending to Clay" button; the CSV export works without it. |
-| `ENRICHMENT_WEBHOOK_SECRET` | Shared secret Clay must send back with enriched rows. Required for the write-back to be accepted. Pick any long random string. |
+| `ENRICHMENT_WEBHOOK_SECRET` | Shared secret Clay must send back with enriched rows. **Optional for now:** when unset, `/api/enrichment` accepts write-backs with no token (local/dev). When set, Clay must send `Authorization: Bearer <secret>` (or `x-webhook-secret`). |
 
 ### 2. Create the Clay table
 
@@ -50,8 +50,10 @@ the final step of the table:
   (for local dev: `http://localhost:3000/api/enrichment`, reachable only if
   Clay can see your machine — in practice test the endpoint with `curl`).
 - **Headers:**
-  - `Authorization: Bearer <ENRICHMENT_WEBHOOK_SECRET>`
   - `Content-Type: application/json`
+  - Optional (only if `ENRICHMENT_WEBHOOK_SECRET` is set on the app):
+    `Authorization: Bearer <ENRICHMENT_WEBHOOK_SECRET>`
+    (or `x-webhook-secret: <secret>`)
 - **Body:** map Clay columns into this shape (only `contact_id` is required):
 
 ```json
@@ -109,6 +111,6 @@ answered yet", and re-running the export/push simply retries the stragglers
 |---------|--------------|
 | "CLAY_TABLE_WEBHOOK_URL is not set" toast | Env var missing in `web/.env.local` / Vercel. |
 | Push reports many failures with `HTTP 429` | Clay rate-limiting a big burst; re-run the push — retries + dedupe make it idempotent. |
-| Write-back returns 401 | `Authorization` header doesn't match `ENRICHMENT_WEBHOOK_SECRET`. |
+| Write-back returns 401 | `ENRICHMENT_WEBHOOK_SECRET` is set on the app but Clay’s `Authorization` / `x-webhook-secret` header doesn’t match (or is missing). Unset the secret locally to skip auth for now. |
 | Write-back errors `no matching contact` | The `contact_id` body mapping in Clay's HTTP column is wrong (must echo the `contact_id` column verbatim). |
 | Contacts stuck on "pending" forever | Write-back step missing/failing in Clay — check the HTTP column's run history. |

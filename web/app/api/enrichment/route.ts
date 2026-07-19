@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Write-back endpoint for the enrichment service (Clay). Clay POSTs enriched
-// rows here; we fill the contact and flip enrichment_status. Authenticated by a
-// shared secret (Clay isn't a logged-in user), so it uses the service-role
-// client. Accepts a single object, an array, or { rows: [...] }.
+// rows here; we fill the contact and flip enrichment_status. Auth is optional:
+// when ENRICHMENT_WEBHOOK_SECRET is set, Clay must send it (Bearer or
+// x-webhook-secret); when unset, write-backs are accepted without a token.
+// Uses the service-role client because Clay isn't a logged-in user. Accepts a
+// single object, an array, or { rows: [...] }.
 //
 // Row shape: { contact_id, email?, linkedin_url?, phone?, personalization?, status? }
 
@@ -24,11 +26,16 @@ function clean(v: string | null | undefined): string | null {
 
 export async function POST(req: Request) {
   const secret = process.env.ENRICHMENT_WEBHOOK_SECRET;
-  const header =
-    req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
-  const provided = header.replace(/^Bearer\s+/i, "");
-  if (!secret || provided !== secret) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Auth is optional for now: when the secret is unset, accept write-backs
+  // without a token (local/dev). When it is set (prod / teammates), require a
+  // matching Authorization: Bearer … or x-webhook-secret header.
+  if (secret) {
+    const header =
+      req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
+    const provided = header.replace(/^Bearer\s+/i, "");
+    if (provided !== secret) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
   }
 
   let body: unknown;
