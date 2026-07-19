@@ -10,6 +10,7 @@ import {
   Send,
   Building2,
   Activity,
+  TrendingUp,
   Settings,
   LogOut,
   type LucideIcon,
@@ -40,6 +41,7 @@ const PIPELINE: NavItem[] = [
 
 const DATA: NavItem[] = [
   { href: "/runs", label: "Runs", icon: Activity },
+  { href: "/outcomes", label: "Outcomes", icon: TrendingUp },
   { href: "/msps", label: "MSPs", icon: Building2 },
 ];
 
