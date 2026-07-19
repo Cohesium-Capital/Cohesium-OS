@@ -15,6 +15,7 @@ import {
 import { sendApproved } from "@/lib/send/send";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ContactKindBadge } from "@/components/contact-kind-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -257,6 +258,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
+                      <ContactKindBadge kind={r.org_kind} />
                       <Badge variant="outline">{r.channel}</Badge>
                       {!r.approved && (
                         <Badge variant="secondary" className="text-[0.65rem]">
@@ -351,6 +353,11 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
             <DialogTitle>Edit draft</DialogTitle>
             <DialogDescription>
               {editing?.contact_name} · {editing?.company} · {editing?.channel}
+              {editing?.org_kind === "msp"
+                ? " · MSP target"
+                : editing?.org_kind === "customer"
+                  ? " · customer"
+                  : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">

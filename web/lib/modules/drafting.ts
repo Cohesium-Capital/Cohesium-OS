@@ -1,5 +1,5 @@
 import { DraftsPayloadSchema, type DraftsPayload } from "../drafting/contracts";
-import { buildDraftPrompt, type DraftContact } from "../drafting/prompt";
+import { buildDraftPrompt, trackKindOf, type DraftContact } from "../drafting/prompt";
 import { storeDrafts } from "../drafting/import-core";
 import type { RunModule, IngestOutcome } from "./types";
 
@@ -18,7 +18,10 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   label: "drafted messages",
 
   renderPrompt(_template, config) {
-    return buildDraftPrompt(config.contacts ?? []);
+    // Derive the audience track from the batch so a module-driven run of MSP
+    // contacts never gets the customer framing (mixed/unknown → customer).
+    const contacts = config.contacts ?? [];
+    return buildDraftPrompt(contacts, trackKindOf(contacts));
   },
 
   parse(rawText) {

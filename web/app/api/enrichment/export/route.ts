@@ -27,6 +27,7 @@ export async function GET() {
     "company_name",
     "company_domain",
     "linkedin_url",
+    "org_kind",
   ];
   const lines = [header.join(",")];
   for (const r of rows) {
@@ -39,6 +40,7 @@ export async function GET() {
         r.organizations?.name ?? "",
         r.organizations?.domain ?? "",
         r.linkedin_url,
+        r.organizations?.kind ?? "",
       ]
         .map(cell)
         .join(","),

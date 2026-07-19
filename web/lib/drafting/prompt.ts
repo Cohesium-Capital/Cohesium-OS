@@ -1,6 +1,16 @@
 // Builds the drafting prompt you paste into Claude/ChatGPT (web search on, so it
 // can personalize from a real company detail). Returns JSON matching
 // lib/drafting/contracts.ts, pasted back into the draft importer.
+//
+// Two tracks, one honest premise. The pipeline carries two audiences that need
+// different registers:
+//   - "customer": people who run or lead IT at a company that USES an MSP —
+//     the conversation is about how they work with their IT provider.
+//   - "msp": people who own or run an MSP — the acquisition targets. The
+//     conversation is about building and operating an MSP, from the operator's
+//     side. Never frame them as someone else's IT customer.
+// Batches are single-track by construction (the Draft page separates them), so
+// each generated prompt speaks one register throughout.
 
 // Edit SENDER to change how the sender introduces themselves. Keep it honest.
 export const SENDER = {
@@ -8,6 +18,8 @@ export const SENDER = {
   // The one-line "who I am". Refer to the firm only as "Cohesium".
   intro: "I'm a cofounder of Cohesium, an investment firm",
 };
+
+export type TrackKind = "msp" | "customer";
 
 export type DraftContact = {
   contact_id: string;
@@ -18,16 +30,25 @@ export type DraftContact = {
   company_domain: string | null;
   city: string | null;
   current_msp: string | null;
+  org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
   channels: ("email" | "linkedin")[];
 };
 
-const HEADER = `You draft warm cold-outreach for ${SENDER.name} at Cohesium. Each recipient
+// The JSON contract is shared by both tracks; only the recipient framing forks.
+const HEADER_FRAMING: Record<TrackKind, string> = {
+  customer: `You draft warm cold-outreach for ${SENDER.name} at Cohesium. Each recipient
 runs or leads IT at a company that uses a managed IT service provider (an MSP).
 The goal is an honest ask for a short conversation about how companies like
 theirs work with their IT provider. ${SENDER.name} is genuinely researching the
-managed IT market and is not selling anything.
+managed IT market and is not selling anything.`,
+  msp: `You draft warm cold-outreach for ${SENDER.name} at Cohesium. Each recipient
+owns or helps run a managed IT service provider (an MSP). The goal is an honest
+ask for a short conversation about what it takes to build and operate an MSP
+today, from the operator's side. ${SENDER.name} is genuinely researching the
+managed IT market and is not selling anything.`,
+};
 
-For EACH contact listed below, draft a message for EACH channel on that contact's
+const HEADER_CONTRACT = `For EACH contact listed below, draft a message for EACH channel on that contact's
 line. Return ONLY a single JSON object, no markdown and no commentary:
 
 {
@@ -39,10 +60,15 @@ line. Return ONLY a single JSON object, no markdown and no commentary:
 Use the exact contact_id from each line. Sign emails as ${SENDER.name}. "subject"
 is a short line for email and null for linkedin.`;
 
+function header(kind: TrackKind): string {
+  return [HEADER_FRAMING[kind], "", HEADER_CONTRACT].join("\n");
+}
+
 // One worked example per channel. Showing the voice beats describing it, and it
 // is the surest way to stop the model from leaking a meta-label like "this is a
 // cold email" as a subject or body line.
-const GOLD = `Gold examples (imitate this voice and shape, never copy the facts)
+const GOLD: Record<TrackKind, string> = {
+  customer: `Gold examples (imitate this voice and shape, never copy the facts)
 
 Email —
 Subject: quick question on your IT setup
@@ -65,9 +91,59 @@ ${SENDER.name}
 LinkedIn —
 Hi Jim, apologies for the cold note. ${SENDER.intro} researching how companies
 work with their managed IT providers. Would value your take. Open to a quick chat
-in the next week or two? Not selling anything.`;
+in the next week or two? Not selling anything.`,
+  msp: `Gold examples (imitate this voice and shape, never copy the facts)
 
-const RULES = `Structure (model this on warm investor outreach that works)
+Email —
+Subject: your take on the MSP market
+
+Hi Tom,
+
+I've been talking with people who've built managed IT businesses in the
+mid-Atlantic about where the market is heading, what's getting harder, what
+still makes the model work, and figured a founder in your seat would have a
+clear read on it.
+
+${SENDER.intro}. We learn a market by talking with the people running it day to
+day, and it lets us build a network of operators we can be useful to over time.
+
+Any chance you'd have a few minutes in the next week or two? I'm not selling
+anything, just trying to understand the business from the operator's side.
+
+Thanks,
+${SENDER.name}
+
+LinkedIn —
+Hi Sam, apologies for the cold note. ${SENDER.intro} researching the managed IT
+market from the operator's side. Would value your read on where things are
+heading for MSPs. Open to a quick chat? Not selling anything.`,
+};
+
+// The relevance hook per persona, forked by track: customer personas talk about
+// living with an IT provider; MSP personas talk about running the business.
+const PERSONA_ANGLES: Record<TrackKind, string> = {
+  customer: `Persona angle (the relevance hook)
+- owner: keeping technology and security dependable as the business grows,
+  without IT becoming a distraction.
+- head_of_it: where managed services genuinely help versus where they just
+  commoditize the work.
+- other: a neutral version of the owner angle.`,
+  msp: `Persona angle (the relevance hook)
+- owner: what it takes to build and grow a healthy MSP right now, from pricing
+  pressure to talent to the security workload, and where the market is heading.
+- head_of_it: how service delivery is changing, with tooling and automation,
+  versus what clients actually value and will pay for.
+- other: a neutral version of the owner angle.`,
+};
+
+// What we credit the recipient's perspective on, per track.
+const PERSPECTIVE: Record<TrackKind, string> = {
+  customer: "how companies like theirs work with managed IT",
+  msp: "what it takes to run a managed IT business today",
+};
+
+function rules(kind: TrackKind): string {
+  return `Structure (model this on warm investor outreach that works)
 - Open with relevance to the recipient. Where the opener goes differs by channel
   (see the per-channel sections below): an email leads with relevance, while a
   LinkedIn note may open with a brief apology. Do NOT label the message: never
@@ -81,21 +157,23 @@ const RULES = `Structure (model this on warm investor outreach that works)
 - Personalize with ONE true, verifiable detail, and strongly prefer something
   from the LAST 12 MONTHS: a recent talk, panel, podcast, or conference
   appearance (speaking engagements are especially good), a recent company
-  announcement or news, or a recent post. Then credit their perspective on how
-  companies like theirs work with managed IT.
+  announcement or news, or a recent post. Then credit their perspective on
+  ${PERSPECTIVE[kind]}.
 - VERIFY every specific claim with web search before using it. Only state a fact
   you can confirm from a citable source. If you cannot verify a recent, specific
   detail, do not invent one. Open with an honest observation about their role or
   industry instead.
 - Close with a soft ask: a few minutes to chat in the next week or two, and say
-  plainly you are not selling anything.
+  plainly you are not selling anything.${
+    kind === "customer"
+      ? `
+- A contact line may carry a current_msp=<name> token: that is the provider
+  serving their company. Use it only as background for your framing — never name
+  their provider in the message, and never imply you are checking up on it.`
+      : ""
+  }
 
-Persona angle (the relevance hook)
-- owner: keeping technology and security dependable as the business grows,
-  without IT becoming a distraction.
-- head_of_it: where managed services genuinely help versus where they just
-  commoditize the work.
-- other: a neutral version of the owner angle.
+${PERSONA_ANGLES[kind]}
 
 Email
 - 80 to 120 words, never over 130 (count them). Three SHORT paragraphs separated
@@ -118,8 +196,13 @@ Email
   for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
-  shapes: "quick question on your IT setup", "your take on managed IT",
-  "Cohesium + <company>". Never put "sorry", "apologies", or "cold" in the subject.
+  shapes: ${
+    kind === "customer"
+      ? `"quick question on your IT setup", "your take on managed IT",
+  "Cohesium + <company>"`
+      : `"your take on the MSP market", "the state of managed IT",
+  "Cohesium + <company>"`
+  }. Never put "sorry", "apologies", or "cold" in the subject.
   Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
   points.
 
@@ -138,7 +221,7 @@ Honesty: never invent a detail, event, mutual connection, or claim. With no
 verifiable detail, open with an honest observation about their role or industry
 rather than a fabricated specific. Plain and credible beats clever.
 
-${GOLD}
+${GOLD[kind]}
 
 Before you return the JSON, re-read every draft and fix any that fail: no
 meta-label or placeholder as a subject or a body line, the personalized detail is
@@ -148,8 +231,9 @@ no spam words, each LinkedIn body is 300 characters or fewer, and there are no
 em-dashes, semicolons, bullet points, or filler. Quality over quantity — if you
 cannot personalize a contact honestly, keep it simple and credible rather than
 clever.`;
+}
 
-function renderContactLines(contacts: DraftContact[]): string {
+function renderContactLines(contacts: DraftContact[], kind: TrackKind): string {
   return contacts
     .map((c, i) => {
       const company = c.company_domain
@@ -162,7 +246,10 @@ function renderContactLines(contacts: DraftContact[]): string {
         c.title ? `title=${c.title}` : "",
         `company=${company}`,
         c.city ? `city=${c.city}` : "",
-        c.current_msp ? `current_msp=${c.current_msp}` : "",
+        // The current_msp token is customer-track context (and its handling
+        // rule only exists there). On the msp track a stray value would invite
+        // the model to frame an MSP owner as someone else's IT customer.
+        kind === "customer" && c.current_msp ? `current_msp=${c.current_msp}` : "",
         `channels: ${c.channels.join(", ")}`,
       ].filter(Boolean);
       return parts.join("; ");
@@ -170,8 +257,28 @@ function renderContactLines(contacts: DraftContact[]): string {
     .join("\n");
 }
 
-export function buildDraftPrompt(contacts: DraftContact[]): string {
-  return [HEADER, "", RULES, "", "Contacts:", renderContactLines(contacts)].join("\n");
+export function buildDraftPrompt(
+  contacts: DraftContact[],
+  kind: TrackKind = "customer",
+): string {
+  return [
+    header(kind),
+    "",
+    rules(kind),
+    "",
+    "Contacts:",
+    renderContactLines(contacts, kind),
+  ].join("\n");
+}
+
+// Derive the track from a batch's contacts: msp only when the batch is
+// uniformly MSP-side. Mixed or unknown batches fall back to the customer
+// framing (the original register) — callers that can, should pass kind
+// explicitly instead.
+export function trackKindOf(contacts: DraftContact[]): TrackKind {
+  return contacts.length > 0 && contacts.every((c) => c.org_kind === "msp")
+    ? "msp"
+    : "customer";
 }
 
 // Orchestration prompt for Claude Code: instead of pasting one chunk into a chat,
@@ -182,12 +289,18 @@ export function buildDraftPrompt(contacts: DraftContact[]): string {
 export function buildDraftAgentPrompt(
   contacts: DraftContact[],
   chunkSize = 15,
+  kind: TrackKind = "customer",
 ): string {
   const n = contacts.length;
   const chunks = Math.max(1, Math.ceil(n / chunkSize));
+  const audience =
+    kind === "msp"
+      ? "Every contact below owns or helps run a managed IT service provider (an MSP) — the outreach is about operating an MSP, from the operator's side."
+      : "Every contact below runs or leads IT at a company that uses a managed IT service provider — the outreach is about how they work with their IT provider.";
   const orchestration = `You are running a batch cold-outreach drafting job in Claude Code for
-${SENDER.name} at Cohesium. There are ${n} contacts below. Do NOT draft them all
-yourself in one pass — fan the work out so each message gets real research:
+${SENDER.name} at Cohesium. There are ${n} contacts below. ${audience}
+Do NOT draft them all yourself in one pass — fan the work out so each message
+gets real research:
 
 1. Split the ${n} contacts into ${chunks} chunk(s) of up to ${chunkSize}.
 2. Spawn one subagent per chunk with the Task tool, running them in parallel.
@@ -211,7 +324,12 @@ Use the exact contact_id from each line. Sign emails as ${SENDER.name}. "subject
 is a short line for email and null for linkedin. Draft a message for every
 channel listed on a contact's line.`;
 
-  return [orchestration, "", RULES, "", `Contacts (${n}):`, renderContactLines(contacts)].join(
-    "\n",
-  );
+  return [
+    orchestration,
+    "",
+    rules(kind),
+    "",
+    `Contacts (${n}):`,
+    renderContactLines(contacts, kind),
+  ].join("\n");
 }

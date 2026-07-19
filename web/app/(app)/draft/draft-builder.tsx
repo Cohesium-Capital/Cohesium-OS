@@ -7,6 +7,7 @@ import {
   buildDraftPrompt,
   buildDraftAgentPrompt,
   type DraftContact,
+  type TrackKind,
 } from "@/lib/drafting/prompt";
 import { importDrafts } from "@/lib/drafting/import";
 import type { DraftReport } from "@/lib/drafting/types";
@@ -41,16 +42,43 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
   const [mode, setMode] = useState<Mode>("single");
   const [size, setSize] = useState(20);
 
-  const effSize = clampSize(size, contacts.length || 1);
-  const batch = useMemo(() => contacts.slice(0, effSize), [contacts, effSize]);
+  // Two campaigns share this page: MSP acquisition targets and MSP customers
+  // need different framing, so a batch never mixes them. organizations.kind is
+  // tri-state ('msp' | 'customer' | 'unknown', the legacy default): unknowns
+  // ride the customer track, which keeps the original framing — reclassify the
+  // org if that's wrong.
+  const mspContacts = useMemo(
+    () => contacts.filter((c) => c.org_kind === "msp"),
+    [contacts],
+  );
+  const customerContacts = useMemo(
+    () => contacts.filter((c) => c.org_kind !== "msp"),
+    [contacts],
+  );
+  const [track, setTrackState] = useState<TrackKind>(
+    customerContacts.length ? "customer" : "msp",
+  );
+  const trackContacts = track === "msp" ? mspContacts : customerContacts;
+
+  // Switching audience re-clamps the batch size, so the input never sits above
+  // its own max showing a number the generated prompt doesn't use.
+  function setTrack(next: TrackKind) {
+    setTrackState(next);
+    const len = (next === "msp" ? mspContacts : customerContacts).length;
+    setSize((s) => clampSize(s, len || 1));
+  }
+  const trackLabel = track === "msp" ? "MSP-target" : "customer";
+
+  const effSize = clampSize(size, trackContacts.length || 1);
+  const batch = useMemo(() => trackContacts.slice(0, effSize), [trackContacts, effSize]);
   const prompt = useMemo(
     () =>
       mode === "single"
-        ? buildDraftPrompt(batch)
-        : buildDraftAgentPrompt(contacts, effSize),
-    [mode, batch, contacts, effSize],
+        ? buildDraftPrompt(batch, track)
+        : buildDraftAgentPrompt(trackContacts, effSize, track),
+    [mode, batch, trackContacts, effSize, track],
   );
-  const chunks = Math.max(1, Math.ceil(contacts.length / effSize));
+  const chunks = Math.max(1, Math.ceil(trackContacts.length / effSize));
 
   async function copyPrompt() {
     await navigator.clipboard.writeText(prompt);
@@ -101,8 +129,8 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
             {contacts.length === 0
               ? "No contacts with an email or LinkedIn yet."
               : mode === "single"
-                ? `Generates a prompt for the first ${batch.length} of ${contacts.length} contact(s). Paste it into Claude/ChatGPT with web search on, bring the JSON back, then repeat for the next batch.`
-                : `Hands all ${contacts.length} contact(s) to Claude Code, which fans them out to ${chunks} subagent(s) of up to ${effSize} each, then returns one combined JSON.`}
+                ? `Generates a prompt for the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s). Paste it into Claude/ChatGPT with web search on, bring the JSON back, then repeat for the next batch.`
+                : `Hands all ${trackContacts.length} ${trackLabel} contact(s) to Claude Code, which fans them out to ${chunks} subagent(s) of up to ${effSize} each, then returns one combined JSON.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -111,6 +139,27 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
           ) : (
             <>
               <div className="flex flex-wrap items-end gap-4 rounded-md border bg-muted/40 px-3 py-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-muted-foreground">Audience</Label>
+                  <div className="flex gap-1">
+                    <Button
+                      variant={track === "msp" ? "default" : "outline"}
+                      size="sm"
+                      disabled={mspContacts.length === 0}
+                      onClick={() => setTrack("msp")}
+                    >
+                      MSP targets ({mspContacts.length})
+                    </Button>
+                    <Button
+                      variant={track === "customer" ? "default" : "outline"}
+                      size="sm"
+                      disabled={customerContacts.length === 0}
+                      onClick={() => setTrack("customer")}
+                    >
+                      Customers ({customerContacts.length})
+                    </Button>
+                  </div>
+                </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs text-muted-foreground">Mode</Label>
                   <div className="flex gap-1">
@@ -139,9 +188,11 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
                       id="size"
                       type="number"
                       min={1}
-                      max={contacts.length}
+                      max={trackContacts.length}
                       value={size}
-                      onChange={(e) => setSize(clampSize(Number(e.target.value), contacts.length))}
+                      onChange={(e) =>
+                        setSize(clampSize(Number(e.target.value), trackContacts.length))
+                      }
                       className="w-24"
                     />
                     <div className="flex gap-1">
@@ -151,7 +202,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
                           variant="ghost"
                           size="sm"
                           className="px-2 text-muted-foreground"
-                          onClick={() => setSize(clampSize(n, contacts.length))}
+                          onClick={() => setSize(clampSize(n, trackContacts.length))}
                         >
                           {n}
                         </Button>

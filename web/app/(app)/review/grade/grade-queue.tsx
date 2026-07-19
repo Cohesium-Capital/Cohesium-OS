@@ -10,6 +10,7 @@ import type { GateMetrics } from "@/lib/grading/gate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ContactKindBadge } from "@/components/contact-kind-badge";
 import { Textarea } from "@/components/ui/textarea";
 
 export type GradeContact = {
@@ -29,6 +30,8 @@ export type GradeContact = {
   evidence: { url: string; via?: string }[];
   org_name: string;
   org_domain: string | null;
+  org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
+  customer_of: string | null; // resolved MSP name, only for kind='customer' contacts
 };
 
 // Which contact fields are correctable for each module, and the property each maps to.
@@ -264,8 +267,14 @@ export function GradeQueue({
                   {current.org_name}
                   {current.org_domain ? ` (${current.org_domain})` : ""}
                 </div>
+                {current.customer_of && (
+                  <div className="text-xs text-muted-foreground">
+                    Customer of {current.customer_of}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
+                <ContactKindBadge kind={current.org_kind} />
                 <Badge variant="outline">{current.batch_label}</Badge>
                 {current.persona && <Badge variant="outline">{current.persona}</Badge>}
                 {current.confidence && <Badge variant="secondary">{current.confidence}</Badge>}

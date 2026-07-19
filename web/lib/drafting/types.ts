@@ -28,4 +28,5 @@ export type QueueRow = {
   approved: boolean;
   contact_name: string | null;
   company: string;
+  org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
 };

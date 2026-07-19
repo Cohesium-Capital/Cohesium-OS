@@ -26,26 +26,30 @@ export default async function QueuePage() {
   const orgIds = [
     ...new Set(touches.map((t) => t.contacts?.organization_id).filter(Boolean)),
   ] as string[];
-  const orgName = new Map<string, string>();
+  const orgInfo = new Map<string, { name: string; kind: string | null }>();
   if (orgIds.length) {
     const { data: orgs } = await supabase
       .from("organizations")
-      .select("id, name")
+      .select("id, name, kind")
       .in("id", orgIds);
-    orgs?.forEach((o) => orgName.set(o.id, o.name));
+    orgs?.forEach((o) => orgInfo.set(o.id, { name: o.name, kind: o.kind ?? null }));
   }
 
-  const rows: QueueRow[] = touches.map((t) => ({
-    id: t.id,
-    channel: t.channel,
-    subject: t.subject,
-    body: t.body,
-    approved: t.approved,
-    contact_name: t.contacts?.full_name ?? null,
-    company: t.contacts?.organization_id
-      ? orgName.get(t.contacts.organization_id) ?? "—"
-      : "—",
-  }));
+  const rows: QueueRow[] = touches.map((t) => {
+    const org = t.contacts?.organization_id
+      ? orgInfo.get(t.contacts.organization_id)
+      : undefined;
+    return {
+      id: t.id,
+      channel: t.channel,
+      subject: t.subject,
+      body: t.body,
+      approved: t.approved,
+      contact_name: t.contacts?.full_name ?? null,
+      company: org?.name ?? "—",
+      org_kind: org?.kind ?? null,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-6">

@@ -16,10 +16,11 @@ export type PendingContact = {
   title: string | null;
   persona: string | null;
   linkedin_url: string | null;
-  organizations: { name: string; domain: string | null } | null;
+  organizations: { name: string; domain: string | null; kind: string | null } | null;
 };
 
-const SELECT = "id, full_name, title, persona, linkedin_url, organizations!inner(name, domain)";
+const SELECT =
+  "id, full_name, title, persona, linkedin_url, organizations!inner(name, domain, kind)";
 const PAGE = 1000;
 
 export async function fetchAllPendingContacts(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type ColumnDef,
@@ -16,6 +17,7 @@ import { setReviewed, deleteContacts } from "@/lib/sourcing/review-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ContactKindBadge } from "@/components/contact-kind-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -145,8 +147,11 @@ export function ReviewGrid({
         accessorKey: "org_name",
         header: "Company",
         cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span>{row.original.org_name}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="flex items-center gap-1.5">
+              {row.original.org_name}
+              <ContactKindBadge kind={row.original.org_kind} />
+            </span>
             {row.original.org_domain && (
               <span className="text-xs text-muted-foreground">
                 {row.original.org_domain}
@@ -158,7 +163,17 @@ export function ReviewGrid({
       {
         accessorKey: "estimated_msp",
         header: "Estimated MSP",
-        cell: ({ row }) => row.original.estimated_msp ?? "—",
+        cell: ({ row }) =>
+          row.original.estimated_msp ? (
+            <Link
+              href={`/msps?q=${encodeURIComponent(row.original.estimated_msp)}`}
+              className="underline-offset-2 hover:underline"
+            >
+              {row.original.estimated_msp}
+            </Link>
+          ) : (
+            "—"
+          ),
       },
       {
         accessorKey: "confidence",

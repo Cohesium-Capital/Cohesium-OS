@@ -60,6 +60,9 @@ async function postClayRow(
     company_name: row.organizations?.name ?? null,
     company_domain: row.organizations?.domain ?? null,
     linkedin_url: row.linkedin_url,
+    // 'msp' (acquisition target) vs 'customer' — lets the Clay table branch
+    // enrichment/messaging by audience. Additive: absent from older rows.
+    org_kind: row.organizations?.kind ?? null,
   });
 
   let reason = "unknown";

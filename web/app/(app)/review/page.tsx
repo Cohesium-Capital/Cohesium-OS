@@ -25,6 +25,7 @@ type ContactRow = {
     id: string;
     name: string;
     domain: string | null;
+    kind: string | null;
     current_msp_id: string | null;
   } | null;
 };
@@ -49,7 +50,7 @@ export default async function ReviewPage({
   let query = supabase
     .from("contacts")
     .select(
-      "id, full_name, persona, title, linkedin_url, confidence, reviewed, enrichment_status, organizations!inner(id, name, domain, current_msp_id)",
+      "id, full_name, persona, title, linkedin_url, confidence, reviewed, enrichment_status, organizations!inner(id, name, domain, kind, current_msp_id)",
       { count: "exact" },
     );
   if (flagged) query = query.eq("reviewed", false);
@@ -84,6 +85,7 @@ export default async function ReviewPage({
     enrichment_status: c.enrichment_status,
     org_name: c.organizations?.name ?? "—",
     org_domain: c.organizations?.domain ?? null,
+    org_kind: c.organizations?.kind ?? null,
     estimated_msp: c.organizations?.current_msp_id
       ? mspName.get(c.organizations.current_msp_id) ?? null
       : null,

@@ -13,7 +13,12 @@ type Row = {
   email: string | null;
   linkedin_url: string | null;
   batch_id: string | null;
-  organizations: { name: string; domain: string | null; current_msp_id: string | null } | null;
+  organizations: {
+    name: string;
+    domain: string | null;
+    kind: string | null;
+    current_msp_id: string | null;
+  } | null;
   batches: { gate_status: string } | null;
 };
 
@@ -24,7 +29,7 @@ export default async function DraftPage() {
   const { data } = await supabase
     .from("contacts")
     .select(
-      "id, full_name, persona, title, city, email, linkedin_url, batch_id, organizations(name, domain, current_msp_id), batches(gate_status)",
+      "id, full_name, persona, title, city, email, linkedin_url, batch_id, organizations(name, domain, kind, current_msp_id), batches(gate_status)",
     )
     .or("email.not.is.null,linkedin_url.not.is.null");
 
@@ -74,6 +79,7 @@ export default async function DraftPage() {
       current_msp: r.organizations?.current_msp_id
         ? mspName.get(r.organizations.current_msp_id) ?? null
         : null,
+      org_kind: r.organizations?.kind ?? null,
       channels: [
         ...(r.email ? (["email"] as const) : []),
         ...(r.linkedin_url ? (["linkedin"] as const) : []),
