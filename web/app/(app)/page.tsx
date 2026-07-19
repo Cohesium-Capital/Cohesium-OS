@@ -3,6 +3,7 @@ import {
   Radar,
   ClipboardCheck,
   GraduationCap,
+  Sparkles,
   PenLine,
   Send,
   Activity,
@@ -11,7 +12,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { getNextAction } from "@/lib/journey";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 // Home = the pipeline at a glance. Steps render in workflow order with a live
 // count of what's waiting at each stage, so the next thing to do is obvious and
@@ -30,7 +33,7 @@ type Step = {
 export default async function HomePage() {
   const supabase = await createClient();
 
-  const [toReview, awaitingGrade, inQueue] = await Promise.all([
+  const [toReview, awaitingGrade, pendingEnrich, inQueue, next] = await Promise.all([
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
@@ -42,10 +45,15 @@ export default async function HomePage() {
       .eq("review_status", "pending_review")
       .not("batch_id", "is", null),
     supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("enrichment_status", "pending"),
+    supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
       .eq("status", "planned")
       .eq("direction", "outbound"),
+    getNextAction(supabase),
   ]);
 
   const steps: Step[] = [
@@ -63,7 +71,7 @@ export default async function HomePage() {
       step: 2,
       label: "Review",
       icon: ClipboardCheck,
-      blurb: "Vet sourced contacts and send them to enrichment.",
+      blurb: "Vet sourced contacts before they advance.",
       count: toReview.count ?? null,
       countNoun: "to review",
     },
@@ -77,8 +85,17 @@ export default async function HomePage() {
       countNoun: "awaiting grade",
     },
     {
-      href: "/draft",
+      href: "/enrich",
       step: 4,
+      label: "Enrich",
+      icon: Sparkles,
+      blurb: "Fill in emails and phones via Clay.",
+      count: pendingEnrich.count ?? null,
+      countNoun: "pending",
+    },
+    {
+      href: "/draft",
+      step: 5,
       label: "Draft",
       icon: PenLine,
       blurb: "Write outreach for contacts whose batch has passed.",
@@ -87,7 +104,7 @@ export default async function HomePage() {
     },
     {
       href: "/draft/queue",
-      step: 5,
+      step: 6,
       label: "Send",
       icon: Send,
       blurb: "Approve and send the queued outreach touches.",
@@ -105,7 +122,27 @@ export default async function HomePage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {/* Next best action: one obvious thing to do, derived from pipeline state. */}
+      <Card className="flex-row items-center gap-5 border-primary/30 bg-primary/5 px-5 py-4">
+        {next.step !== null && (
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-base font-semibold text-primary-foreground tabular-nums">
+            {next.step}
+          </span>
+        )}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-[0.68rem] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            Up next
+          </span>
+          <span className="font-medium">{next.headline}</span>
+          <p className="text-xs leading-relaxed text-muted-foreground">{next.detail}</p>
+        </div>
+        <Button className="ml-auto shrink-0" nativeButton={false} render={<Link href={next.href} />}>
+          {next.cta}
+          <ArrowRight className="size-4" />
+        </Button>
+      </Card>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {steps.map((s) => {
           const Icon = s.icon;
           return (

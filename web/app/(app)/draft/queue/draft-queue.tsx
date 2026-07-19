@@ -91,6 +91,10 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
         toast.success(
           `Queued ${r.emailQueued} email (drips out), pushed ${r.linkedinSent} LinkedIn.` +
             (r.skippedResponded ? ` Skipped ${r.skippedResponded} who replied.` : ""),
+          {
+            description: "Track replies per prompt version on the Outcomes page.",
+            action: { label: "Outcomes", onClick: () => router.push("/outcomes") },
+          },
         );
       } else {
         toast.error(r.error ?? r.errors[0] ?? "Send failed.");
@@ -295,8 +299,24 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
-                  No drafts yet. Generate some on the Draft page.
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  Queue is clear — nothing waiting to send.{" "}
+                  <button
+                    type="button"
+                    className="text-foreground underline underline-offset-2"
+                    onClick={() => router.push("/draft")}
+                  >
+                    Draft messages (step 5)
+                  </button>{" "}
+                  or check{" "}
+                  <button
+                    type="button"
+                    className="text-foreground underline underline-offset-2"
+                    onClick={() => router.push("/outcomes")}
+                  >
+                    Outcomes
+                  </button>{" "}
+                  to see how sent messages performed.
                 </TableCell>
               </TableRow>
             )}

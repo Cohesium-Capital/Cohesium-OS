@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { DraftContact } from "@/lib/drafting/prompt";
+import { Button } from "@/components/ui/button";
 import { DraftBuilder } from "./draft-builder";
 
 type Row = {
@@ -78,6 +80,71 @@ export default async function DraftPage() {
       ],
     }))
     .filter((c) => c.channels.length > 0);
+
+  // Nothing draftable: diagnose why and point at the stage that unblocks it,
+  // instead of a dead-end "run enrichment first".
+  if (contacts.length === 0) {
+    const [{ count: totalContacts }, { count: pendingEnrichment }] = await Promise.all([
+      supabase.from("contacts").select("id", { count: "exact", head: true }),
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .eq("enrichment_status", "pending"),
+    ]);
+
+    let reason: { text: string; href: string; cta: string };
+    if ((totalContacts ?? 0) === 0) {
+      reason = {
+        text: "There are no contacts in the system yet. Drafting starts with a sourcing run.",
+        href: "/source",
+        cta: "Start a sourcing run (step 1)",
+      };
+    } else if (all.length > 0) {
+      // Gate-passed contacts with addresses exist, but every one already has
+      // an approved draft waiting.
+      reason = {
+        text: "Every draftable contact already has a message in the send queue. Review and send those, or send some back here for re-drafting.",
+        href: "/draft/queue",
+        cta: "Open the send queue (step 6)",
+      };
+    } else if ((data ?? []).length > 0) {
+      reason = {
+        text: "Contacts with an address exist, but none of their batches has passed the eval gate yet. Grade the sampled contacts to unlock them.",
+        href: "/review/grade",
+        cta: "Grade the samples (step 3)",
+      };
+    } else if ((pendingEnrichment ?? 0) > 0) {
+      reason = {
+        text: `${pendingEnrichment} contact${(pendingEnrichment ?? 0) === 1 ? " is" : "s are"} still waiting on enrichment — no email or LinkedIn yet. Send them through Clay.`,
+        href: "/enrich",
+        cta: "Go to Enrich (step 4)",
+      };
+    } else {
+      reason = {
+        text: "No contact has an email or LinkedIn address to write to. Check enrichment results, or source more contacts.",
+        href: "/enrich",
+        cta: "Go to Enrich (step 4)",
+      };
+    }
+
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Draft</h1>
+          <p className="text-sm text-muted-foreground">
+            Generate per-persona messages, then queue them for review.
+          </p>
+        </div>
+        <div className="flex flex-col items-start gap-3 rounded-md border p-6">
+          <p className="text-sm font-medium">Nothing to draft yet</p>
+          <p className="text-sm text-muted-foreground">{reason.text}</p>
+          <Button nativeButton={false} render={<Link href={reason.href} />}>
+            {reason.cta} →
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return <DraftBuilder contacts={contacts} />;
 }

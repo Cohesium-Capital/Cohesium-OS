@@ -5,8 +5,9 @@
 Cohesium Intel finds companies that use managed IT providers (MSPs), figures
 out who to talk to at those companies, and runs honest, personalized outreach
 to them — with a human checkpoint at every stage. The left sidebar shows the
-workflow as five numbered steps: **Source → Review → Grade → Draft → Send**.
-Work them left to right.
+workflow as six numbered steps:
+**Source → Review → Grade → Enrich → Draft → Send**. Work them left to right —
+the home page's "Up next" banner always points at the stage with work waiting.
 
 Two ideas to understand before starting:
 
@@ -67,29 +68,8 @@ Click **Review**. This is a table of every sourced contact with their company,
 title, LinkedIn, confidence level, and estimated MSP. Search by company name,
 or filter to **flagged** rows (ones not yet marked reviewed). Give the
 low-confidence rows a skeptical look; mark rows reviewed (or delete them) as
-you go.
-
-## Enrichment — filling in emails and phones (via Clay)
-
-Sourced contacts usually arrive without an email address, and a contact can't
-be drafted until it has at least an email or a LinkedIn URL. Enrichment is
-handled by [Clay](https://clay.com), driven from the Review page. Full setup
-instructions live in [docs/CLAY.md](./CLAY.md); the day-to-day loop is:
-
-1. On **Review**, send everything still pending to Clay, either way:
-   - **Export pending for Clay** — downloads a CSV you import into the Clay
-     table by hand.
-   - **Push pending to Clay** — sends the rows directly to the Clay table's
-     webhook (requires `CLAY_TABLE_WEBHOOK_URL` to be configured).
-2. Clay runs its enrichment waterfall (work email, phone, LinkedIn).
-3. Clay's write-back step POSTs each finished row back to the app, which
-   fills in the contact and flips its status to **enriched** (or **failed**
-   if nothing was found).
-
-Contacts stay "pending" until Clay answers, so re-running the export or push
-just retries whatever hasn't come back yet — it's safe to do repeatedly.
-Once enriched, contacts flow into Draft automatically (provided their batch
-has passed the gate).
+you go. The enrichment strip at the top shows how many contacts still need an
+email address — those are handled in step 4.
 
 ## Step 3 — Grade (clear the eval gate)
 
@@ -116,7 +96,31 @@ clear the backlog in one sitting (use the per-batch **Grade** buttons on
 **Runs** to grade a single batch in isolation). The thresholds and sampling
 rate are configurable in **Settings**.
 
-## Step 4 — Draft (write the outreach)
+## Step 4 — Enrich (fill in emails and phones via Clay)
+
+Sourced contacts usually arrive without an email address, and a contact can't
+be drafted until it has at least an email or a LinkedIn URL. Enrichment is
+handled by [Clay](https://clay.com), driven from the **Enrich** page. It sits
+after Grade so you don't spend enrichment credits on batches that fail the
+gate. Full setup instructions live in [docs/CLAY.md](./CLAY.md); the
+day-to-day loop is:
+
+1. On **Enrich**, send everything still pending to Clay, either way:
+   - **Push pending to Clay** — sends the rows directly to the Clay table's
+     webhook (requires `CLAY_TABLE_WEBHOOK_URL` to be configured).
+   - **Export CSV for Clay** — downloads a CSV you import into the Clay
+     table by hand.
+2. Clay runs its enrichment waterfall (work email, phone, LinkedIn).
+3. Clay's write-back step POSTs each finished row back to the app, which
+   fills in the contact and flips its status to **enriched** (or **failed**
+   if nothing was found).
+
+Contacts stay "pending" until Clay answers, so re-running the export or push
+just retries whatever hasn't come back yet — it's safe to do repeatedly.
+The page shows the pending → enriched → failed counts live, and offers the
+jump to Draft once enriched contacts are ready.
+
+## Step 5 — Draft (write the outreach)
 
 Click **Draft**. Only contacts whose batch **passed** the gate, and who have
 at least an email or a LinkedIn URL, appear here.
@@ -134,7 +138,7 @@ Same copy-paste rhythm as Source:
 Each imported draft becomes a *planned touch*, stamped with the prompt version
 that produced it — that provenance is what powers the Outcomes page later.
 
-## Step 5 — Send (approve and ship)
+## Step 6 — Send (approve and ship)
 
 Click **Send** (the draft queue). Every planned message is listed with its
 subject and body.
@@ -172,8 +176,10 @@ minimum sample size, error-rate threshold).
 1. Sign in via magic link.
 2. Source: pick a mode and region → Start run → run prompt in Claude → paste
    JSON → Import.
-3. Grade the sampled contacts until the batch passes.
-4. Review the rest; export or push to Clay to fill in missing emails.
+3. Review the imported contacts; grade the sampled ones until the batch
+   passes.
+4. Enrich: push the pending contacts to Clay and wait for emails to flow
+   back.
 5. Draft: copy prompt → run → paste JSON.
 6. Send: read every message, edit or reject, then Send approved.
 7. Check Runs and Outcomes to see how the batch — and the prompts —

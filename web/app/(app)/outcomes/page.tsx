@@ -137,7 +137,7 @@ export default async function OutcomesPage() {
             ) : (
               <TableRow>
                 <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                  No drafts yet. Rows appear here once messages are drafted in step 4 — each one
+                  No drafts yet. Rows appear here once messages are drafted in step 5 — each one
                   is attributed to the prompt version that produced it.
                 </TableCell>
               </TableRow>

@@ -191,7 +191,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
             </Button>
           </div>
           {report && (
-            <div className="text-sm">
+            <div className="flex flex-col gap-2 text-sm">
               {report.ok ? (
                 <p>
                   Queued <strong>{report.drafted}</strong> new, updated{" "}
@@ -206,6 +206,13 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
                   {m}
                 </p>
               ))}
+              {report.ok && report.drafted + report.updated > 0 && (
+                <div>
+                  <Button size="sm" nativeButton={false} render={<Link href="/draft/queue" />}>
+                    Review & send (step 6) →
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

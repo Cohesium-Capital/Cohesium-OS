@@ -6,6 +6,7 @@ import {
   Radar,
   ClipboardCheck,
   GraduationCap,
+  Sparkles,
   PenLine,
   Send,
   Building2,
@@ -35,8 +36,9 @@ const PIPELINE: NavItem[] = [
   { href: "/source", label: "Source", icon: Radar, step: 1 },
   { href: "/review", label: "Review", icon: ClipboardCheck, step: 2, exact: true },
   { href: "/review/grade", label: "Grade", icon: GraduationCap, step: 3 },
-  { href: "/draft", label: "Draft", icon: PenLine, step: 4, exact: true },
-  { href: "/draft/queue", label: "Send", icon: Send, step: 5 },
+  { href: "/enrich", label: "Enrich", icon: Sparkles, step: 4 },
+  { href: "/draft", label: "Draft", icon: PenLine, step: 5, exact: true },
+  { href: "/draft/queue", label: "Send", icon: Send, step: 6 },
 ];
 
 const DATA: NavItem[] = [

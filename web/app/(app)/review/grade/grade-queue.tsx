@@ -219,10 +219,26 @@ export function GradeQueue({
             Graded everything in the queue — {batchSummary.total} batch
             {batchSummary.total === 1 ? "" : "es"}: {batchSummary.passed} passed,{" "}
             {batchSummary.failed} failed, {batchSummary.open} still open (sample not yet
-            sufficient). Passed batches can advance to enrichment/drafting; failed ones should be
-            re-run with a revised prompt.
+            sufficient).
           </p>
-          <div className="flex gap-2">
+          <p className="text-sm text-muted-foreground">
+            {batchSummary.passed > 0
+              ? "Passed batches can advance: next, send their contacts through Clay enrichment so they pick up an email for drafting."
+              : batchSummary.failed > 0
+                ? "No batch passed. Revise the sourcing approach and start a fresh run — failed batches shouldn't advance."
+                : "Batches still open need more graded samples before the gate can decide."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {batchSummary.passed > 0 && (
+              <Button nativeButton={false} render={<Link href="/enrich" />}>
+                Continue to Enrich (step 4) →
+              </Button>
+            )}
+            {batchSummary.failed > 0 && batchSummary.passed === 0 && (
+              <Button nativeButton={false} render={<Link href="/source" />}>
+                Start a revised run →
+              </Button>
+            )}
             <Button variant="outline" nativeButton={false} render={<Link href="/runs" />}>
               Back to runs
             </Button>

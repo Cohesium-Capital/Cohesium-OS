@@ -81,11 +81,12 @@ Write-back behavior (see `web/app/api/enrichment/route.ts`):
 
 ## Day-to-day operation
 
-Everything happens from the **Review** page (step 2 in the sidebar).
+Everything happens from the **Enrich** page (step 4 in the sidebar; the
+Review page shows the same status counts read-only).
 
 1. Sourced contacts start with `enrichment_status = 'pending'`.
 2. Send the pending set to Clay, either way:
-   - **Export pending for Clay** — downloads `pending-enrichment.csv`; import
+   - **Export CSV for Clay** — downloads `pending-enrichment.csv`; import
      it into the Clay table manually. Works with zero webhook setup.
    - **Push pending to Clay** — sends every pending contact straight to the
      table webhook. Handles Clay's rate limits (bounded concurrency,
@@ -93,8 +94,8 @@ Everything happens from the **Review** page (step 2 in the sidebar).
      `Pushed N / failed M (reason)`.
 3. Clay enriches and each finished row POSTs back to `/api/enrichment`.
 4. The contact fills in and its status flips to `enriched` (or `failed`).
-   The Review grid reflects the new status; contacts with an email or
-   LinkedIn URL become draftable in step 4 once their batch passes the gate.
+   The Enrich page counts update; contacts with an email or LinkedIn URL
+   become draftable in step 5 once their batch passes the gate.
 
 Neither the export nor the push changes `enrichment_status` — rows stay
 `pending` until the write-back lands. So "pending" always means "Clay hasn't
