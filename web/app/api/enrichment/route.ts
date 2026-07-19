@@ -85,5 +85,10 @@ export async function POST(req: Request) {
     else updated++;
   }
 
-  return NextResponse.json({ updated, errors });
+  // Total failure (rows sent, nothing matched/updated) → 422 so callers like
+  // Clay surface a red cell instead of a green "200" that hides a broken
+  // contact_id mapping. Partial success stays 200: per-row errors are listed
+  // and re-sending is safe (rows stay pending until a valid write-back).
+  const status = rows.length > 0 && updated === 0 && errors.length > 0 ? 422 : 200;
+  return NextResponse.json({ updated, errors }, { status });
 }

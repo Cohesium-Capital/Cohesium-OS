@@ -80,6 +80,11 @@ Write-back behavior (see `web/app/api/enrichment/route.ts`):
 - The response is `{ "updated": <n>, "errors": [...] }` — an unknown
   `contact_id` shows up in `errors`, which usually means the body mapping is
   wrong.
+- **Status codes:** `200` when at least one row updated (or nothing was sent);
+  `422` when rows were sent but *none* matched — so a broken `contact_id`
+  mapping shows up as a red/errored cell in Clay instead of a green 200.
+  Don't trust the status code alone on batches: a `200` can still carry
+  per-row `errors`.
 
 ## Day-to-day operation
 
