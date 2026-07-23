@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import type { FailedRow, QueueRow } from "@/lib/drafting/types";
-import { DraftQueue } from "./draft-queue";
+import type { FailedRow } from "@/lib/drafting/types";
+import { DraftQueue, type QueueRowWithHook } from "./draft-queue";
 
 type Touch = {
   id: string;
@@ -11,6 +11,12 @@ type Touch = {
   status: string;
   last_error: string | null;
   contacts: { full_name: string | null; organization_id: string } | null;
+  hooks: {
+    text: string | null;
+    source_url: string | null;
+    kind: string;
+    fallback_angle: string | null;
+  } | null;
 };
 
 export default async function QueuePage() {
@@ -19,10 +25,13 @@ export default async function QueuePage() {
   // Soft-deleted contacts are excluded here because sendApproved excludes them
   // too — a draft the send path will never pick up must not sit in the queue
   // looking sendable.
+  // The joined hook is what the drafter opened with — surfaced per row so the
+  // reviewer can eyeball the claim against its source before approving (the
+  // 100% backstop behind the sampled personalization gate).
   const { data } = await supabase
     .from("touches")
     .select(
-      "id, channel, subject, body, approved, status, last_error, contacts!inner(full_name, organization_id)",
+      "id, channel, subject, body, approved, status, last_error, contacts!inner(full_name, organization_id), hooks(text, source_url, kind, fallback_angle)",
     )
     .in("status", ["planned", "failed"])
     .eq("direction", "outbound")
@@ -44,7 +53,7 @@ export default async function QueuePage() {
     orgs?.forEach((o) => orgInfo.set(o.id, { name: o.name, kind: o.kind ?? null }));
   }
 
-  const rows: QueueRow[] = [];
+  const rows: QueueRowWithHook[] = [];
   const failedRows: FailedRow[] = [];
   for (const t of touches) {
     const org = t.contacts?.organization_id
@@ -69,6 +78,14 @@ export default async function QueuePage() {
         contact_name: t.contacts?.full_name ?? null,
         company: org?.name ?? "—",
         org_kind: org?.kind ?? null,
+        hook: t.hooks
+          ? {
+              text: t.hooks.text,
+              source_url: t.hooks.source_url,
+              kind: t.hooks.kind,
+              fallback_angle: t.hooks.fallback_angle,
+            }
+          : null,
       });
     }
   }
@@ -79,7 +96,8 @@ export default async function QueuePage() {
         <h1 className="text-2xl font-semibold">Draft queue</h1>
         <p className="text-sm text-muted-foreground">
           Drafts arrive unapproved and send only after you explicitly approve them — read
-          each message, then check Send (or Approve all). To redo a batch, select rows and
+          each message, glance at its hook against the source link, then check Send (or
+          Approve all). To redo a batch, select rows and
           Send back to drafting — the drafts are retired (kept in history) and those
           contacts reappear on the Draft page to regenerate.
         </p>

@@ -45,11 +45,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+// The hook a draft consumed, shown beside the message. The reviewer glancing
+// at the claim and clicking the source is the 100% backstop behind the sampled
+// personalization gate — kind='none' means research honestly found nothing and
+// the draft opened on the fallback angle instead.
+export type QueueRowHook = {
+  text: string | null; // null only when kind='none'
+  source_url: string | null;
+  kind: string;
+  fallback_angle: string | null;
+};
+
+export type QueueRowWithHook = QueueRow & { hook: QueueRowHook | null };
+
 export function DraftQueue({
   initialRows,
   failedRows = [],
 }: {
-  initialRows: QueueRow[];
+  initialRows: QueueRowWithHook[];
   failedRows?: FailedRow[];
 }) {
   const router = useRouter();
@@ -287,6 +300,42 @@ export function DraftQueue({
                     <div className="line-clamp-2 text-sm text-muted-foreground">
                       {r.body}
                     </div>
+                    {/* The hook behind the opener: check the claim against its
+                        source in one glance before approving. No hook line at
+                        all = the draft is in the no-hook control arm. */}
+                    {r.hook &&
+                      (r.hook.kind === "none" ? (
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                          <Badge variant="outline" className="shrink-0 text-[0.65rem]">
+                            fallback
+                          </Badge>
+                          <span className="truncate">
+                            {r.hook.fallback_angle ?? "honest role/industry opener"}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
+                          <Badge variant="secondary" className="shrink-0 text-[0.65rem]">
+                            {r.hook.kind}
+                          </Badge>
+                          <span
+                            className="truncate text-muted-foreground"
+                            title={r.hook.text ?? undefined}
+                          >
+                            {r.hook.text}
+                          </span>
+                          {r.hook.source_url && (
+                            <a
+                              href={r.hook.source_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 text-foreground underline underline-offset-2"
+                            >
+                              source
+                            </a>
+                          )}
+                        </div>
+                      ))}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -323,7 +372,7 @@ export function DraftQueue({
                     className="text-foreground underline underline-offset-2"
                     onClick={() => router.push("/draft")}
                   >
-                    Draft messages (step 4)
+                    Draft messages (step 5)
                   </button>{" "}
                   or check{" "}
                   <button

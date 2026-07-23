@@ -327,7 +327,7 @@ export function GradeQueue({
             )}
             {batchSummary.passed > 0 && (
               <Button variant="outline" nativeButton={false} render={<Link href="/draft" />}>
-                Or draft if already enriched (step 4) →
+                Or draft if already enriched (step 5) →
               </Button>
             )}
             {batchSummary.failed > 0 && batchSummary.passed === 0 && (

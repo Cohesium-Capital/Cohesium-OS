@@ -234,7 +234,7 @@ export default async function ReviewPage({
               <p className="text-sm text-muted-foreground">
                 Nothing pending. Enriched contacts with an address can{" "}
                 <Link href="/draft" className="text-foreground underline underline-offset-2">
-                  draft (step 4)
+                  draft (step 5)
                 </Link>{" "}
                 once their batch passes Grade.
               </p>

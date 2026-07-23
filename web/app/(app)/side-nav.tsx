@@ -6,6 +6,7 @@ import {
   Radar,
   ClipboardCheck,
   GraduationCap,
+  Sparkles,
   PenLine,
   Send,
   Inbox,
@@ -20,7 +21,7 @@ import { signOut } from "@/lib/auth-actions";
 import { cn } from "@/lib/utils";
 
 // Primary navigation. Grouped to mirror the mental model: the PIPELINE group is
-// the workflow in order (numbered 1–6 so the sequence is self-evident), DATA is
+// the workflow in order (numbered 1–7 so the sequence is self-evident), DATA is
 // reference, and Settings sits at the foot. The active route is always
 // highlighted — the one thing the old flat top-nav never showed.
 
@@ -36,9 +37,10 @@ const PIPELINE: NavItem[] = [
   { href: "/source", label: "Source", icon: Radar, step: 1 },
   { href: "/review", label: "Review & Enrich", icon: ClipboardCheck, step: 2, exact: true },
   { href: "/review/grade", label: "Grade", icon: GraduationCap, step: 3 },
-  { href: "/draft", label: "Draft", icon: PenLine, step: 4, exact: true },
-  { href: "/draft/queue", label: "Send", icon: Send, step: 5 },
-  { href: "/triage", label: "Triage", icon: Inbox, step: 6 },
+  { href: "/personalize", label: "Personalize", icon: Sparkles, step: 4 },
+  { href: "/draft", label: "Draft", icon: PenLine, step: 5, exact: true },
+  { href: "/draft/queue", label: "Send", icon: Send, step: 6 },
+  { href: "/triage", label: "Triage", icon: Inbox, step: 7 },
 ];
 
 const DATA: NavItem[] = [

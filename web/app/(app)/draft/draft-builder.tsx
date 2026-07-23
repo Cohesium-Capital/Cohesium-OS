@@ -60,6 +60,16 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
   );
   const trackContacts = track === "msp" ? mspContacts : customerContacts;
 
+  // Hook coverage for the selected track. Contacts arrive with their latest
+  // usable hook already resolved server-side; kind='none' rows are the honest
+  // "no hook exists" outcome and carry a fallback angle instead of a claim.
+  // Drafting without either stays allowed — the no-hook arm is the rent
+  // check's control group, so coverage informs the operator, never blocks.
+  const hooked = trackContacts.filter(
+    (c) => c.hook_id && c.hook_kind !== "none",
+  ).length;
+  const fallbacks = trackContacts.filter((c) => c.hook_kind === "none").length;
+
   // Switching audience re-clamps the batch size, so the input never sits above
   // its own max showing a number the generated prompt doesn't use.
   function setTrack(next: TrackKind) {
@@ -91,7 +101,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
         await navigator.clipboard.writeText(created.prompt).catch(() => {});
         toast.success(
           mode === "single"
-            ? "Run started and prompt copied. Paste into Claude/ChatGPT with web search on, then bring the JSON back."
+            ? "Run started and prompt copied. Paste into Claude/ChatGPT (no web search needed — hooks are pre-verified), then bring the JSON back."
             : "Run started and prompt copied. Run it in Claude Code, then paste the JSON it returns below.",
         );
       } catch (e) {
@@ -124,7 +134,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
         <div>
           <h1 className="text-2xl font-semibold">Draft</h1>
           <p className="text-sm text-muted-foreground">
-            Generate per-persona messages, then queue them for review.
+            Turn researched hooks into per-persona messages, then queue them for review.
           </p>
         </div>
         <Button variant="outline" nativeButton={false} render={<Link href="/draft/queue" />}>
@@ -139,7 +149,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
             {contacts.length === 0
               ? "No contacts with an email or LinkedIn yet."
               : mode === "single"
-                ? `Starts a tracked run over the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s). Paste the prompt into Claude/ChatGPT with web search on, bring the JSON back, then repeat for the next batch.`
+                ? `Starts a tracked run over the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s). Paste the prompt into Claude/ChatGPT, bring the JSON back, then repeat for the next batch. Hooks are pre-verified — drafting is pure writing, no web search.`
                 : `Starts a tracked run handing all ${trackContacts.length} ${trackLabel} contact(s) to Claude Code, which fans them out to ${chunks} subagent(s) of up to ${effSize} each, then returns one combined JSON.`}
           </CardDescription>
         </CardHeader>
@@ -148,6 +158,22 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
             <p className="text-sm text-muted-foreground">Run enrichment first.</p>
           ) : (
             <>
+              {/* Coverage, not a gate: hookless contacts still draft (control
+                  arm), but the operator sees when researching first is worth it. */}
+              <p className="text-xs text-muted-foreground">
+                {hooked} of {trackContacts.length} {trackLabel} contact(s) have a
+                verified hook
+                {fallbacks > 0 && `, ${fallbacks} an honest fallback angle`}; the rest
+                open with a plain role/industry observation (the no-hook control arm).
+                To research hooks first, use{" "}
+                <Link
+                  href="/personalize"
+                  className="text-foreground underline underline-offset-2"
+                >
+                  Personalize (step 4)
+                </Link>
+                .
+              </p>
               <div className="flex flex-wrap items-end gap-4 rounded-md border bg-muted/40 px-3 py-3">
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs text-muted-foreground">Audience</Label>
@@ -288,7 +314,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
                 {outcome.ok && outcome.inserted > 0 && (
                   <div>
                     <Button size="sm" nativeButton={false} render={<Link href="/draft/queue" />}>
-                      Review & approve (step 5) →
+                      Review & approve (step 6) →
                     </Button>
                   </div>
                 )}

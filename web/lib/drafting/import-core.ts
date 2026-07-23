@@ -36,10 +36,16 @@ export async function activeDraftPromptVersion(
 // PLANNED drafts only (queued/sent/replied touches are send records and are
 // never touched). Every draft lands UNAPPROVED: approval is an explicit human
 // act in the send queue, never a side effect of generation.
+//
+// hookIds maps contact_id → the hook the draft consumed; it stamps
+// touches.hook_id on both write paths. That stamp is the ONLY usage record —
+// hooks.status is never flipped to 'used' (the hook_outcomes rent check
+// derives usage from touches.hook_id).
 export async function storeDrafts(
   supabase: SupabaseClient,
   drafts: Draft[],
   provenance: DraftProvenance = {},
+  hookIds: Record<string, string> = {},
 ): Promise<DraftReport> {
   const report: DraftReport = { ...EMPTY_DRAFT_REPORT, messages: [] };
   const ids = [...new Set(drafts.map((d) => d.contact_id))];
@@ -95,6 +101,9 @@ export async function storeDrafts(
       run_id: provenance.runId ?? null,
       prompt_version_id: provenance.promptVersionId ?? null,
       track: provenance.track ?? null,
+      // Applies to the update path too: a re-draft carries whatever hook its
+      // new copy consumed (or null, honestly landing it in the no-hook arm).
+      hook_id: hookIds[d.contact_id] ?? null,
     };
 
     const prev = existingKey.get(`${d.contact_id}|${d.channel}`);

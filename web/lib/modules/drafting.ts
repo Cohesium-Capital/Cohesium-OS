@@ -29,6 +29,18 @@ export type DraftingConfig = {
 const trackOf = (config: DraftingConfig): TrackKind =>
   config.track ?? trackKindOf(config.contacts ?? []);
 
+// Hooks ride the config's contact rows (the Draft page resolves each contact's
+// usable hook server-side). Ingest threads the contact→hook map into
+// storeDrafts so every stored touch is stamped with the hook it consumed —
+// touches.hook_id is the usage record; hooks.status is never flipped here.
+const hookIdsOf = (config: DraftingConfig): Record<string, string> => {
+  const map: Record<string, string> = {};
+  for (const c of config.contacts ?? []) {
+    if (c.hook_id) map[c.contact_id] = c.hook_id;
+  }
+  return map;
+};
+
 export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   key: "drafting",
   label: "drafted messages",
@@ -65,11 +77,17 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   },
 
   async ingest(supabase, output, ctx): Promise<IngestOutcome> {
-    const report = await storeDrafts(supabase, output.drafts, {
-      runId: ctx.runId,
-      promptVersionId: ctx.promptVersionId ?? null,
-      track: trackOf((ctx.config ?? {}) as DraftingConfig),
-    });
+    const config = (ctx.config ?? {}) as DraftingConfig;
+    const report = await storeDrafts(
+      supabase,
+      output.drafts,
+      {
+        runId: ctx.runId,
+        promptVersionId: ctx.promptVersionId ?? null,
+        track: trackOf(config),
+      },
+      hookIdsOf(config),
+    );
     return {
       ok: report.ok,
       error: report.error,

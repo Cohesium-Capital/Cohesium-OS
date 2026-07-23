@@ -1,5 +1,7 @@
-// Builds the drafting prompt you paste into Claude/ChatGPT (web search on, so it
-// can personalize from a real company detail). Returns JSON matching
+// Builds the drafting prompt you paste into Claude/ChatGPT. Personalization
+// arrives pre-researched: a contact line may carry a verified hook= claim or an
+// honest fallback_angle= from the Personalize stage, so drafting is pure
+// writing — no draft-time web research. Returns JSON matching
 // lib/drafting/contracts.ts, pasted back into the draft importer.
 //
 // Two tracks, one honest premise. The pipeline carries two audiences that need
@@ -32,6 +34,15 @@ export type DraftContact = {
   current_msp: string | null;
   org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
   channels: ("email" | "linkedin")[];
+  // Personalization from the hook stage (step 4): the contact's latest usable
+  // hook, resolved server-side (lib/hooks/usable.ts). hook_id is provenance
+  // only — never rendered into the prompt, it stamps touches.hook_id at import
+  // so hook usage is derived from touches, not from a status flip.
+  hook_id?: string | null;
+  hook_text?: string | null; // the verified claim; null when kind='none'
+  hook_source_url?: string | null;
+  hook_kind?: string | null;
+  fallback_angle?: string | null; // honest opener when no verifiable hook exists
 };
 
 // The JSON contract is shared by both tracks; only the recipient framing forks.
@@ -154,15 +165,18 @@ function rules(kind: TrackKind): string {
   people running it, about what matters and what pain points still need solving,
   and it lets us build a network of sharp operators we can be useful to over time,
   through intros, hiring, and advisor roles.
-- Personalize with ONE true, verifiable detail, and strongly prefer something
-  from the LAST 12 MONTHS: a recent talk, panel, podcast, or conference
-  appearance (speaking engagements are especially good), a recent company
-  announcement or news, or a recent post. Then credit their perspective on
-  ${PERSPECTIVE[kind]}.
-- VERIFY every specific claim with web search before using it. Only state a fact
-  you can confirm from a citable source. If you cannot verify a recent, specific
-  detail, do not invent one. Open with an honest observation about their role or
-  industry instead.
+- Personalization is PROVIDED, not researched. Drafting is pure writing: do NOT
+  use web search, and do not add any specific claim beyond what a contact's
+  line carries.
+  - When a line carries hook=<claim>, that claim is ALREADY VERIFIED against
+    its source. Open with it, then credit their perspective on
+    ${PERSPECTIVE[kind]}. Do not embellish the claim and do not add any other
+    specific claim.
+  - When a line carries fallback_angle=<text>, research found NO verifiable
+    hook for this person. Open with that honest observation. Never invent a
+    specific detail to replace it.
+  - When a line carries neither, open with an honest observation about their
+    role or industry.
 - Close with a soft ask: a few minutes to chat in the next week or two, and say
   plainly you are not selling anything.${
     kind === "customer"
@@ -179,9 +193,9 @@ Email
 - 80 to 120 words, never over 130 (count them). Three SHORT paragraphs separated
   by a blank line:
   (1) "Hi <first name>," then open with relevance to the recipient: the persona
-  angle, plus the verified personalization hook if one is provided. The first
-  sentence must be about them or about what you are researching in their world. It
-  must never be about you and never an apology.
+  angle, plus the provided hook (or fallback_angle) if the line carries one. The
+  first sentence must be about them or about what you are researching in their
+  world. It must never be about you and never an apology.
   (2) Who you are and why it is worth their time: "${SENDER.intro}". We learn a
   market by talking with the people running it day to day, and it lets us build a
   network of operators we can be useful to over time.
@@ -191,9 +205,9 @@ Email
   Sign off with "Thanks," then "${SENDER.name}" on their own lines.
 - The first sentence is about the recipient, not about us. No apology and no
   self-introduction in the first sentence.
-- With a verified hook, lead the first sentence with it. With no hook, lead with a
-  true observation about their role or industry. Never use an apology as a stand-in
-  for relevance.
+- With a hook= token, lead the first sentence with it. Otherwise lead with the
+  fallback_angle= text or a true observation about their role or industry. Never
+  use an apology as a stand-in for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
   shapes: ${
@@ -217,15 +231,17 @@ semicolons. No bullet points. No corporate filler. It must read as written by a
 person. Never open with "I hope this finds you well" or "My name is". Refer to
 the firm only as "Cohesium".
 
-Honesty: never invent a detail, event, mutual connection, or claim. With no
-verifiable detail, open with an honest observation about their role or industry
-rather than a fabricated specific. Plain and credible beats clever.
+Honesty: never invent a detail, event, mutual connection, or claim, and never
+add a specific claim that is not on the contact's line. With no hook provided,
+open with an honest observation about their role or industry rather than a
+fabricated specific. Plain and credible beats clever.
 
 ${GOLD[kind]}
 
 Before you return the JSON, re-read every draft and fix any that fail: no
-meta-label or placeholder as a subject or a body line, the personalized detail is
-real and verifiable (or replaced with an honest role/industry observation), each
+meta-label or placeholder as a subject or a body line, every specific claim
+comes from that contact's hook= token and nowhere else (fallback and no-hook
+drafts carry only honest role/industry observations, no specifics), each
 email is 80 to 120 words (never over 130) with a subject under ~40 characters and
 no spam words, each LinkedIn body is 300 characters or fewer, and there are no
 em-dashes, semicolons, bullet points, or filler. Quality over quantity — if you
@@ -250,6 +266,14 @@ function renderContactLines(contacts: DraftContact[], kind: TrackKind): string {
         // rule only exists there). On the msp track a stray value would invite
         // the model to frame an MSP owner as someone else's IT customer.
         kind === "customer" && c.current_msp ? `current_msp=${c.current_msp}` : "",
+        // The personalization artifact: a verified hook claim (with its source
+        // so the drafter can attribute naturally), or the honest no-hook angle.
+        // A line never carries both — hook_text wins if a row somehow has both.
+        c.hook_text
+          ? `hook=${c.hook_text}${c.hook_source_url ? ` (source: ${c.hook_source_url})` : ""}`
+          : c.fallback_angle
+            ? `fallback_angle=${c.fallback_angle}`
+            : "",
         `channels: ${c.channels.join(", ")}`,
       ].filter(Boolean);
       return parts.join("; ");
@@ -291,9 +315,9 @@ export function trackKindOf(contacts: DraftContact[]): TrackKind {
 
 // Orchestration prompt for Claude Code: instead of pasting one chunk into a chat,
 // hand the WHOLE list to Claude Code and let it fan the work out to subagents,
-// each web-researching and drafting a slice, then merge into one drafts JSON to
-// paste back into the importer. Same per-message rules and JSON contract as the
-// single-shot prompt above.
+// each drafting a slice from the provided hooks (no research), then merge into
+// one drafts JSON to paste back into the importer. Same per-message rules and
+// JSON contract as the single-shot prompt above.
 export function buildDraftAgentPrompt(
   contacts: DraftContact[],
   chunkSize = 15,
@@ -308,15 +332,15 @@ export function buildDraftAgentPrompt(
   const orchestration = `You are running a batch cold-outreach drafting job in Claude Code for
 ${SENDER.name} at Cohesium. There are ${n} contacts below. ${audience}
 Do NOT draft them all yourself in one pass — fan the work out so each message
-gets real research:
+gets focused attention. Personalization is already researched and verified:
+lines carry hook= or fallback_angle= tokens, so no subagent uses web search.
 
 1. Split the ${n} contacts into ${chunks} chunk(s) of up to ${chunkSize}.
 2. Spawn one subagent per chunk with the Task tool, running them in parallel.
-   Give each subagent its slice of contact lines, the rules below, and the
-   instruction to use web search.
-3. Each subagent, for every contact in its slice, web-researches ONE true,
-   verifiable, recent detail and drafts a message for EACH channel on that
-   contact's line, following the rules below exactly. It returns a JSON array of
+   Give each subagent its slice of contact lines and the rules below.
+3. Each subagent, for every contact in its slice, drafts a message for EACH
+   channel on that contact's line using ONLY what the line provides, following
+   the rules below exactly. It returns a JSON array of
    { "contact_id", "channel", "subject", "body" } objects — nothing else.
 4. When every subagent has returned, merge all of their drafts into ONE JSON
    object and print it as your FINAL message, with NO surrounding prose or

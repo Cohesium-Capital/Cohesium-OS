@@ -3,6 +3,7 @@ import {
   Radar,
   ClipboardCheck,
   GraduationCap,
+  Sparkles,
   PenLine,
   Send,
   Inbox,
@@ -13,7 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getNextAction, countDraftable } from "@/lib/journey";
+import { getNextAction, countDraftable, countNeedingHooks } from "@/lib/journey";
 import { countEligibleContacts } from "@/lib/enrichment/pending";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -118,40 +119,64 @@ export default async function HomePage() {
       .eq("direction", "outbound")
       .gte("sent_at", dayAgo)
       .is("deleted_at", null),
+    // Grade-tile scope: personalization batches are verdicted on /personalize
+    // and already surface in the Personalize chip, so they stay out of this
+    // count (and its siblings openBatches / anyBatches below).
     supabase
       .from("batches")
       .select("id", { count: "exact", head: true })
-      .eq("gate_status", "failed"),
+      .eq("gate_status", "failed")
+      .in("module", ["sourcing", "enrichment"]),
     getNextAction(supabase),
   ]);
 
   // Tile-row gate readings. Each reads the same source its workspace uses.
-  const [latestSourcingBatch, openBatches, anyBatches, draftPrompt, clayEligible, draftable] =
-    await Promise.all([
-      supabase
-        .from("batch_stats")
-        .select("gate_status, sampled, graded, errors")
-        .eq("module", "sourcing")
-        .neq("label", "legacy")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("batches")
-        .select("id", { count: "exact", head: true })
-        .eq("gate_status", "open"),
-      supabase.from("batches").select("id", { count: "exact", head: true }),
-      supabase
-        .from("prompt_versions")
-        .select("version")
-        .eq("module", "drafting")
-        .eq("active", true)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      countEligibleContacts(supabase),
-      countDraftable(supabase),
-    ]);
+  const [
+    latestSourcingBatch,
+    latestPersonalizationBatch,
+    openBatches,
+    anyBatches,
+    draftPrompt,
+    clayEligible,
+    draftable,
+    needingHooks,
+  ] = await Promise.all([
+    supabase
+      .from("batch_stats")
+      .select("gate_status, sampled, graded, errors")
+      .eq("module", "sourcing")
+      .neq("label", "legacy")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("batches")
+      .select("id, gate_status")
+      .eq("module", "personalization")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("batches")
+      .select("id", { count: "exact", head: true })
+      .eq("gate_status", "open")
+      .in("module", ["sourcing", "enrichment"]),
+    supabase
+      .from("batches")
+      .select("id", { count: "exact", head: true })
+      .in("module", ["sourcing", "enrichment"]),
+    supabase
+      .from("prompt_versions")
+      .select("version")
+      .eq("module", "drafting")
+      .eq("active", true)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    countEligibleContacts(supabase),
+    countDraftable(supabase),
+    countNeedingHooks(supabase),
+  ]);
 
   // Source gate chip: the latest real sourcing batch's error rate + verdict.
   const sb = latestSourcingBatch.data as {
@@ -170,6 +195,34 @@ export default async function HomePage() {
           tone: sb.gate_status === "failed" ? "warn" : "ok",
         }
       : { text: `gate: open · 0/${sb.sampled} graded`, tone: "muted" };
+
+  // Personalize chip: the latest personalization batch's verification state.
+  // Counting runs over hooks (batch_stats counts contacts, which is the wrong
+  // unit here): graded = sampled hooks a human has verdicted, fail = rejected.
+  // Honest dash until a personalization batch exists at all.
+  const pb = latestPersonalizationBatch.data as { id: string; gate_status: string } | null;
+  let personalizeChip: Step["chip"] = { text: "verify — · no runs yet", tone: "muted" };
+  if (pb) {
+    const { data: sampledHooks } = await supabase
+      .from("hooks")
+      .select("status")
+      .eq("batch_id", pb.id)
+      .eq("sampled", true);
+    const sampled = (sampledHooks ?? []).length;
+    const graded = (sampledHooks ?? []).filter((h) =>
+      ["verified", "rejected"].includes(h.status),
+    ).length;
+    const rejected = (sampledHooks ?? []).filter((h) => h.status === "rejected").length;
+    personalizeChip =
+      graded > 0
+        ? {
+            text: `verify: ${Math.round((rejected / graded) * 100)}% fail · ${
+              pb.gate_status === "passed" ? "passing" : pb.gate_status
+            }`,
+            tone: pb.gate_status === "failed" ? "warn" : "ok",
+          }
+        : { text: `verify: open · 0/${sampled} checked`, tone: "muted" };
+  }
 
   const failedBatchCount = failedBatches.count ?? 0;
   const openBatchCount = openBatches.count ?? 0;
@@ -265,8 +318,18 @@ export default async function HomePage() {
       chip: gradeChip,
     },
     {
-      href: "/draft",
+      href: "/personalize",
       step: 4,
+      label: "Personalize",
+      icon: Sparkles,
+      blurb: "Research one verifiable hook per contact — or an honest no-hook.",
+      count: needingHooks,
+      countNoun: "needing hooks",
+      chip: personalizeChip,
+    },
+    {
+      href: "/draft",
+      step: 5,
       label: "Draft",
       icon: PenLine,
       blurb: "Write outreach for contacts whose batch has passed.",
@@ -278,7 +341,7 @@ export default async function HomePage() {
     },
     {
       href: "/draft/queue",
-      step: 5,
+      step: 6,
       label: "Send",
       icon: Send,
       blurb: "Approve and send the queued outreach touches.",
@@ -291,7 +354,7 @@ export default async function HomePage() {
     },
     {
       href: "/triage",
-      step: 6,
+      step: 7,
       label: "Triage",
       icon: Inbox,
       blurb: "Disposition every reply; opt-outs become suppressions.",
@@ -360,7 +423,8 @@ export default async function HomePage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* Seven tiles no longer fit one xl row legibly; 4+3 keeps them readable. */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {steps.map((s) => {
           const Icon = s.icon;
           return (

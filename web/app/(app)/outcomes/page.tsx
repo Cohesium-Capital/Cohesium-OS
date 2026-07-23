@@ -17,6 +17,21 @@ import {
 // and audiences. "Replied" is raw volume (opt-outs and autoresponders count);
 // "positive" is the human-triaged disposition — the honest signal. Empty until
 // drafting/sending produces touches — the funnel fills in as the pipeline runs.
+// Also reads hook_outcomes (per hook kind × track) — the instrument for the
+// personalization stage's rent check against the no-hook control arm.
+
+// One row per hook kind × track from the hook_outcomes view. 'no_hook' is the
+// control arm: touches drafted with no hook attached at all. kind='none' is the
+// explicit honest-fallback artifact — distinct from having skipped the stage.
+type HookOutcome = {
+  hook_kind: string;
+  track: string | null;
+  drafted: number;
+  sent: number;
+  replied: number;
+  positive_replied: number;
+  positive_reply_rate: number | null;
+};
 
 type DraftOutcome = {
   prompt_version_id: string | null;
@@ -54,15 +69,29 @@ function trackLabel(track: string | null): string {
   return "—";
 }
 
+function hookKindLabel(kind: string): string {
+  if (kind === "no_hook") return "no hook attached";
+  if (kind === "none") return "none (fallback angle)";
+  return kind.replace(/_/g, " ");
+}
+
 export default async function OutcomesPage() {
   const supabase = await createClient();
 
-  const { data } = await supabase
-    .from("draft_outcomes")
-    .select("*")
-    .order("last_sent_at", { ascending: false, nullsFirst: false });
+  const [{ data }, { data: hookData }] = await Promise.all([
+    supabase
+      .from("draft_outcomes")
+      .select("*")
+      .order("last_sent_at", { ascending: false, nullsFirst: false }),
+    supabase
+      .from("hook_outcomes")
+      .select("*")
+      .order("track", { ascending: true })
+      .order("hook_kind", { ascending: true }),
+  ]);
 
   const rows = (data ?? []) as unknown as DraftOutcome[];
+  const hookRows = (hookData ?? []) as unknown as HookOutcome[];
 
   const totals = rows.reduce(
     (acc, r) => ({
@@ -166,7 +195,7 @@ export default async function OutcomesPage() {
             ) : (
               <TableRow>
                 <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
-                  No drafts yet. Rows appear here once messages are drafted in step 4 — each one
+                  No drafts yet. Rows appear here once messages are drafted in step 5 — each one
                   is attributed to the prompt version that produced it.
                 </TableCell>
               </TableRow>
@@ -182,6 +211,63 @@ export default async function OutcomesPage() {
         implicit signal the prompt output wasn&rsquo;t good enough as-is. Unattributed rows are
         legacy touches created before provenance tracking.
       </p>
+
+      {/* Hooks vs no hook: the personalization stage's rent check, per hook
+          kind × track. The 'no hook attached' row is the control arm. */}
+      <div className="flex flex-col gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Hooks vs no hook</h2>
+          <p className="text-sm text-muted-foreground">
+            Do verified hooks earn more positive replies than drafts sent without one?
+          </p>
+        </div>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Hook kind</TableHead>
+                <TableHead>Track</TableHead>
+                <TableHead className="text-right">Drafted</TableHead>
+                <TableHead className="text-right">Sent</TableHead>
+                <TableHead className="text-right">Replied</TableHead>
+                <TableHead className="text-right">Positive</TableHead>
+                <TableHead className="text-right">Positive rate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {hookRows.length ? (
+                hookRows.map((r) => (
+                  <TableRow key={`${r.hook_kind}-${r.track ?? "none"}`}>
+                    <TableCell className="font-medium">{hookKindLabel(r.hook_kind)}</TableCell>
+                    <TableCell className="text-muted-foreground">{trackLabel(r.track)}</TableCell>
+                    <TableCell className="text-right">{r.drafted}</TableCell>
+                    <TableCell className="text-right">{r.sent}</TableCell>
+                    <TableCell className="text-right">{r.replied}</TableCell>
+                    <TableCell className="text-right">{r.positive_replied}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatRate(r.positive_reply_rate === null ? null : Number(r.positive_reply_rate))}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    No outbound touches yet. Rows appear once drafts carry a hook (or explicitly
+                    don&rsquo;t) and start going out.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The rent check: if verified hooks don&rsquo;t beat the no-hook arm on positive replies
+          within a quarter, the Personalize stage folds back into drafting. &ldquo;No hook
+          attached&rdquo; is a touch drafted without any hook; &ldquo;none (fallback
+          angle)&rdquo; is the honest researched outcome that nothing hook-worthy exists — both
+          are controls, not failures.
+        </p>
+      </div>
     </div>
   );
 }

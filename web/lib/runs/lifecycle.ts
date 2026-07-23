@@ -196,6 +196,30 @@ export async function ingestRun(
     return { ok: false, error: `Run not found: ${rerr?.message ?? opts.runId}`, inserted: 0, rejected: 0, sampledCount: 0, messages: [] };
   }
 
+  // Atomically claim the run before parsing: exactly one ingest wins the flip
+  // to 'ingesting'. Re-ingest stays allowed from 'awaiting_input' and 'failed'
+  // (the bad-paste retry), but a run that already ingested never double-writes
+  // its batch on a double-click or replayed submit.
+  const { data: claimed, error: cerr } = await supabase
+    .from("runs")
+    .update({ status: "ingesting", started_at: new Date().toISOString() })
+    .eq("id", run.id)
+    .in("status", ["awaiting_input", "failed"])
+    .select("id");
+  if (cerr) {
+    return { ok: false, error: `Could not claim run: ${cerr.message}`, inserted: 0, rejected: 0, sampledCount: 0, messages: [] };
+  }
+  if (!claimed?.length) {
+    return {
+      ok: false,
+      error: "This run already ingested its output — start a new run to import again.",
+      inserted: 0,
+      rejected: 0,
+      sampledCount: 0,
+      messages: [],
+    };
+  }
+
   const mod = getModule(run.module as ModuleKey);
   const requireEvidence = opts.requireEvidence ?? requiresEvidence(run.module as ModuleKey);
   const parsed = mod.parse(opts.rawText);
@@ -214,8 +238,6 @@ export async function ingestRun(
       .eq("id", run.id);
     return { ok: false, error: parsed.error, inserted: 0, rejected: 0, sampledCount: 0, messages: [] };
   }
-
-  await supabase.from("runs").update({ status: "ingesting", started_at: new Date().toISOString() }).eq("id", run.id);
 
   const { data: s } = await supabase
     .from("settings")

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { draftEligibleContactIds } from "@/lib/journey";
+import { usableHooksByContact } from "@/lib/hooks/usable";
 import type { DraftContact } from "@/lib/drafting/prompt";
 import { Button } from "@/components/ui/button";
 import { DraftBuilder } from "./draft-builder";
@@ -12,57 +14,34 @@ type Row = {
   city: string | null;
   email: string | null;
   linkedin_url: string | null;
-  batch_id: string | null;
   organizations: {
     name: string;
     domain: string | null;
     kind: string | null;
     current_msp_id: string | null;
   } | null;
-  batches: { gate_status: string } | null;
 };
 
-// Contacts with at least one address (email or LinkedIn) are draftable. Channels
-// are derived from which addresses exist.
 export default async function DraftPage() {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("contacts")
-    .select(
-      "id, full_name, persona, title, city, email, linkedin_url, batch_id, organizations(name, domain, kind, current_msp_id), batches(gate_status)",
-    )
-    .is("deleted_at", null)
-    .or("email.not.is.null,linkedin_url.not.is.null");
 
-  // Suppression guard: a contact with any live suppression (active, or an
-  // unconfirmed 'pending' auto-match) must never be sent to — so never drafted.
-  const { data: suppressions } = await supabase
-    .from("suppressions")
-    .select("contact_id")
-    .in("status", ["active", "pending"]);
-  const suppressed = new Set((suppressions ?? []).map((s) => s.contact_id));
+  // Draft eligibility is the ONE shared definition (lib/journey): has an
+  // address, sourcing gate passed, not suppressed, no live planned touch. The
+  // home hero, the tiles, and this page all read the same set, so they can
+  // never drift apart.
+  const eligible = await draftEligibleContactIds(supabase);
+  const ids = [...eligible];
 
-  // Gate guard: a contact can be drafted only once its batch has passed the eval
-  // gate. Legacy direct-import contacts sit in a batch seeded 'passed', so they
-  // remain draftable; new-run contacts wait until their batch clears grading.
-  const all = ((data ?? []) as unknown as Row[]).filter(
-    (r) =>
-      (!r.batch_id || r.batches?.gate_status === "passed") && !suppressed.has(r.id),
-  );
-
-  // A contact is draftable only while they have NO live (non-deleted) planned
-  // outbound touch — any draft in the send queue, approved or not, claims the
-  // contact. "Send back to drafting" in the queue soft-deletes the draft
-  // (delete_reason 'redraft'), which is what returns the contact here;
-  // unapproving alone is just an approval toggle and keeps the contact queued.
-  const { data: drafted } = await supabase
-    .from("touches")
-    .select("contact_id")
-    .eq("status", "planned")
-    .eq("direction", "outbound")
-    .is("deleted_at", null);
-  const hasPlanned = new Set((drafted ?? []).map((t) => t.contact_id));
-  const rows = all.filter((r) => !hasPlanned.has(r.id));
+  const { data } = ids.length
+    ? await supabase
+        .from("contacts")
+        .select(
+          "id, full_name, persona, title, city, email, linkedin_url, organizations(name, domain, kind, current_msp_id)",
+        )
+        .in("id", ids)
+        .is("deleted_at", null)
+    : { data: [] };
+  const rows = (data ?? []) as unknown as Row[];
 
   const mspIds = [
     ...new Set(rows.map((r) => r.organizations?.current_msp_id).filter(Boolean)),
@@ -76,34 +55,68 @@ export default async function DraftPage() {
     m?.forEach((x) => mspName.set(x.id, x.name));
   }
 
+  // Each contact's latest usable hook (canonical definition in
+  // lib/hooks/usable.ts) rides into the builder rows, so the drafting prompt
+  // carries the verified claim (or the honest fallback angle) and the import
+  // can stamp touches.hook_id. Contacts without one still draft — the no-hook
+  // arm is the rent check's control group, not an error.
+  const hooks = await usableHooksByContact(supabase);
+
   const contacts: DraftContact[] = rows
-    .map((r) => ({
-      contact_id: r.id,
-      full_name: r.full_name,
-      persona: r.persona,
-      title: r.title,
-      company_name: r.organizations?.name ?? "their company",
-      company_domain: r.organizations?.domain ?? null,
-      city: r.city,
-      current_msp: r.organizations?.current_msp_id
-        ? mspName.get(r.organizations.current_msp_id) ?? null
-        : null,
-      org_kind: r.organizations?.kind ?? null,
-      channels: [
-        ...(r.email ? (["email"] as const) : []),
-        ...(r.linkedin_url ? (["linkedin"] as const) : []),
-      ],
-    }))
+    .map((r) => {
+      const hook = hooks.get(r.id) ?? null;
+      return {
+        contact_id: r.id,
+        full_name: r.full_name,
+        persona: r.persona,
+        title: r.title,
+        company_name: r.organizations?.name ?? "their company",
+        company_domain: r.organizations?.domain ?? null,
+        city: r.city,
+        current_msp: r.organizations?.current_msp_id
+          ? mspName.get(r.organizations.current_msp_id) ?? null
+          : null,
+        org_kind: r.organizations?.kind ?? null,
+        channels: [
+          ...(r.email ? (["email"] as const) : []),
+          ...(r.linkedin_url ? (["linkedin"] as const) : []),
+        ],
+        hook_id: hook?.id ?? null,
+        hook_text: hook?.text ?? null,
+        hook_source_url: hook?.source_url ?? null,
+        hook_kind: hook?.kind ?? null,
+        fallback_angle: hook?.fallback_angle ?? null,
+      };
+    })
     .filter((c) => c.channels.length > 0);
 
   // Nothing draftable: diagnose why and point at the stage that unblocks it,
   // instead of a dead-end "run enrichment first".
   if (contacts.length === 0) {
-    const [{ count: totalContacts }, { count: pendingEnrichment }] = await Promise.all([
+    const [
+      { count: totalContacts },
+      { count: withAddress },
+      { count: queued },
+      { count: pendingEnrichment },
+    ] = await Promise.all([
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
         .is("deleted_at", null),
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .or("email.not.is.null,linkedin_url.not.is.null"),
+      // Join live contacts so an orphaned touch of a soft-deleted contact
+      // can't trigger the "everything is queued" branch below.
+      supabase
+        .from("touches")
+        .select("id, contacts!inner(id)", { count: "exact", head: true })
+        .eq("status", "planned")
+        .eq("direction", "outbound")
+        .is("deleted_at", null)
+        .is("contacts.deleted_at", null),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
@@ -118,15 +131,15 @@ export default async function DraftPage() {
         href: "/source",
         cta: "Start a sourcing run (step 1)",
       };
-    } else if (all.length > 0) {
-      // Gate-passed contacts with addresses exist, but every one already has
-      // a draft waiting in the send queue.
+    } else if ((queued ?? 0) > 0) {
+      // Contacts with addresses exist, but every draftable one already has a
+      // draft waiting in the send queue.
       reason = {
         text: "Every draftable contact already has a message in the send queue. Approve and send those, or use Send back to drafting there to regenerate them.",
         href: "/draft/queue",
-        cta: "Open the send queue (step 5)",
+        cta: "Open the send queue (step 6)",
       };
-    } else if ((data ?? []).length > 0) {
+    } else if ((withAddress ?? 0) > 0) {
       reason = {
         text: "Contacts with an address exist, but none of their batches has passed the eval gate yet. Grade the sampled contacts to unlock them.",
         href: "/review/grade",
@@ -151,7 +164,7 @@ export default async function DraftPage() {
         <div>
           <h1 className="text-2xl font-semibold">Draft</h1>
           <p className="text-sm text-muted-foreground">
-            Generate per-persona messages, then queue them for review.
+            Turn researched hooks into per-persona messages, then queue them for review.
           </p>
         </div>
         <div className="flex flex-col items-start gap-3 rounded-md border p-6">
