@@ -5,7 +5,7 @@ export type DraftReport = {
   updated: number; // existing drafts replaced
   skippedNoAddress: number; // channel had no email/LinkedIn
   skippedUnknown: number; // contact_id not found
-  flaggedOverLimit: number; // LinkedIn drafts over 300 chars, stored unapproved for re-draft
+  flaggedOverLimit: number; // LinkedIn drafts over 300 chars — must be re-drafted, not approved
   messages: string[];
 };
 
@@ -17,6 +17,17 @@ export const EMPTY_DRAFT_REPORT: DraftReport = {
   skippedUnknown: 0,
   flaggedOverLimit: 0,
   messages: [],
+};
+
+// One failed send for the queue's "Failed sends" section — the landing spot
+// for the home page's failed-sends health chip.
+export type FailedRow = {
+  id: string;
+  channel: string;
+  subject: string | null;
+  contact_name: string | null;
+  company: string;
+  last_error: string | null;
 };
 
 // One drafted touch for the queue grid.

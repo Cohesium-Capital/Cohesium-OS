@@ -257,6 +257,14 @@ function renderContactLines(contacts: DraftContact[], kind: TrackKind): string {
     .join("\n");
 }
 
+// The static single-shot template for a track: everything except the batch's
+// contact lines, which sit behind the {{contacts}} placeholder. This is the
+// text the run lifecycle hashes (runs.template_hash) so a prompt version is
+// identified by its instructions, not by whichever contacts were pasted in.
+export function buildTemplateText(kind: TrackKind): string {
+  return [header(kind), "", rules(kind), "", "Contacts:", "{{contacts}}"].join("\n");
+}
+
 export function buildDraftPrompt(
   contacts: DraftContact[],
   kind: TrackKind = "customer",

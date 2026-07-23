@@ -1,6 +1,15 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -33,6 +42,47 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+// The grid's selection scopes the Clay push, but the push button lives in the
+// enrich card above the grid — this context bridges the two. The grid publishes
+// its selected ids; PushToClayButton consumes them. requestClear lets the push
+// button reset the grid's selection after a successful push (clearSignal is a
+// monotonic counter the grid watches).
+const ReviewSelectionContext = createContext<{
+  selectedIds: string[];
+  setSelectedIds: (ids: string[]) => void;
+  clearSignal: number;
+  requestClear: () => void;
+} | null>(null);
+
+export function ReviewSelectionProvider({ children }: { children: React.ReactNode }) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [clearSignal, setClearSignal] = useState(0);
+  const requestClear = useCallback(() => setClearSignal((n) => n + 1), []);
+  const value = useMemo(
+    () => ({ selectedIds, setSelectedIds, clearSignal, requestClear }),
+    [selectedIds, clearSignal, requestClear],
+  );
+  return (
+    <ReviewSelectionContext.Provider value={value}>
+      {children}
+    </ReviewSelectionContext.Provider>
+  );
+}
+
+export function useReviewSelection() {
+  const ctx = useContext(ReviewSelectionContext);
+  if (!ctx) throw new Error("useReviewSelection requires ReviewSelectionProvider");
+  return ctx;
+}
 
 function confidenceVariant(c: string | null): "default" | "secondary" | "destructive" {
   if (c === "low") return "destructive";
@@ -69,6 +119,30 @@ export function ReviewGrid({
   const [rowSelection, setRowSelection] = useState<RowSelectionState>(() =>
     Object.fromEntries(initialRows.map((r) => [r.id, true])),
   );
+  // Soft-delete confirmation: ids awaiting deletion + one shared optional reason.
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+
+  const { setSelectedIds, clearSignal } = useReviewSelection();
+  // Publish the selection so the enrich card's push button can scope to it.
+  // Intersect with the current rows (not raw selection-state keys): after a
+  // delete/mark-reviewed refresh the grid keeps its key, so rowSelection can
+  // hold ids of rows no longer in the data — those must not scope the push.
+  useEffect(() => {
+    setSelectedIds(initialRows.filter((r) => rowSelection[r.id]).map((r) => r.id));
+  }, [rowSelection, initialRows, setSelectedIds]);
+
+  // The push button bumps clearSignal after a successful push; drop the
+  // selection so the just-pushed rows aren't one click from a re-push. The ref
+  // guard ignores the mount-time value (a fresh page keeps its select-all
+  // default even if a push happened earlier in the session).
+  const lastClearSignal = useRef(clearSignal);
+  useEffect(() => {
+    if (clearSignal !== lastClearSignal.current) {
+      lastClearSignal.current = clearSignal;
+      setRowSelection({});
+    }
+  }, [clearSignal]);
 
   function navigate(next: { q?: string; page?: number; flagged?: boolean }) {
     const sp = new URLSearchParams();
@@ -233,7 +307,7 @@ export function ReviewGrid({
                 )}
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={() => run(() => deleteContacts([r.id]), "Deleted.")}
+                  onClick={() => setDeleteIds([r.id])}
                 >
                   <Trash2 className="size-4" />
                   Delete
@@ -319,7 +393,7 @@ export function ReviewGrid({
               variant="destructive"
               size="sm"
               disabled={pending}
-              onClick={() => run(() => deleteContacts(selectedIds), "Deleted.")}
+              onClick={() => setDeleteIds(selectedIds)}
             >
               Delete
             </Button>
@@ -388,8 +462,46 @@ export function ReviewGrid({
         </Table>
       </div>
       <p className="text-xs text-muted-foreground">
-        Selection and bulk actions apply to the current page.
+        Selection and bulk actions apply to the current page. The selection also scopes the
+        Clay push in step B above.
       </p>
+
+      <Dialog open={!!deleteIds} onOpenChange={(o) => !o && setDeleteIds(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Delete{" "}
+              {(deleteIds?.length ?? 0) === 1 ? "this contact" : `${deleteIds?.length ?? 0} contacts`}?
+            </DialogTitle>
+            <DialogDescription>
+              Removed from every list and never pushed to Clay, but kept on record (soft
+              delete). An optional reason is stored with each row.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="Reason (optional), e.g. wrong ICP"
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteIds(null)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                const ids = deleteIds ?? [];
+                setDeleteIds(null);
+                setDeleteReason("");
+                run(() => deleteContacts(ids, deleteReason || undefined), "Deleted.");
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -37,6 +37,22 @@ export type PersonalizationContact = {
 
 export type PersonalizationConfig = { contacts: PersonalizationContact[] };
 
+// The static instruction portion; the contact lines are the volatile config and
+// become {{contacts}}. Hashed by createRun for mechanical prompt versioning.
+const TEMPLATE = [
+  `For EACH person below, find ONE true, specific, verifiable detail to open a warm outreach with — strongly prefer something from the LAST 12 MONTHS (a recent talk, panel, podcast, conference appearance, company announcement, or post).`,
+  ``,
+  `Rules:`,
+  `- VERIFY the detail with web search. Only state a fact you can confirm from a citable source. If you cannot verify a recent specific detail, write a neutral, honest observation about their role/industry and set source_url to null.`,
+  `- The "note" is one or two sentences of the hook itself, not a full email.`,
+  `- Include a "source_url" for any specific claim. Use the exact contact_id from each line.`,
+  ``,
+  `Return ONLY this JSON: { "personalizations": [ { "contact_id": string, "note": string, "source_url": string|null } ] }`,
+  ``,
+  `Contacts:`,
+  `{{contacts}}`,
+].join("\n");
+
 export const personalizationModule: RunModule<PersonalizationConfig, PersonalizationPayload> = {
   key: "personalization",
   label: "personalization hooks",
@@ -53,19 +69,12 @@ export const personalizationModule: RunModule<PersonalizationConfig, Personaliza
       ].filter(Boolean);
       return parts.join("; ");
     });
-    return [
-      `For EACH person below, find ONE true, specific, verifiable detail to open a warm outreach with — strongly prefer something from the LAST 12 MONTHS (a recent talk, panel, podcast, conference appearance, company announcement, or post).`,
-      ``,
-      `Rules:`,
-      `- VERIFY the detail with web search. Only state a fact you can confirm from a citable source. If you cannot verify a recent specific detail, write a neutral, honest observation about their role/industry and set source_url to null.`,
-      `- The "note" is one or two sentences of the hook itself, not a full email.`,
-      `- Include a "source_url" for any specific claim. Use the exact contact_id from each line.`,
-      ``,
-      `Return ONLY this JSON: { "personalizations": [ { "contact_id": string, "note": string, "source_url": string|null } ] }`,
-      ``,
-      `Contacts:`,
-      lines.join("\n"),
-    ].join("\n");
+    // Function replacement so contact data is inserted literally ($ not special).
+    return TEMPLATE.replace("{{contacts}}", () => lines.join("\n"));
+  },
+
+  templateText() {
+    return TEMPLATE;
   },
 
   parse(rawText) {

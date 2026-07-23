@@ -52,7 +52,8 @@ export default async function GradePage({
       { count: "exact" },
     )
     .eq("sampled", true)
-    .eq("review_status", "pending_review");
+    .eq("review_status", "pending_review")
+    .is("deleted_at", null); // soft-deleted contacts never enter the queue
   if (batchId) query = query.eq("batch_id", batchId);
   const { data, count } = await query
     .order("batch_id", { ascending: true })

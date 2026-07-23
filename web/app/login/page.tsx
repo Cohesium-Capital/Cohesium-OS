@@ -39,7 +39,7 @@ function LoginInner() {
     // set, then a full reload lets the server see the session.
     const supabase = createClient();
     supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-      window.location.replace(error ? "/login?error=auth" : "/review");
+      window.location.replace(error ? "/login?error=auth" : "/");
     });
   }, [code]);
 

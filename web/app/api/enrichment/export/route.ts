@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllPendingContacts } from "@/lib/enrichment/pending";
+import { fetchEligibleContacts } from "@/lib/enrichment/pending";
 
-// CSV of contacts still pending enrichment, for loading into Clay. Authenticated
-// by the user session (a founder hits this from the app). Clay enriches and
-// echoes contact_id back to POST /api/enrichment.
+// CSV of contacts eligible for enrichment (pending + reviewed + not deleted +
+// gate-passed batch — same filter as the Clay push), for loading into Clay.
+// Authenticated by the user session (a founder hits this from the app). Clay
+// enriches and echoes contact_id back to POST /api/enrichment.
 
 function cell(v: string | null | undefined): string {
   const s = String(v ?? "");
@@ -18,7 +19,7 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const rows = await fetchAllPendingContacts(supabase);
+  const rows = await fetchEligibleContacts(supabase);
   const header = [
     "contact_id",
     "full_name",

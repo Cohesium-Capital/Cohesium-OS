@@ -12,8 +12,10 @@ import {
 } from "@/components/ui/table";
 
 // Outcomes dashboard: the scoreboard for the learning loop. Reads the
-// draft_outcomes view (per prompt version × channel) so reply rates, bounce
-// rates, and edit rates can be compared across prompt revisions. Empty until
+// draft_outcomes view (per prompt version × channel × track) so reply rates,
+// positive-reply rates, and edit rates can be compared across prompt revisions
+// and audiences. "Replied" is raw volume (opt-outs and autoresponders count);
+// "positive" is the human-triaged disposition — the honest signal. Empty until
 // drafting/sending produces touches — the funnel fills in as the pipeline runs.
 
 type DraftOutcome = {
@@ -21,12 +23,17 @@ type DraftOutcome = {
   module: string | null;
   version: number | null;
   channel: string;
+  track: string | null;
   drafted: number;
   sent: number;
   replied: number;
+  positive_replied: number;
+  opted_out: number;
   bounced: number;
+  failed: number;
   edited: number;
   reply_rate: number | null;
+  positive_reply_rate: number | null;
   first_sent_at: string | null;
   last_sent_at: string | null;
 };
@@ -39,6 +46,12 @@ function formatRate(rate: number | null): string {
 function versionLabel(row: DraftOutcome): string {
   if (!row.prompt_version_id) return "unattributed";
   return `${row.module ?? "?"} v${row.version ?? "?"}`;
+}
+
+function trackLabel(track: string | null): string {
+  if (track === "msp") return "MSP";
+  if (track === "customer") return "Customer";
+  return "—";
 }
 
 export default async function OutcomesPage() {
@@ -56,10 +69,11 @@ export default async function OutcomesPage() {
       drafted: acc.drafted + r.drafted,
       sent: acc.sent + r.sent,
       replied: acc.replied + r.replied,
+      positive: acc.positive + r.positive_replied,
       bounced: acc.bounced + r.bounced,
       edited: acc.edited + r.edited,
     }),
-    { drafted: 0, sent: 0, replied: 0, bounced: 0, edited: 0 },
+    { drafted: 0, sent: 0, replied: 0, positive: 0, bounced: 0, edited: 0 },
   );
   const overallReplyRate = totals.sent > 0 ? totals.replied / totals.sent : null;
 
@@ -69,8 +83,8 @@ export default async function OutcomesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Outcomes</h1>
           <p className="text-sm text-muted-foreground">
-            How drafts perform per prompt version and channel. Edits and reply rates are the
-            signals that tell you whether a prompt revision actually improved.
+            How drafts perform per prompt version, channel, and track. Edits and positive-reply
+            rates are the signals that tell you whether a prompt revision actually improved.
           </p>
         </div>
         <Button variant="outline" nativeButton={false} render={<Link href="/settings" />}>
@@ -81,7 +95,8 @@ export default async function OutcomesPage() {
       <div className="flex flex-wrap gap-3">
         <SummaryCard label="Drafted" value={totals.drafted} />
         <SummaryCard label="Sent" value={totals.sent} />
-        <SummaryCard label="Replied" value={totals.replied} accent />
+        <SummaryCard label="Replied" value={totals.replied} />
+        <SummaryCard label="Positive replies" value={totals.positive} accent />
         <SummaryCard label="Bounced" value={totals.bounced} />
         <SummaryCard label="Edited before send" value={totals.edited} />
         <SummaryCard label="Reply rate" value={formatRate(overallReplyRate)} />
@@ -92,20 +107,27 @@ export default async function OutcomesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Prompt version</TableHead>
+              <TableHead>Track</TableHead>
               <TableHead>Channel</TableHead>
               <TableHead className="text-right">Drafted</TableHead>
               <TableHead className="text-right">Sent</TableHead>
               <TableHead className="text-right">Replied</TableHead>
+              <TableHead className="text-right">Positive</TableHead>
+              <TableHead className="text-right">Opted out</TableHead>
               <TableHead className="text-right">Bounced</TableHead>
+              <TableHead className="text-right">Failed</TableHead>
               <TableHead className="text-right">Edited</TableHead>
               <TableHead className="text-right">Reply rate</TableHead>
+              <TableHead className="text-right">Positive rate</TableHead>
               <TableHead>Last sent</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length ? (
               rows.map((r) => (
-                <TableRow key={`${r.prompt_version_id ?? "none"}-${r.channel}`}>
+                <TableRow
+                  key={`${r.prompt_version_id ?? "none"}-${r.channel}-${r.track ?? "none"}`}
+                >
                   <TableCell>
                     {r.prompt_version_id ? (
                       <span className="font-medium">{versionLabel(r)}</span>
@@ -113,11 +135,17 @@ export default async function OutcomesPage() {
                       <Badge variant="secondary">unattributed</Badge>
                     )}
                   </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {trackLabel(r.track)}
+                  </TableCell>
                   <TableCell className="capitalize text-muted-foreground">{r.channel}</TableCell>
                   <TableCell className="text-right">{r.drafted}</TableCell>
                   <TableCell className="text-right">{r.sent}</TableCell>
                   <TableCell className="text-right">{r.replied}</TableCell>
+                  <TableCell className="text-right">{r.positive_replied}</TableCell>
+                  <TableCell className="text-right">{r.opted_out}</TableCell>
                   <TableCell className="text-right">{r.bounced}</TableCell>
+                  <TableCell className="text-right">{r.failed}</TableCell>
                   <TableCell className="text-right">
                     {r.edited}
                     {r.drafted > 0 && r.edited > 0 ? (
@@ -126,8 +154,9 @@ export default async function OutcomesPage() {
                       </span>
                     ) : null}
                   </TableCell>
+                  <TableCell className="text-right">{formatRate(r.reply_rate)}</TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatRate(r.reply_rate)}
+                    {formatRate(r.positive_reply_rate)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {r.last_sent_at ? new Date(r.last_sent_at).toLocaleDateString() : "—"}
@@ -136,7 +165,7 @@ export default async function OutcomesPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
                   No drafts yet. Rows appear here once messages are drafted in step 4 — each one
                   is attributed to the prompt version that produced it.
                 </TableCell>
@@ -147,9 +176,11 @@ export default async function OutcomesPage() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        &ldquo;Edited&rdquo; counts drafts a human changed before sending — an implicit signal the
-        prompt output wasn&rsquo;t good enough as-is. Unattributed rows are legacy touches created
-        before provenance tracking.
+        &ldquo;Positive rate&rdquo; is replies a human triaged as positive ÷ sent — raw
+        &ldquo;Replied&rdquo; counts everything that came back, opt-outs included, so it
+        flatters. &ldquo;Edited&rdquo; counts drafts a human changed before sending — an
+        implicit signal the prompt output wasn&rsquo;t good enough as-is. Unattributed rows are
+        legacy touches created before provenance tracking.
       </p>
     </div>
   );

@@ -31,29 +31,38 @@ export default async function DraftPage() {
     .select(
       "id, full_name, persona, title, city, email, linkedin_url, batch_id, organizations(name, domain, kind, current_msp_id), batches(gate_status)",
     )
+    .is("deleted_at", null)
     .or("email.not.is.null,linkedin_url.not.is.null");
+
+  // Suppression guard: a contact with any live suppression (active, or an
+  // unconfirmed 'pending' auto-match) must never be sent to — so never drafted.
+  const { data: suppressions } = await supabase
+    .from("suppressions")
+    .select("contact_id")
+    .in("status", ["active", "pending"]);
+  const suppressed = new Set((suppressions ?? []).map((s) => s.contact_id));
 
   // Gate guard: a contact can be drafted only once its batch has passed the eval
   // gate. Legacy direct-import contacts sit in a batch seeded 'passed', so they
   // remain draftable; new-run contacts wait until their batch clears grading.
   const all = ((data ?? []) as unknown as Row[]).filter(
-    (r) => !r.batch_id || r.batches?.gate_status === "passed",
+    (r) =>
+      (!r.batch_id || r.batches?.gate_status === "passed") && !suppressed.has(r.id),
   );
 
-  // A contact drops off the draft list once it has an APPROVED planned touch, so
-  // each batch advances to fresh contacts. Unapproving a draft in the queue
-  // ("send back to drafting") brings the contact back here for regeneration —
-  // storeDrafts overwrites the existing draft in place, so nothing is lost.
+  // A contact is draftable only while they have NO live (non-deleted) planned
+  // outbound touch — any draft in the send queue, approved or not, claims the
+  // contact. "Send back to drafting" in the queue soft-deletes the draft
+  // (delete_reason 'redraft'), which is what returns the contact here;
+  // unapproving alone is just an approval toggle and keeps the contact queued.
   const { data: drafted } = await supabase
     .from("touches")
-    .select("contact_id, approved")
+    .select("contact_id")
     .eq("status", "planned")
-    .eq("direction", "outbound");
+    .eq("direction", "outbound")
+    .is("deleted_at", null);
   const hasPlanned = new Set((drafted ?? []).map((t) => t.contact_id));
-  const hasUnapproved = new Set(
-    (drafted ?? []).filter((t) => !t.approved).map((t) => t.contact_id),
-  );
-  const rows = all.filter((r) => !hasPlanned.has(r.id) || hasUnapproved.has(r.id));
+  const rows = all.filter((r) => !hasPlanned.has(r.id));
 
   const mspIds = [
     ...new Set(rows.map((r) => r.organizations?.current_msp_id).filter(Boolean)),
@@ -91,10 +100,14 @@ export default async function DraftPage() {
   // instead of a dead-end "run enrichment first".
   if (contacts.length === 0) {
     const [{ count: totalContacts }, { count: pendingEnrichment }] = await Promise.all([
-      supabase.from("contacts").select("id", { count: "exact", head: true }),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .is("deleted_at", null),
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
         .eq("enrichment_status", "pending"),
     ]);
 
@@ -107,9 +120,9 @@ export default async function DraftPage() {
       };
     } else if (all.length > 0) {
       // Gate-passed contacts with addresses exist, but every one already has
-      // an approved draft waiting.
+      // a draft waiting in the send queue.
       reason = {
-        text: "Every draftable contact already has a message in the send queue. Review and send those, or send some back here for re-drafting.",
+        text: "Every draftable contact already has a message in the send queue. Approve and send those, or use Send back to drafting there to regenerate them.",
         href: "/draft/queue",
         cta: "Open the send queue (step 5)",
       };

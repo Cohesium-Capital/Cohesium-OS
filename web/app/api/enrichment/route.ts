@@ -9,6 +9,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // single object, an array, or { rows: [...] }.
 //
 // Row shape: { contact_id, email?, linkedin_url?, phone?, personalization?, status? }
+// Extra fields (e.g. Clay's verification status) are preserved verbatim in the
+// enrichment_events payload even though the contact update ignores them.
 
 type Row = {
   contact_id?: string;
@@ -54,13 +56,17 @@ export async function POST(req: Request) {
   const supabase = createAdminClient();
   let updated = 0;
   const errors: string[] = [];
+  const events: { contact_id: string; event: string; payload: unknown }[] = [];
 
   for (const r of rows) {
     if (!r.contact_id) {
       errors.push("missing contact_id");
       continue;
     }
-    const email = clean(r.email);
+    // Emails are stored lowercased so the reply/bounce capture's exact-match
+    // lookups (which compare against lowercased IMAP senders) always resolve.
+    // Migration 018 backfilled existing rows to lower(email).
+    const email = clean(r.email)?.toLowerCase() ?? null;
     const linkedin = clean(r.linkedin_url);
     const status =
       clean(r.status) ?? (email || linkedin ? "enriched" : "failed");
@@ -82,7 +88,19 @@ export async function POST(req: Request) {
     if (error) errors.push(`${r.contact_id}: ${error.message}`);
     else if (!data || data.length === 0)
       errors.push(`${r.contact_id}: no matching contact (check the contact_id mapping)`);
-    else updated++;
+    else {
+      updated++;
+      // Provenance: the raw incoming row, verbatim — including any verification
+      // or status fields Clay sends beyond what the contact update consumes.
+      events.push({ contact_id: r.contact_id, event: "writeback", payload: r });
+    }
+  }
+
+  if (events.length) {
+    const { error } = await supabase.from("enrichment_events").insert(events);
+    // The contact updates already landed; a provenance failure is reported, not
+    // fatal (re-sending the write-back is safe either way).
+    if (error) errors.push(`enrichment_events: ${error.message}`);
   }
 
   // Total failure (rows sent, nothing matched/updated) → 422 so callers like

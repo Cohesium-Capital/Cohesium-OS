@@ -4,10 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import type { QueueRow } from "@/lib/drafting/types";
+import type { FailedRow, QueueRow } from "@/lib/drafting/types";
 import {
   setApproved,
   setApprovedBulk,
+  redraftBulk,
+  retryFailedBulk,
   updateDraft,
   deleteDraft,
   deleteDraftsBulk,
@@ -43,7 +45,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
+export function DraftQueue({
+  initialRows,
+  failedRows = [],
+}: {
+  initialRows: QueueRow[];
+  failedRows?: FailedRow[];
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<QueueRow | null>(null);
@@ -140,6 +148,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
 
   const approvedCount = initialRows.filter((r) => r.approved).length;
   const unapprovedCount = initialRows.length - approvedCount;
+  const unapprovedIds = initialRows.filter((r) => !r.approved).map((r) => r.id);
   const selectedIds = [...selected];
   const allSelected = initialRows.length > 0 && selected.size === initialRows.length;
 
@@ -147,28 +156,29 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          {approvedCount} of {initialRows.length} approved
-          {unapprovedCount > 0 && (
-            <>
-              {" · "}
-              <span className="text-foreground">{unapprovedCount} need re-drafting</span>{" "}
-              <button
-                type="button"
-                className="underline underline-offset-2 hover:text-foreground"
-                onClick={() => router.push("/draft")}
-              >
-                (regenerate on Draft →)
-              </button>
-            </>
-          )}
-          .
+          {approvedCount} of {initialRows.length} approved — drafts arrive unapproved and
+          send only after you approve them here.
         </p>
-        <Button
-          disabled={approvedCount === 0 || sending}
-          onClick={() => setSendOpen(true)}
-        >
-          Send approved →
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={unapprovedCount === 0 || pending}
+            onClick={() =>
+              runBulk(
+                () => setApprovedBulk(unapprovedIds, true),
+                `${unapprovedCount} draft(s) approved.`,
+              )
+            }
+          >
+            Approve all ({unapprovedCount})
+          </Button>
+          <Button
+            disabled={approvedCount === 0 || sending}
+            onClick={() => setSendOpen(true)}
+          >
+            Send approved →
+          </Button>
+        </div>
       </div>
 
       {selectedIds.length > 0 && (
@@ -180,8 +190,11 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
             disabled={pending}
             onClick={() =>
               runBulk(
-                () => setApprovedBulk(selectedIds, false),
-                `${selectedIds.length} sent back to drafting. Regenerate them on the Draft page.`,
+                // Retires the drafts (soft-delete, reason 'redraft') — that is
+                // what frees the contacts for re-drafting; unapproving alone
+                // would leave them claimed by the queue.
+                () => redraftBulk(selectedIds),
+                `${selectedIds.length} draft(s) retired. Regenerate those contacts on the Draft page.`,
                 true,
               )
             }
@@ -245,7 +258,7 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
                       onCheckedChange={(v) =>
                         run(
                           () => setApproved(r.id, !!v),
-                          v ? "Approved." : "Sent back to drafting.",
+                          v ? "Approved." : "Approval removed.",
                         )
                       }
                     />
@@ -260,9 +273,11 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
                     <div className="flex items-center gap-1.5">
                       <ContactKindBadge kind={r.org_kind} />
                       <Badge variant="outline">{r.channel}</Badge>
-                      {!r.approved && (
+                      {/* Unapproved is the default state now, so it needs no badge —
+                          flag only drafts that must be redone before approval. */}
+                      {r.channel === "linkedin" && r.body.length > 300 && (
                         <Badge variant="secondary" className="text-[0.65rem]">
-                          needs re-draft
+                          over 300 — re-draft
                         </Badge>
                       )}
                     </div>
@@ -325,6 +340,64 @@ export function DraftQueue({ initialRows }: { initialRows: QueueRow[] }) {
           </TableBody>
         </Table>
       </div>
+
+      {/* Failed sends: where the home page's failed-sends health chip lands.
+          The cron marks a touch 'failed' with last_error; Retry requeues it. */}
+      {failedRows.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-md border border-destructive/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium">Failed sends ({failedRows.length})</p>
+              <p className="text-xs text-muted-foreground">
+                These sends errored out. Retry puts them back in the email queue for the
+                next run.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() =>
+                runBulk(
+                  () => retryFailedBulk(failedRows.map((r) => r.id)),
+                  `${failedRows.length} send(s) requeued — the next email run will retry them.`,
+                )
+              }
+            >
+              Retry all
+            </Button>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Contact</TableHead>
+                <TableHead>Channel</TableHead>
+                <TableHead>Error</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {failedRows.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span>{r.contact_name ?? "—"}</span>
+                      <span className="text-xs text-muted-foreground">{r.company}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{r.channel}</Badge>
+                  </TableCell>
+                  <TableCell className="max-w-md">
+                    <span className="text-sm text-destructive">
+                      {r.last_error ?? "Unknown error"}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <Dialog open={sendOpen} onOpenChange={(o) => !sending && setSendOpen(o)}>
         <DialogContent>

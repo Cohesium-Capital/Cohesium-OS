@@ -24,29 +24,37 @@ export async function sendMail(opts: {
   to: string;
   subject: string;
   text: string;
-}): Promise<{ ok: boolean; error?: string; copiedToSent?: boolean }> {
+}): Promise<{ ok: boolean; error?: string; messageId?: string; copiedToSent?: boolean }> {
   const from = process.env.MAIL_FROM; // e.g. "Ripley <ripley@cohesium.co>"
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !from) {
     return { ok: false, error: "SMTP not configured (SMTP_HOST / SMTP_USER / MAIL_FROM)." };
   }
   const message = { from, to: opts.to, subject: opts.subject, text: opts.text, date: new Date() };
+  // The transported Message-ID is what the recipient's reply will carry in
+  // In-Reply-To — the caller stores it on the touch (provider_ref) so inbound
+  // mail can be matched back to the exact outbound message.
+  let messageId: string | undefined;
   try {
-    await transporter().sendMail(message);
+    const info = await transporter().sendMail(message);
+    messageId = info.messageId;
   } catch (e) {
     return { ok: false, error: `SMTP send failed: ${e instanceof Error ? e.message : e}` };
   }
 
   // Best-effort: drop a copy in the IMAP Sent folder so it shows in webmail.
+  // Reuse the transported Message-ID so the copy IS the message that went out.
   // A failure here never fails the send — the mail already went out.
   let copiedToSent = false;
   try {
     const raw = await new Promise<Buffer>((resolve, reject) => {
-      new MailComposer(message).compile().build((err, msg) => (err ? reject(err) : resolve(msg)));
+      new MailComposer({ ...message, messageId }).compile().build((err, msg) =>
+        err ? reject(err) : resolve(msg),
+      );
     });
     const res = await appendToSent(raw);
     copiedToSent = res.ok;
   } catch {
     // ignore — Sent copy is non-critical
   }
-  return { ok: true, copiedToSent };
+  return { ok: true, messageId, copiedToSent };
 }

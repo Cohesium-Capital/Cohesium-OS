@@ -1,27 +1,50 @@
 import { DraftsPayloadSchema, type DraftsPayload } from "../drafting/contracts";
-import { buildDraftPrompt, trackKindOf, type DraftContact } from "../drafting/prompt";
+import {
+  buildDraftPrompt,
+  buildDraftAgentPrompt,
+  buildTemplateText,
+  trackKindOf,
+  type DraftContact,
+  type TrackKind,
+} from "../drafting/prompt";
 import { storeDrafts } from "../drafting/import-core";
 import type { RunModule, IngestOutcome } from "./types";
 
 // Drafting as a pipeline module. Output is one or more drafted touches per
 // contact; ingest writes them as planned outbound touches (storeDrafts). Drafting
 // produces messages rather than records that carry source evidence, so it is not
-// evidence-gated or sampled here — its quality is graded on the touch text in the
-// review queue (P3).
+// evidence-gated or sampled here — its gate is the 100% human send review: every
+// draft lands unapproved and sends only after an explicit approval in the queue.
 
 export type DraftingConfig = {
   contacts: DraftContact[];
+  track?: TrackKind;
+  // "single": one pasted batch; "agent": Claude Code fans chunks out to subagents.
+  mode?: "single" | "agent";
+  chunkSize?: number;
 };
+
+// Prefer the operator's explicit track; derive from the batch otherwise so a
+// module-driven run of MSP contacts never gets the customer framing.
+const trackOf = (config: DraftingConfig): TrackKind =>
+  config.track ?? trackKindOf(config.contacts ?? []);
 
 export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   key: "drafting",
   label: "drafted messages",
 
   renderPrompt(_template, config) {
-    // Derive the audience track from the batch so a module-driven run of MSP
-    // contacts never gets the customer framing (mixed/unknown → customer).
     const contacts = config.contacts ?? [];
-    return buildDraftPrompt(contacts, trackKindOf(contacts));
+    const kind = trackOf(config);
+    return config.mode === "agent"
+      ? buildDraftAgentPrompt(contacts, config.chunkSize ?? 15, kind)
+      : buildDraftPrompt(contacts, kind);
+  },
+
+  // The static per-track rules text ({{contacts}} placeholder) — what the run
+  // lifecycle hashes to version the prompt independent of the pasted batch.
+  templateText(config) {
+    return buildTemplateText(trackOf(config));
   },
 
   parse(rawText) {
@@ -45,6 +68,7 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
     const report = await storeDrafts(supabase, output.drafts, {
       runId: ctx.runId,
       promptVersionId: ctx.promptVersionId ?? null,
+      track: trackOf((ctx.config ?? {}) as DraftingConfig),
     });
     return {
       ok: report.ok,

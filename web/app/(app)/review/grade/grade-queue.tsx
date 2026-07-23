@@ -52,6 +52,42 @@ const FIELDS_BY_MODULE: Record<string, { field: string; prop: keyof GradeContact
   drafting: [{ field: "personalization", prop: "personalization", label: "Note", long: true }],
 };
 
+// Error taxonomy — mirrors the grades.error_category CHECK. One-tap chips;
+// 'other' is the escape hatch so categorizing never blocks a grade for long.
+const ERROR_CATEGORIES = [
+  { value: "stale_data", label: "stale data" },
+  { value: "wrong_person", label: "wrong person" },
+  { value: "wrong_company", label: "wrong company" },
+  { value: "hallucinated", label: "hallucinated" },
+  { value: "bad_evidence", label: "bad evidence" },
+  { value: "formatting", label: "formatting" },
+  { value: "misaligned_note", label: "misaligned note" },
+  { value: "other", label: "other" },
+];
+
+function CategoryChips({
+  selected,
+  onSelect,
+}: {
+  selected: string | null;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {ERROR_CATEGORIES.map((cat) => (
+        <Button
+          key={cat.value}
+          size="xs"
+          variant={selected === cat.value ? "default" : "outline"}
+          onClick={() => onSelect(cat.value)}
+        >
+          {cat.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function statusVariant(s: string): "default" | "secondary" | "destructive" {
   if (s === "passed") return "default";
   if (s === "failed") return "destructive";
@@ -70,6 +106,14 @@ export function GradeQueue({
   const [index, setIndex] = useState(0);
   const [metricsByBatch, setMetricsByBatch] = useState(initialMetricsByBatch);
   const [correcting, setCorrecting] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  // Per-changed-field error category (correct flow) and record-level category +
+  // optional reason (reject flow).
+  const [fieldCategories, setFieldCategories] = useState<Record<string, string>>({});
+  const [rejectCategory, setRejectCategory] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  // When the current card appeared — grades carry coarse seconds_spent.
+  const [shownAt, setShownAt] = useState(() => Date.now());
 
   // Snapshot the list on mount so grading the whole queue is stable: submitGrade
   // revalidates this route, which would otherwise re-render us with a shorter
@@ -102,7 +146,12 @@ export function GradeQueue({
   if (current?.id !== trackedId) {
     setTrackedId(current?.id);
     setCorrecting(false);
+    setRejecting(false);
+    setFieldCategories({});
+    setRejectCategory(null);
+    setRejectReason("");
     setDrafts(draftsFor(current));
+    setShownAt(Date.now());
   }
 
   const advance = useCallback(() => {
@@ -110,10 +159,14 @@ export function GradeQueue({
   }, []);
 
   const grade = useCallback(
-    (decision: "approved" | "corrected" | "rejected", fieldGrades?: FieldGrade[]) => {
+    (
+      decision: "approved" | "corrected" | "rejected",
+      extras?: { fieldGrades?: FieldGrade[]; errorCategory?: string | null; reason?: string | null },
+    ) => {
       if (!current) return;
       const batchId = current.batch_id;
       const prevStatus = batchId ? metricsByBatch[batchId]?.status : undefined;
+      const secondsSpent = Math.max(0, Math.round((Date.now() - shownAt) / 1000));
       startTransition(async () => {
         try {
           const m = await submitGrade({
@@ -121,7 +174,10 @@ export function GradeQueue({
             module: current.module,
             batchId,
             decision,
-            fieldGrades,
+            fieldGrades: extras?.fieldGrades,
+            errorCategory: extras?.errorCategory ?? null,
+            reason: extras?.reason ?? null,
+            secondsSpent,
           });
           if (m && batchId) setMetricsByBatch((prev) => ({ ...prev, [batchId]: m }));
           advance();
@@ -137,40 +193,72 @@ export function GradeQueue({
         }
       });
     },
-    [current, metricsByBatch, advance],
+    [current, metricsByBatch, advance, shownAt],
   );
+
+  // Fields whose draft differs from the record — each needs an error category
+  // before the correction can be submitted.
+  const changedFields = useMemo(
+    () =>
+      current
+        ? fields.filter(
+            (f) => (drafts[f.field] ?? "").trim() !== ((current[f.prop] as string | null) ?? "").trim(),
+          )
+        : [],
+    [current, fields, drafts],
+  );
+  const missingCategories = changedFields.some((f) => !fieldCategories[f.field]);
 
   const saveCorrection = useCallback(() => {
     if (!current) return;
-    const fieldGrades: FieldGrade[] = [];
-    for (const f of fields) {
-      const original = (current[f.prop] as string | null) ?? "";
-      const next = (drafts[f.field] ?? "").trim();
-      if (next !== original.trim()) {
-        fieldGrades.push({
-          field: f.field,
-          verdict: original.trim() ? "wrong" : "missing",
-          correction: next || null,
-          previousValue: original || null,
-        });
-      }
-    }
-    if (!fieldGrades.length) {
+    if (!changedFields.length) {
       toast.message("No changes — use Approve if the record is correct.");
       return;
     }
-    grade("corrected", fieldGrades);
-  }, [current, fields, drafts, grade]);
+    if (changedFields.some((f) => !fieldCategories[f.field])) {
+      toast.message("Pick an error category for each changed field.");
+      return;
+    }
+    const fieldGrades: FieldGrade[] = changedFields.map((f) => {
+      const original = (current[f.prop] as string | null) ?? "";
+      const next = (drafts[f.field] ?? "").trim();
+      return {
+        field: f.field,
+        verdict: original.trim() ? "wrong" : "missing",
+        correction: next || null,
+        previousValue: original || null,
+        errorCategory: fieldCategories[f.field],
+      };
+    });
+    grade("corrected", { fieldGrades });
+  }, [current, changedFields, fieldCategories, drafts, grade]);
 
-  // Keyboard shortcuts (ignored while typing in an input/textarea).
+  const submitReject = useCallback(() => {
+    if (!rejectCategory) {
+      toast.message("Pick an error category to reject.");
+      return;
+    }
+    grade("rejected", { errorCategory: rejectCategory, reason: rejectReason.trim() || null });
+  }, [rejectCategory, rejectReason, grade]);
+
+  // Keyboard shortcuts (ignored while typing in a field, and only for plain
+  // unmodified keys — Cmd/Ctrl+A must select text, not approve).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
       if (pending) return;
       if (e.key === "a") grade("approved");
-      else if (e.key === "r") grade("rejected");
-      else if (e.key === "c") setCorrecting((v) => !v);
+      else if (e.key === "r") {
+        // Reject needs a category, so 'r' opens the panel rather than submitting.
+        setRejecting((v) => !v);
+        setCorrecting(false);
+      } else if (e.key === "c") {
+        setCorrecting((v) => !v);
+        setRejecting(false);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -315,28 +403,48 @@ export function GradeQueue({
             {/* Correct mode: editable fields */}
             {correcting && (
               <div className="flex flex-col gap-3 rounded-md bg-muted/40 p-3">
-                {fields.map((f) =>
-                  f.long ? (
-                    <label key={f.field} className="flex flex-col gap-1 text-sm">
-                      <span className="text-muted-foreground">{f.label}</span>
-                      <Textarea
-                        value={drafts[f.field] ?? ""}
-                        onChange={(e) => setDrafts((d) => ({ ...d, [f.field]: e.target.value }))}
-                        rows={3}
-                      />
-                    </label>
-                  ) : (
-                    <label key={f.field} className="flex flex-col gap-1 text-sm">
-                      <span className="text-muted-foreground">{f.label}</span>
-                      <Input
-                        value={drafts[f.field] ?? ""}
-                        onChange={(e) => setDrafts((d) => ({ ...d, [f.field]: e.target.value }))}
-                      />
-                    </label>
-                  ),
-                )}
+                {fields.map((f) => {
+                  const changed = changedFields.some((cf) => cf.field === f.field);
+                  return (
+                    <div key={f.field} className="flex flex-col gap-1.5">
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-muted-foreground">{f.label}</span>
+                        {f.long ? (
+                          <Textarea
+                            value={drafts[f.field] ?? ""}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [f.field]: e.target.value }))}
+                            rows={3}
+                          />
+                        ) : (
+                          <Input
+                            value={drafts[f.field] ?? ""}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [f.field]: e.target.value }))}
+                          />
+                        )}
+                      </label>
+                      {/* A changed field must carry an error category before submit. */}
+                      {changed && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-muted-foreground">
+                            What was wrong with {f.label.toLowerCase()}?
+                          </span>
+                          <CategoryChips
+                            selected={fieldCategories[f.field] ?? null}
+                            onSelect={(v) =>
+                              setFieldCategories((m) => ({ ...m, [f.field]: v }))
+                            }
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 <div className="flex gap-2">
-                  <Button size="sm" disabled={pending} onClick={saveCorrection}>
+                  <Button
+                    size="sm"
+                    disabled={pending || !changedFields.length || missingCategories}
+                    onClick={saveCorrection}
+                  >
                     Save corrections
                   </Button>
                   <Button
@@ -344,7 +452,45 @@ export function GradeQueue({
                     variant="ghost"
                     onClick={() => {
                       setDrafts(draftsFor(current));
+                      setFieldCategories({});
                       setCorrecting(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Reject mode: record-level category (required) + optional reason */}
+            {rejecting && (
+              <div className="flex flex-col gap-2 rounded-md bg-muted/40 p-3">
+                <span className="text-xs text-muted-foreground">Why is this record wrong?</span>
+                <CategoryChips selected={rejectCategory} onSelect={setRejectCategory} />
+                <Input
+                  placeholder="Reason (optional, one line)"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && rejectCategory && !pending) submitReject();
+                  }}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={pending || !rejectCategory}
+                    onClick={submitReject}
+                  >
+                    Reject record
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setRejectCategory(null);
+                      setRejectReason("");
+                      setRejecting(false);
                     }}
                   >
                     Cancel
@@ -358,10 +504,24 @@ export function GradeQueue({
               <Button disabled={pending} onClick={() => grade("approved")}>
                 <Check className="size-4" /> Approve <kbd className="ml-1 text-xs opacity-70">a</kbd>
               </Button>
-              <Button variant="outline" disabled={pending} onClick={() => setCorrecting((v) => !v)}>
+              <Button
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  setCorrecting((v) => !v);
+                  setRejecting(false);
+                }}
+              >
                 <Pencil className="size-4" /> Correct <kbd className="ml-1 text-xs opacity-70">c</kbd>
               </Button>
-              <Button variant="destructive" disabled={pending} onClick={() => grade("rejected")}>
+              <Button
+                variant="destructive"
+                disabled={pending}
+                onClick={() => {
+                  setRejecting((v) => !v);
+                  setCorrecting(false);
+                }}
+              >
                 <X className="size-4" /> Reject <kbd className="ml-1 text-xs opacity-70">r</kbd>
               </Button>
             </div>
@@ -369,8 +529,9 @@ export function GradeQueue({
         )
       )}
       <p className="text-xs text-muted-foreground">
-        Shortcuts: <kbd>a</kbd> approve · <kbd>c</kbd> correct · <kbd>r</kbd> reject. Corrections are
-        recorded as eval-set pairs and written back to the contact.
+        Shortcuts: <kbd>a</kbd> approve · <kbd>c</kbd> correct · <kbd>r</kbd> reject. Corrections and
+        rejects carry an error category; every decision is recorded as eval-set grades (approvals
+        included) and corrections are written back to the contact.
       </p>
     </div>
   );

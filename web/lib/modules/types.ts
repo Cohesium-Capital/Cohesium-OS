@@ -47,6 +47,12 @@ export interface RunModule<Config = Record<string, unknown>, Output = unknown> {
    * provenance); `config` carries the run's runtime parameters.
    */
   renderPrompt(template: string | null, config: Config): string;
+  /**
+   * The static instruction portion of the rendered prompt, volatile config
+   * values replaced by {{placeholders}}; hashed for mechanical prompt
+   * versioning (createRun auto-registers a prompt_version per new hash).
+   */
+  templateText?(config: Config): string;
   /** Validate pasted/produced output against the module's contract. */
   parse(rawText: string): ParseResult<Output>;
   /** Persist validated output into the run's batch. */

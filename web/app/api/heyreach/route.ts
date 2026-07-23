@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // HeyReach webhook. Match the lead on its LinkedIn profile URL (the /in/<handle>
-// part, to survive www/trailing-slash differences). A reply flips the contact to
-// responded; an accepted connection advances the stage. Secured by ?token=.
+// part, to survive www/trailing-slash differences). A reply is stored verbatim
+// as an interaction and flips the contact to responded; an accepted connection
+// advances the stage; SENT is when a queued touch truly becomes sent. Secured
+// by ?token=.
 
 function handleFromUrl(url: string | undefined): string | null {
   if (!url) return null;
@@ -39,20 +41,89 @@ export async function POST(req: Request) {
   if (!contact) return NextResponse.json({ ok: true, note: "no matching contact" });
 
   if (event.includes("REPLY")) {
+    const now = new Date().toISOString();
+    // Verbatim reply capture. Payload shapes vary across HeyReach event
+    // versions, so take the likeliest text field and fall back to the
+    // serialized message object — triage (disposition) stays human.
+    const msg = body.message ?? body.replyMessage ?? body.reply ?? lead.message;
+    const text =
+      typeof msg === "string" && msg.trim()
+        ? msg
+        : typeof body.messageText === "string" && body.messageText.trim()
+          ? body.messageText
+          : JSON.stringify(msg ?? body);
+    // Link the interaction to the most recent live outbound touch; only
+    // sent/delivered may flip to replied — never planned/queued drafts.
+    const { data: touch } = await supabase
+      .from("touches")
+      .select("id")
+      .eq("contact_id", contact.id)
+      .eq("channel", "linkedin")
+      .eq("direction", "outbound")
+      .in("status", ["sent", "delivered"])
+      .is("deleted_at", null)
+      .order("sent_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    // Webhook providers redeliver on timeout/5xx — make the capture
+    // idempotent. Prefer a stable payload id as the dedupe key (check-then-
+    // insert against interactions.message_id, like the IMAP path); when the
+    // payload carries none, skip if an identical interaction for this
+    // contact landed in the last 7 days.
+    const rawId =
+      body.messageId ??
+      body.message_id ??
+      (typeof msg === "object" && msg !== null
+        ? (msg as Record<string, unknown>).id
+        : undefined) ??
+      body.conversationId ??
+      body.conversation_id;
+    const messageId =
+      rawId != null && String(rawId).trim() ? `heyreach:${String(rawId).trim()}` : null;
+    let duplicate = false;
+    if (messageId) {
+      const { data: existing } = await supabase
+        .from("interactions")
+        .select("id")
+        .eq("message_id", messageId)
+        .limit(1)
+        .maybeSingle();
+      duplicate = !!existing;
+    } else {
+      const since = new Date(Date.now() - 7 * 86400000).toISOString();
+      const { data: existing } = await supabase
+        .from("interactions")
+        .select("id")
+        .eq("contact_id", contact.id)
+        .eq("source", "heyreach")
+        .eq("raw_content", text)
+        .gte("occurred_at", since)
+        .limit(1)
+        .maybeSingle();
+      duplicate = !!existing;
+    }
+    if (!duplicate) {
+      await supabase.from("interactions").insert({
+        contact_id: contact.id,
+        touch_id: touch?.id ?? null,
+        channel: "linkedin",
+        source: "heyreach",
+        raw_content: text,
+        message_id: messageId,
+        occurred_at: now,
+      });
+    }
     await supabase
       .from("contacts")
-      .update({
-        responded: true,
-        responded_at: new Date().toISOString(),
-        stage: "responded",
-      })
+      .update({ responded: true, responded_at: now, stage: "responded" })
       .eq("id", contact.id);
     await supabase
       .from("touches")
-      .update({ status: "replied", replied_at: new Date().toISOString() })
+      .update({ status: "replied", replied_at: now })
       .eq("contact_id", contact.id)
       .eq("channel", "linkedin")
-      .eq("direction", "outbound");
+      .eq("direction", "outbound")
+      .in("status", ["sent", "delivered"]);
   } else if (event.includes("ACCEPTED")) {
     await supabase
       .from("contacts")
@@ -60,13 +131,26 @@ export async function POST(req: Request) {
       .eq("id", contact.id)
       .eq("responded", false);
   } else if (event.includes("SENT")) {
-    await supabase
+    // Lead-add leaves the touch 'queued'; this webhook is the moment the
+    // message actually went out, so queued -> sent + sent_at. A second
+    // SENT/DELIVERED signal advances sent -> delivered.
+    const { data: flipped } = await supabase
       .from("touches")
-      .update({ status: "delivered" })
+      .update({ status: "sent", sent_at: new Date().toISOString() })
       .eq("contact_id", contact.id)
       .eq("channel", "linkedin")
       .eq("direction", "outbound")
-      .eq("status", "sent");
+      .eq("status", "queued")
+      .select("id");
+    if (!flipped?.length) {
+      await supabase
+        .from("touches")
+        .update({ status: "delivered" })
+        .eq("contact_id", contact.id)
+        .eq("channel", "linkedin")
+        .eq("direction", "outbound")
+        .eq("status", "sent");
+    }
   }
 
   return NextResponse.json({ ok: true });

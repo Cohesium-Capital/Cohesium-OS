@@ -1,16 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import {
-  buildDraftPrompt,
-  buildDraftAgentPrompt,
-  type DraftContact,
-  type TrackKind,
-} from "@/lib/drafting/prompt";
-import { importDrafts } from "@/lib/drafting/import";
-import type { DraftReport } from "@/lib/drafting/types";
+import type { DraftContact, TrackKind } from "@/lib/drafting/prompt";
+import { startRun, submitRunOutput } from "@/lib/runs/actions";
+import type { IngestOutcome } from "@/lib/modules/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,8 +25,13 @@ const clampSize = (n: number, max: number) =>
 
 export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
   const [json, setJson] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<DraftReport | null>(null);
+  const [outcome, setOutcome] = useState<IngestOutcome | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // Run state: once started, we hold the run id + rendered prompt and reveal the
+  // paste box. A second "Start run" resets and opens a fresh run.
+  const [runId, setRunId] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
 
   // How to hand the work off:
   // - "single": one focused batch of `size` contacts you paste into a chat. Best
@@ -71,41 +71,51 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
 
   const effSize = clampSize(size, trackContacts.length || 1);
   const batch = useMemo(() => trackContacts.slice(0, effSize), [trackContacts, effSize]);
-  const prompt = useMemo(
-    () =>
-      mode === "single"
-        ? buildDraftPrompt(batch, track)
-        : buildDraftAgentPrompt(trackContacts, effSize, track),
-    [mode, batch, trackContacts, effSize, track],
-  );
   const chunks = Math.max(1, Math.ceil(trackContacts.length / effSize));
 
-  async function copyPrompt() {
-    await navigator.clipboard.writeText(prompt);
-    toast.success(
-      mode === "single"
-        ? "Prompt copied. Paste into Claude/ChatGPT with web search on, then bring the JSON back."
-        : "Prompt copied. Run it in Claude Code, then paste the JSON it returns below.",
-    );
+  function start() {
+    startTransition(async () => {
+      try {
+        // Single mode drafts the front batch; agent mode hands over the whole
+        // track and lets Claude Code chunk it.
+        const runContacts = mode === "single" ? batch : trackContacts;
+        const created = await startRun({
+          module: "drafting",
+          label: `Drafts · ${trackLabel} · ${runContacts.length} contact(s)`,
+          config: { track, mode, chunkSize: effSize, contacts: runContacts },
+        });
+        setRunId(created.runId);
+        setPrompt(created.prompt);
+        setJson("");
+        setOutcome(null);
+        await navigator.clipboard.writeText(created.prompt).catch(() => {});
+        toast.success(
+          mode === "single"
+            ? "Run started and prompt copied. Paste into Claude/ChatGPT with web search on, then bring the JSON back."
+            : "Run started and prompt copied. Run it in Claude Code, then paste the JSON it returns below.",
+        );
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not start run.");
+      }
+    });
   }
 
-  async function run() {
+  function ingest() {
+    if (!runId) return;
     if (!json.trim()) {
       toast.error("Paste the drafts JSON first.");
       return;
     }
-    setLoading(true);
-    setReport(null);
-    try {
-      const r = await importDrafts(json);
-      setReport(r);
-      if (r.ok) toast.success(`Queued ${r.drafted} new, updated ${r.updated} draft(s).`);
-      else toast.error("Import failed — see details.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unexpected error.");
-    } finally {
-      setLoading(false);
-    }
+    startTransition(async () => {
+      try {
+        const r = await submitRunOutput({ runId, rawText: json });
+        setOutcome(r);
+        if (r.ok) toast.success(`Imported ${r.inserted} draft(s) — approve them in the queue.`);
+        else toast.error("Import failed — see details.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Unexpected error.");
+      }
+    });
   }
 
   return (
@@ -124,13 +134,13 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>1. Copy the drafting prompt</CardTitle>
+          <CardTitle>1. Start a drafting run</CardTitle>
           <CardDescription>
             {contacts.length === 0
               ? "No contacts with an email or LinkedIn yet."
               : mode === "single"
-                ? `Generates a prompt for the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s). Paste it into Claude/ChatGPT with web search on, bring the JSON back, then repeat for the next batch.`
-                : `Hands all ${trackContacts.length} ${trackLabel} contact(s) to Claude Code, which fans them out to ${chunks} subagent(s) of up to ${effSize} each, then returns one combined JSON.`}
+                ? `Starts a tracked run over the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s). Paste the prompt into Claude/ChatGPT with web search on, bring the JSON back, then repeat for the next batch.`
+                : `Starts a tracked run handing all ${trackContacts.length} ${trackLabel} contact(s) to Claude Code, which fans them out to ${chunks} subagent(s) of up to ${effSize} each, then returns one combined JSON.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -211,63 +221,82 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
                   </div>
                 </div>
               </div>
-              <Textarea readOnly value={prompt} rows={14} className="font-mono text-xs" />
               <div>
-                <Button onClick={copyPrompt}>Copy prompt</Button>
+                <Button onClick={start} disabled={pending}>
+                  {runId ? "Start new run" : "Start run"}
+                </Button>
               </div>
+              {runId && (
+                <>
+                  <Textarea readOnly value={prompt} rows={14} className="font-mono text-xs" />
+                  <div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(prompt);
+                        toast.success("Prompt copied.");
+                      }}
+                    >
+                      Copy prompt again
+                    </Button>
+                  </div>
+                </>
+              )}
             </>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>2. Paste the drafts JSON</CardTitle>
-          <CardDescription>
-            Bring back the JSON and import it. Drafts queue as planned touches you can
-            review and edit.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <Textarea
-            placeholder='{ "drafts": [ ... ] }'
-            value={json}
-            onChange={(e) => setJson(e.target.value)}
-            rows={10}
-            className="font-mono text-xs"
-          />
-          <div>
-            <Button onClick={run} disabled={loading}>
-              {loading ? "Importing…" : "Import drafts"}
-            </Button>
-          </div>
-          {report && (
-            <div className="flex flex-col gap-2 text-sm">
-              {report.ok ? (
-                <p>
-                  Queued <strong>{report.drafted}</strong> new, updated{" "}
-                  <strong>{report.updated}</strong>. Skipped {report.skippedNoAddress} (no
-                  address) · {report.skippedUnknown} (unknown contact).
-                </p>
-              ) : (
-                <p className="text-destructive">{report.error}</p>
-              )}
-              {report.messages.map((m, i) => (
-                <p key={i} className="text-muted-foreground">
-                  {m}
-                </p>
-              ))}
-              {report.ok && report.drafted + report.updated > 0 && (
-                <div>
-                  <Button size="sm" nativeButton={false} render={<Link href="/draft/queue" />}>
-                    Review & send (step 5) →
-                  </Button>
-                </div>
-              )}
+      {runId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>2. Paste the drafts JSON</CardTitle>
+            <CardDescription>
+              Bring back the JSON and import it. Drafts queue as planned touches — every one
+              starts unapproved and sends only after you approve it in the queue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Textarea
+              placeholder='{ "drafts": [ ... ] }'
+              value={json}
+              onChange={(e) => setJson(e.target.value)}
+              rows={10}
+              className="font-mono text-xs"
+            />
+            <div>
+              <Button onClick={ingest} disabled={pending}>
+                {pending ? "Importing…" : "Import drafts"}
+              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            {outcome && (
+              <div className="flex flex-col gap-2 text-sm">
+                {outcome.ok ? (
+                  <p>
+                    Queued <strong>{outcome.inserted}</strong> draft(s) for review — they
+                    start unapproved.
+                  </p>
+                ) : (
+                  <p className="text-destructive">{outcome.error}</p>
+                )}
+                {outcome.messages.map((m, i) => (
+                  <p key={i} className="text-muted-foreground">
+                    {m}
+                  </p>
+                ))}
+                {outcome.ok && outcome.inserted > 0 && (
+                  <div>
+                    <Button size="sm" nativeButton={false} render={<Link href="/draft/queue" />}>
+                      Review & approve (step 5) →
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
