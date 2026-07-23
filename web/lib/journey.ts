@@ -16,6 +16,47 @@ export type NextAction = {
   step: number | null; // pipeline step number, for the badge
 };
 
+/**
+ * Draft eligibility, shared by the journey engine and the home-page tiles so
+ * the hero and the map read the same number: has an address, sourcing gate
+ * passed (or legacy batch-less), no active/pending suppression, and no live
+ * planned outbound touch — a drafted contact belongs to the send queue until
+ * its draft sends or is soft-deleted back to drafting.
+ */
+export async function countDraftable(supabase: SupabaseClient): Promise<number> {
+  const [{ data: withAddress }, { data: planned }, { data: sup }] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("id, batch_id, batches(gate_status)")
+      .or("email.not.is.null,linkedin_url.not.is.null")
+      .is("deleted_at", null),
+    supabase
+      .from("touches")
+      .select("contact_id")
+      .eq("status", "planned")
+      .eq("direction", "outbound")
+      .is("deleted_at", null),
+    supabase
+      .from("suppressions")
+      .select("contact_id")
+      .in("status", ["active", "pending"]),
+  ]);
+  const plannedContacts = new Set((planned ?? []).map((t) => t.contact_id));
+  const suppressed = new Set((sup ?? []).map((s) => s.contact_id));
+  return (
+    (withAddress ?? []) as unknown as {
+      id: string;
+      batch_id: string | null;
+      batches: { gate_status: string } | null;
+    }[]
+  ).filter(
+    (r) =>
+      (!r.batch_id || r.batches?.gate_status === "passed") &&
+      !plannedContacts.has(r.id) &&
+      !suppressed.has(r.id),
+  ).length;
+}
+
 export async function getNextAction(supabase: SupabaseClient): Promise<NextAction> {
   const [
     untriaged,
@@ -144,41 +185,9 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
     };
   }
 
-  // 5. Drafting: mirror the Draft page's eligibility (address + gate passed or
-  //    legacy), minus suppressed contacts and minus contacts with ANY live
-  //    planned outbound touch — a drafted contact belongs to the send queue
-  //    until the draft sends or is soft-deleted back to drafting.
-  const [{ data: withAddress }, { data: planned }, { data: sup }] = await Promise.all([
-    supabase
-      .from("contacts")
-      .select("id, batch_id, batches(gate_status)")
-      .or("email.not.is.null,linkedin_url.not.is.null")
-      .is("deleted_at", null),
-    supabase
-      .from("touches")
-      .select("contact_id")
-      .eq("status", "planned")
-      .eq("direction", "outbound")
-      .is("deleted_at", null),
-    supabase
-      .from("suppressions")
-      .select("contact_id")
-      .in("status", ["active", "pending"]),
-  ]);
-  const plannedContacts = new Set((planned ?? []).map((t) => t.contact_id));
-  const suppressed = new Set((sup ?? []).map((s) => s.contact_id));
-  const draftable = (
-    (withAddress ?? []) as unknown as {
-      id: string;
-      batch_id: string | null;
-      batches: { gate_status: string } | null;
-    }[]
-  ).filter(
-    (r) =>
-      (!r.batch_id || r.batches?.gate_status === "passed") &&
-      !plannedContacts.has(r.id) &&
-      !suppressed.has(r.id),
-  ).length;
+  // 5. Drafting — eligibility shared with the home page tiles via
+  //    countDraftable so the hero and the map can never drift apart.
+  const draftable = await countDraftable(supabase);
   if (draftable > 0) {
     return {
       href: "/draft",
