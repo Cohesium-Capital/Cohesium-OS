@@ -1,0 +1,165 @@
+{
+  "organizations": [
+    {
+      "name": "NDSE",
+      "domain": "ndse.net",
+      "hq_city": "Richmond",
+      "hq_state": "VA",
+      "current_msp_name": null,
+      "source_url": "https://itreviews.co/rankings/msp/richmond-va/",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "Michael Pfaff",
+          "persona": "owner",
+          "title": "Owner",
+          "linkedin_url": null,
+          "source_url": "https://www.bizratings.com/ndse-richmond-managed-it-services-company",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "name": "Bastionpoint Technology",
+      "domain": "bastionpoint.com",
+      "hq_city": "Richmond",
+      "hq_state": "VA",
+      "current_msp_name": null,
+      "source_url": "https://bastionpoint.com/blog/press-releases/bastionpoint-technology-recognized-among-the-worlds-top-501-msps-for-2025/",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "Jason Knowles",
+          "persona": "owner",
+          "title": "Founder",
+          "linkedin_url": null,
+          "source_url": "https://bastionpoint.com/blog/press-releases/bastionpoint-technology-recognized-among-the-worlds-top-501-msps-for-2025/",
+          "confidence": "medium"
+        },
+        {
+          "full_name": "Eric Clary",
+          "persona": "other",
+          "title": "Chief Operating Officer",
+          "linkedin_url": null,
+          "source_url": "https://bastionpoint.com/blog/press-releases/bastionpoint-technology-recognized-among-the-worlds-top-501-msps-for-2025/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "name": "CodeBlue Technology",
+      "domain": "codebluetechnology.com",
+      "hq_city": "Mechanicsville",
+      "hq_state": "VA",
+      "current_msp_name": null,
+      "source_url": "https://www.codebluetechnology.com/about/",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "Trey Hayden",
+          "persona": "owner",
+          "title": "Founder & CEO",
+          "linkedin_url": "https://www.linkedin.com/in/treyhayden",
+          "source_url": "https://www.codebluetechnology.com/about/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "name": "Hermetic Networks",
+      "domain": "hermeticnetworks.com",
+      "hq_city": "Richmond",
+      "hq_state": "VA",
+      "current_msp_name": null,
+      "source_url": "https://www.hermeticnetworks.com/about-us/",
+      "confidence": "high",
+      "contacts": []
+    },
+    {
+      "name": "E-N Computers",
+      "domain": "encomputers.com",
+      "hq_city": "Waynesboro",
+      "hq_state": "VA",
+      "current_msp_name": null,
+      "source_url": "https://www.encomputers.com/about/ian-macrae/",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "Ian MacRae",
+          "persona": "owner",
+          "title": "Founder & CEO",
+          "linkedin_url": null,
+          "source_url": "https://www.encomputers.com/about/ian-macrae/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "name": "WingSwept",
+      "domain": "wingswept.com",
+      "hq_city": "Garner",
+      "hq_state": "NC",
+      "current_msp_name": null,
+      "source_url": "https://www.wingswept.com/about-us/",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "Jay Strickland",
+          "persona": "owner",
+          "title": "Founder & CEO",
+          "linkedin_url": null,
+          "source_url": "https://www.wingswept.com/about-us/meet-the-team/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "name": "Net Friends",
+      "domain": "netfriends.com",
+      "hq_city": "Durham",
+      "hq_state": "NC",
+      "current_msp_name": null,
+      "source_url": "https://www.netfriends.com/our-story",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "John Snyder",
+          "persona": "owner",
+          "title": "Partner",
+          "linkedin_url": null,
+          "source_url": "https://www.netfriends.com/our-story",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "name": "Sterling Technology Solutions",
+      "domain": "sterling-technology.com",
+      "hq_city": "Charlotte",
+      "hq_state": "NC",
+      "current_msp_name": null,
+      "source_url": "https://www.sterling-technology.com/about-us",
+      "confidence": "high",
+      "contacts": [
+        {
+          "full_name": "Tom Blanchard",
+          "persona": "owner",
+          "title": "Founder & CEO",
+          "linkedin_url": null,
+          "source_url": "https://www.sterling-technology.com/about-us",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "name": "Charlotte IT Solutions",
+      "domain": "charlotteitsolutions.com",
+      "hq_city": "Charlotte",
+      "hq_state": "NC",
+      "current_msp_name": null,
+      "source_url": "https://charlotteitsolutions.com/",
+      "confidence": "high",
+      "contacts": []
+    }
+  ]
+}

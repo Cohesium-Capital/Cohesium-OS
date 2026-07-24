@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SideNav } from "./side-nav";
+import { TourProvider } from "@/components/tour/tour-provider";
 
 // Protected shell for all signed-in pages. The gate is the user (requireUser),
 // not the profile row, so a momentarily-missing profile can't cause a redirect
@@ -51,13 +52,17 @@ export default async function AppLayout({
   const email = profile?.email ?? user.email;
 
   return (
-    <div className="min-h-full">
-      <SideNav email={email} />
-      <div className="flex min-h-full flex-col lg:pl-60">
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 lg:px-10">
-          {children}
-        </main>
+    // TourProvider wraps the whole shell so the Demonstrate walkthrough can
+    // overlay any page and survive navigation (state in localStorage).
+    <TourProvider>
+      <div className="min-h-full">
+        <SideNav email={email} />
+        <div className="flex min-h-full flex-col lg:pl-60">
+          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 lg:px-10">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </TourProvider>
   );
 }

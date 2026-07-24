@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Write-back endpoint for the enrichment service (Clay). Clay POSTs enriched
-// rows here; we fill the contact and flip enrichment_status. Authenticated by a
-// shared secret (Clay isn't a logged-in user), so it uses the service-role
-// client. Accepts a single object, an array, or { rows: [...] }.
+// rows here; we fill the contact and flip enrichment_status. Auth is optional:
+// when ENRICHMENT_WEBHOOK_SECRET is set, Clay must send it (Bearer or
+// x-webhook-secret); when unset, write-backs are accepted without a token.
+// Uses the service-role client because Clay isn't a logged-in user. Accepts a
+// single object, an array, or { rows: [...] }.
 //
 // Row shape: { contact_id, email?, linkedin_url?, phone?, personalization?, status? }
+// Extra fields (e.g. Clay's verification status) are preserved verbatim in the
+// enrichment_events payload even though the contact update ignores them.
 
 type Row = {
   contact_id?: string;
@@ -24,11 +28,16 @@ function clean(v: string | null | undefined): string | null {
 
 export async function POST(req: Request) {
   const secret = process.env.ENRICHMENT_WEBHOOK_SECRET;
-  const header =
-    req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
-  const provided = header.replace(/^Bearer\s+/i, "");
-  if (!secret || provided !== secret) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Auth is optional for now: when the secret is unset, accept write-backs
+  // without a token (local/dev). When it is set (prod / teammates), require a
+  // matching Authorization: Bearer … or x-webhook-secret header.
+  if (secret) {
+    const header =
+      req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
+    const provided = header.replace(/^Bearer\s+/i, "");
+    if (provided !== secret) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
   }
 
   let body: unknown;
@@ -47,13 +56,17 @@ export async function POST(req: Request) {
   const supabase = createAdminClient();
   let updated = 0;
   const errors: string[] = [];
+  const events: { contact_id: string; event: string; payload: unknown }[] = [];
 
   for (const r of rows) {
     if (!r.contact_id) {
       errors.push("missing contact_id");
       continue;
     }
-    const email = clean(r.email);
+    // Emails are stored lowercased so the reply/bounce capture's exact-match
+    // lookups (which compare against lowercased IMAP senders) always resolve.
+    // Migration 018 backfilled existing rows to lower(email).
+    const email = clean(r.email)?.toLowerCase() ?? null;
     const linkedin = clean(r.linkedin_url);
     const status =
       clean(r.status) ?? (email || linkedin ? "enriched" : "failed");
@@ -75,8 +88,25 @@ export async function POST(req: Request) {
     if (error) errors.push(`${r.contact_id}: ${error.message}`);
     else if (!data || data.length === 0)
       errors.push(`${r.contact_id}: no matching contact (check the contact_id mapping)`);
-    else updated++;
+    else {
+      updated++;
+      // Provenance: the raw incoming row, verbatim — including any verification
+      // or status fields Clay sends beyond what the contact update consumes.
+      events.push({ contact_id: r.contact_id, event: "writeback", payload: r });
+    }
   }
 
-  return NextResponse.json({ updated, errors });
+  if (events.length) {
+    const { error } = await supabase.from("enrichment_events").insert(events);
+    // The contact updates already landed; a provenance failure is reported, not
+    // fatal (re-sending the write-back is safe either way).
+    if (error) errors.push(`enrichment_events: ${error.message}`);
+  }
+
+  // Total failure (rows sent, nothing matched/updated) → 422 so callers like
+  // Clay surface a red cell instead of a green "200" that hides a broken
+  // contact_id mapping. Partial success stays 200: per-row errors are listed
+  // and re-sending is safe (rows stay pending until a valid write-back).
+  const status = rows.length > 0 && updated === 0 && errors.length > 0 ? 422 : 200;
+  return NextResponse.json({ updated, errors }, { status });
 }

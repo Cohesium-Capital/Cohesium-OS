@@ -148,7 +148,7 @@ export function RunSourceBuilder({
         </div>
       </div>
 
-      <Card>
+      <Card data-tour="source-modes">
         <CardHeader>
           <CardTitle>1. Configure</CardTitle>
           <CardDescription>Pick a mode and narrow the target.</CardDescription>
@@ -238,7 +238,7 @@ export function RunSourceBuilder({
             </div>
           )}
 
-          <div>
+          <div data-tour="source-run">
             <Button onClick={start} disabled={pending}>
               {runId ? "Start new run" : "Start run"}
             </Button>

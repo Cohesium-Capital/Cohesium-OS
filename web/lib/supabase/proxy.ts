@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Refreshes the Supabase session on every request and gates access: signed-out
-// users are sent to /login, signed-in users on /login are sent to /review.
+// users are sent to /login, signed-in users on /login are sent to / (the work queue).
 // Called from the root proxy.ts (Next.js 16's renamed middleware).
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -50,7 +50,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/review";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 

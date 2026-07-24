@@ -88,16 +88,18 @@ const METHODS = `Where to look (highest-yield first):
 A co-mention does not prove a client relationship — verify intent before
 including a company, and set confidence to match the strength of the evidence.`;
 
-export function buildPrompt(params: PromptParams): string {
-  const region = params.region?.trim() || "the United States";
+// The template is the static instruction portion of the prompt: volatile config
+// values become {{placeholders}}. Mode-dependent text (and the optional profile
+// line) stays in the template, so different shapes hash to different
+// prompt_versions — which is honest; mode is recorded in the run config.
+export function buildTemplateText(params: PromptParams): string {
   const profile = params.profile?.trim();
 
   if (params.mode === "research_msps") {
-    const count = params.count ?? 25;
     return [
       `You are sourcing managed IT service providers (MSPs) as potential acquisition targets.`,
-      `Find up to ${count} real MSPs based in ${region}.`,
-      profile ? `Target profile: ${profile}.` : "",
+      `Find up to {{count}} real MSPs based in {{region}}.`,
+      profile ? `Target profile: {{targetProfile}}.` : "",
       `For each MSP, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is an MSP.`,
       "",
       CONTRACT,
@@ -109,11 +111,10 @@ export function buildPrompt(params: PromptParams): string {
   }
 
   if (params.mode === "research_customers") {
-    const count = params.count ?? 25;
     return [
       `You are sourcing companies that USE a managed IT service provider (an MSP), so we can study the MSP market.`,
-      `Find up to ${count} real companies based in ${region} that outsource their IT to an MSP.`,
-      profile ? `Target profile: ${profile}.` : "",
+      `Find up to {{count}} real companies based in {{region}} that outsource their IT to an MSP.`,
+      profile ? `Target profile: {{targetProfile}}.` : "",
       `For each company, estimate "current_msp_name" (the MSP they use) when you can find evidence, and set its "confidence" accordingly. Identify a contact who is the owner/decision-maker ("owner") or who leads IT ("head_of_it") when findable. Every organization you return is a customer (not an MSP).`,
       "",
       METHODS,
@@ -127,21 +128,14 @@ export function buildPrompt(params: PromptParams): string {
   }
 
   // find_customers_for_msps
-  const countPer = params.countPer ?? 10;
-  const msps = (params.msps ?? []).filter((m) => m.name?.trim());
-  const list = msps.length
-    ? msps
-        .map((m) => `- ${m.name}${m.domain ? ` (${m.domain})` : ""}`)
-        .join("\n")
-    : "- (no MSPs provided)";
   return [
     `You are finding the CUSTOMERS of specific managed IT service providers (MSPs), so we can study how their clients work with them.`,
-    `For each MSP listed below, find up to ${countPer} real companies that are its clients.`,
-    profile ? `Prefer customers matching: ${profile}.` : "",
+    `For each MSP listed below, find up to {{count}} real companies that are its clients.`,
+    profile ? `Prefer customers matching: {{targetProfile}}.` : "",
     `Set each customer's "current_msp_name" to the EXACT MSP name from this list it belongs to. Set "confidence" by how clearly that client relationship is documented. Identify an owner/decision-maker ("owner") or IT lead ("head_of_it") contact when findable. Every organization you return is a customer.`,
     "",
     `MSPs:`,
-    list,
+    `{{mspList}}`,
     "",
     METHODS,
     "",
@@ -151,4 +145,30 @@ export function buildPrompt(params: PromptParams): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// Function replacement so config values are inserted literally ($ is not
+// special) and never re-scanned for placeholders.
+const substitute = (template: string, values: Record<string, string>): string =>
+  template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => values[key] ?? match);
+
+export function buildPrompt(params: PromptParams): string {
+  const region = params.region?.trim() || "the United States";
+  const profile = params.profile?.trim() ?? "";
+  const count =
+    params.mode === "find_customers_for_msps"
+      ? params.countPer ?? 10
+      : params.count ?? 25;
+  const msps = (params.msps ?? []).filter((m) => m.name?.trim());
+  const mspList = msps.length
+    ? msps
+        .map((m) => `- ${m.name}${m.domain ? ` (${m.domain})` : ""}`)
+        .join("\n")
+    : "- (no MSPs provided)";
+  return substitute(buildTemplateText(params), {
+    region,
+    count: String(count),
+    targetProfile: profile,
+    mspList,
+  });
 }
