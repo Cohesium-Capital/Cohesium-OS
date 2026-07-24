@@ -98,9 +98,12 @@ export async function sendApproved(): Promise<SendReport> {
         };
       });
       const r = await heyreachAddLeads(key, campaign, account, leads);
-      if (!r.ok) {
-        report.errors.push(r.error!);
-      } else {
+      // Mark exactly the touches HeyReach confirmed (the first `sentCount`, since
+      // leads go up in order) so a partial send never leaves already-added leads
+      // sitting in the queue where they'd be re-sent. Any failure is still
+      // reported so the remaining planned touches can be retried.
+      const sentTouches = liTouches.slice(0, r.sentCount);
+      if (sentTouches.length) {
         const { error: ue } = await supabase
           .from("touches")
           .update({
@@ -108,10 +111,11 @@ export async function sendApproved(): Promise<SendReport> {
             sent_at: new Date().toISOString(),
             provider: "heyreach",
           })
-          .in("id", liTouches.map((t) => t.id));
+          .in("id", sentTouches.map((t) => t.id));
         if (ue) report.errors.push(`Mark sent (linkedin): ${ue.message}`);
-        else report.linkedinSent = liTouches.length;
+        else report.linkedinSent = sentTouches.length;
       }
+      if (!r.ok) report.errors.push(r.error!);
     }
   }
 
