@@ -10,9 +10,13 @@ import { fetchRecentMessages, type InboxMessage } from "@/lib/send/imap";
 // so a reply or bounce landing minutes ago stops this run's sends.
 // Auth: Vercel Cron sends `Authorization: Bearer $CRON_SECRET`; an external
 // scheduler can pass `?token=$CRON_SECRET` instead.
-// Schedule (vercel.json): 2x per weekday, so each run polls replies/bounces
-// before its send window. External callers using `?token=$CRON_SECRET` are
-// not bound by that schedule and can fire at any time.
+// Schedule (vercel.json): DAILY at 14:00 UTC. Vercel's Hobby plan allows one
+// cron run per day, so rather than spending it on weekdays only, the run fires
+// every day and the send half guards itself to Mon-Fri: replies, bounces and
+// opt-outs are captured 7 days a week (an unhonored opt-out sitting over a
+// weekend is the risk that matters), while outreach still only goes out on
+// weekdays. External callers using `?token=$CRON_SECRET` are not bound by the
+// schedule and may pass `?send=force` to send outside the weekday window.
 
 export const maxDuration = 300;
 
@@ -317,6 +321,15 @@ export async function GET(req: Request) {
   if (!inbox.ok) {
     result.errors.push(`capture unavailable, send skipped: ${inbox.error ?? "IMAP failed"}`);
     return NextResponse.json(result);
+  }
+
+  // Weekday guard. The cron fires daily (see the schedule note above) because
+  // an opt-out sitting uncaptured over a weekend is the risk worth paying for;
+  // outreach itself stays Mon-Fri. `?send=force` lets a manual run manually
+  // push on a weekend.
+  const day = new Date().getUTCDay();
+  if ((day === 0 || day === 6) && searchParams.get("send") !== "force") {
+    return NextResponse.json({ ...result, note: "weekend — captured only, no sends" });
   }
 
   // Config problems must never consume touches: verify SMTP env once up
