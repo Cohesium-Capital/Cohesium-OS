@@ -127,12 +127,14 @@ export async function sendApproved(): Promise<SendReport> {
           };
         });
         const r = await heyreachAddLeads(key, campaign, account, leads);
-        if (!r.ok) {
-          report.errors.push(r.error!);
-        } else {
-          // Lead-add only queues the message inside HeyReach — 'sent' would be
-          // a lie here. The SENT webhook flips queued -> sent when the request
-          // actually goes out.
+        // Mark exactly the touches HeyReach confirmed (the first `sentCount`,
+        // since leads go up in order and batching stops on first failure) so a
+        // partial multi-batch push never leaves confirmed-added leads sitting
+        // 'planned' where the next run would re-push them. Lead-add only queues
+        // the message inside HeyReach — 'sent' would be a lie here; the SENT
+        // webhook flips queued -> sent when the request actually goes out.
+        const pushedTouches = liTouches.slice(0, r.sentCount);
+        if (pushedTouches.length) {
           const { error: ue } = await supabase
             .from("touches")
             .update({
@@ -140,10 +142,11 @@ export async function sendApproved(): Promise<SendReport> {
               scheduled_at: new Date().toISOString(),
               provider: "heyreach",
             })
-            .in("id", liTouches.map((t) => t.id));
+            .in("id", pushedTouches.map((t) => t.id));
           if (ue) report.errors.push(`Queue linkedin: ${ue.message}`);
-          else report.linkedinQueued = liTouches.length;
+          else report.linkedinQueued = pushedTouches.length;
         }
+        if (!r.ok) report.errors.push(r.error!);
       }
     }
   }
