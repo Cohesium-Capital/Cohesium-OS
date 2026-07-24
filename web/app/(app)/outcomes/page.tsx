@@ -131,7 +131,7 @@ export default async function OutcomesPage() {
         <SummaryCard label="Reply rate" value={formatRate(overallReplyRate)} />
       </div>
 
-      <div className="rounded-md border">
+      <div className="rounded-md border" data-tour="outcomes-table">
         <Table>
           <TableHeader>
             <TableRow>
@@ -214,7 +214,7 @@ export default async function OutcomesPage() {
 
       {/* Hooks vs no hook: the personalization stage's rent check, per hook
           kind × track. The 'no hook attached' row is the control arm. */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2" data-tour="outcomes-hooks">
         <div>
           <h2 className="text-lg font-semibold">Hooks vs no hook</h2>
           <p className="text-sm text-muted-foreground">

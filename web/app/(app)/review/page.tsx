@@ -175,7 +175,10 @@ export default async function ReviewPage({
           </CardContent>
         </Card>
 
-        <Card className={counts.eligible > 0 ? "border-primary/30 bg-primary/5" : undefined}>
+        <Card
+          data-tour="review-clay"
+          className={counts.eligible > 0 ? "border-primary/30 bg-primary/5" : undefined}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">

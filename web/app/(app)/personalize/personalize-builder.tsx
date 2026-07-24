@@ -117,7 +117,7 @@ export function PersonalizeBuilder({
 
   return (
     <div className="flex flex-col gap-6">
-      <Card>
+      <Card data-tour="personalize-builder">
         <CardHeader>
           <CardTitle>1. Start a hook research run</CardTitle>
           <CardDescription>

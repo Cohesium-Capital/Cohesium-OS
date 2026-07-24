@@ -142,7 +142,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
         </Button>
       </div>
 
-      <Card>
+      <Card data-tour="draft-builder">
         <CardHeader>
           <CardTitle>1. Start a drafting run</CardTitle>
           <CardDescription>
@@ -160,7 +160,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
             <>
               {/* Coverage, not a gate: hookless contacts still draft (control
                   arm), but the operator sees when researching first is worth it. */}
-              <p className="text-xs text-muted-foreground">
+              <p data-tour="draft-coverage" className="text-xs text-muted-foreground">
                 {hooked} of {trackContacts.length} {trackLabel} contact(s) have a
                 verified hook
                 {fallbacks > 0 && `, ${fallbacks} an honest fallback angle`}; the rest

@@ -236,7 +236,10 @@ export function TriageQueue({
 
       {/* Pending suppressions: sends to these contacts are blocked until decided. */}
       {openSuppressions.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-4">
+        <div
+          data-tour="triage-suppressions"
+          className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-4"
+        >
           <p className="text-sm font-medium">Confirm suppressions</p>
           <p className="text-xs text-muted-foreground">
             The auto-matcher flagged these as likely opt-outs. Confirm to make the block
@@ -304,7 +307,7 @@ export function TriageQueue({
         </div>
       ) : (
         current && (
-          <div className="flex flex-col gap-4 rounded-md border p-5">
+          <div data-tour="triage-card" className="flex flex-col gap-4 rounded-md border p-5">
             {/* Reply header */}
             <div className="flex items-start justify-between">
               <div>

@@ -96,7 +96,7 @@ export default async function RunsPage({
         <SummaryCard label="Failed" value={failed} />
       </div>
 
-      <div className="rounded-md border">
+      <div className="rounded-md border" data-tour="runs-table">
         <Table>
           <TableHeader>
             <TableRow>

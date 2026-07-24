@@ -335,7 +335,7 @@ export function ReviewGrid({
   const selectedIds = table.getSelectedRowModel().rows.map((r) => r.original.id);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" data-tour="review-grid">
       <div className="flex flex-wrap items-center gap-3">
         <form
           onSubmit={(e) => {

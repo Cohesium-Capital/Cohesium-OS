@@ -278,7 +278,10 @@ export function GradeQueue({
   return (
     <div className="flex flex-col gap-4">
       {/* Gate header — reflects the CURRENT contact's batch */}
-      <div className="flex flex-wrap items-center gap-4 rounded-md border p-3 text-sm">
+      <div
+        data-tour="grade-gate"
+        className="flex flex-wrap items-center gap-4 rounded-md border p-3 text-sm"
+      >
         {currentMetrics ? (
           <>
             <Badge variant={statusVariant(currentMetrics.status)}>
@@ -345,7 +348,7 @@ export function GradeQueue({
         </div>
       ) : (
         current && (
-          <div className="flex flex-col gap-4 rounded-md border p-5">
+          <div data-tour="grade-card" className="flex flex-col gap-4 rounded-md border p-5">
             {/* Record header */}
             <div className="flex items-start justify-between">
               <div>

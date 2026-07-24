@@ -217,7 +217,7 @@ export function VerifyQueue({
         </div>
       ) : (
         current && (
-          <div className="flex flex-col gap-4 rounded-md border p-5">
+          <div data-tour="verify-card" className="flex flex-col gap-4 rounded-md border p-5">
             {/* Card header: who this claim is about */}
             <div className="flex items-start justify-between">
               <div>

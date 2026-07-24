@@ -172,7 +172,7 @@ export function DraftQueue({
           {approvedCount} of {initialRows.length} approved — drafts arrive unapproved and
           send only after you approve them here.
         </p>
-        <div className="flex gap-2">
+        <div className="flex gap-2" data-tour="queue-send">
           <Button
             variant="outline"
             disabled={unapprovedCount === 0 || pending}
@@ -234,7 +234,7 @@ export function DraftQueue({
           </Button>
         </div>
       )}
-      <div className="rounded-md border">
+      <div className="rounded-md border" data-tour="queue-table">
         <Table>
           <TableHeader>
             <TableRow>

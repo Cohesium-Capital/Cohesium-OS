@@ -19,6 +19,7 @@ import { countEligibleContacts } from "@/lib/enrichment/pending";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DemonstrateButton } from "@/components/tour/demonstrate-button";
 
 // Home = the work queue. Steps render in workflow order with a live count of
 // what's waiting at each stage plus that stage's gate reading, so the next
@@ -371,16 +372,24 @@ export default async function HomePage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Pipeline</h1>
-        <p className="text-sm text-muted-foreground">
-          Up next picks your highest-leverage move; the tiles show what&rsquo;s waiting at each
-          stage and whether its gate is healthy.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Pipeline</h1>
+          <p className="text-sm text-muted-foreground">
+            Up next picks your highest-leverage move; the tiles show what&rsquo;s waiting at each
+            stage and whether its gate is healthy.
+          </p>
+        </div>
+        {/* Demonstrate mode: seeds clearly-fake .example rows and walks the
+            real UI end to end. Everything it creates is one-click wipeable. */}
+        <DemonstrateButton />
       </div>
 
       {/* Next best action: one obvious thing to do, derived from pipeline state. */}
-      <Card className="flex-row items-center gap-5 border-primary/30 bg-primary/5 px-5 py-4">
+      <Card
+        data-tour="hero"
+        className="flex-row items-center gap-5 border-primary/30 bg-primary/5 px-5 py-4"
+      >
         {next.step !== null && (
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-base font-semibold text-primary-foreground tabular-nums">
             {next.step}
@@ -400,7 +409,7 @@ export default async function HomePage() {
       </Card>
 
       {/* Health strip: the numbers that should stay at zero (or under the cap). */}
-      <div>
+      <div data-tour="health">
         <p className="px-1 pb-2 text-[0.68rem] font-semibold uppercase tracking-wider text-muted-foreground/70">
           Health
         </p>
@@ -424,7 +433,7 @@ export default async function HomePage() {
       </div>
 
       {/* Seven tiles no longer fit one xl row legibly; 4+3 keeps them readable. */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div data-tour="tiles" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {steps.map((s) => {
           const Icon = s.icon;
           return (
