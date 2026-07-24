@@ -11,9 +11,6 @@ export type ModuleKey = "sourcing" | "enrichment" | "personalization" | "draftin
 export interface IngestContext {
   runId: string | null;
   batchId: string | null;
-  /** the run's prompt version — stamped on produced records (touches) so
-   *  outcomes can be attributed back to the prompt */
-  promptVersionId?: string | null;
   /** the run's config (same object renderPrompt received) — carries module
    *  params an ingest needs but the output doesn't, e.g. sourcing kind/targetMsp */
   config: Record<string, unknown>;
@@ -47,12 +44,6 @@ export interface RunModule<Config = Record<string, unknown>, Output = unknown> {
    * provenance); `config` carries the run's runtime parameters.
    */
   renderPrompt(template: string | null, config: Config): string;
-  /**
-   * The static instruction portion of the rendered prompt, volatile config
-   * values replaced by {{placeholders}}; hashed for mechanical prompt
-   * versioning (createRun auto-registers a prompt_version per new hash).
-   */
-  templateText?(config: Config): string;
   /** Validate pasted/produced output against the module's contract. */
   parse(rawText: string): ParseResult<Output>;
   /** Persist validated output into the run's batch. */

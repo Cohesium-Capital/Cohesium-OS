@@ -168,12 +168,10 @@ export async function importPayload(
     stage: "sourced",
     enrichment_status: "pending",
     reviewed: false,
-    // Eval-layer tagging. batch_id/run_id are null on the legacy direct path;
-    // run_id is the contact's sourcing lineage. sampled defaults true and
-    // review_status pending_review; sampleContacts() below demotes the
-    // unsampled to skipped_sampling when sampleRate < 1.
+    // Eval-layer tagging. batch_id is null on the legacy direct path. sampled
+    // defaults true and review_status pending_review; sampleContacts() below
+    // demotes the unsampled to skipped_sampling when sampleRate < 1.
     batch_id: batchId,
-    run_id: runId,
     evidence: evidenceFrom(c.source_url),
   });
 
@@ -202,11 +200,10 @@ export async function importPayload(
     hq_city: string | null;
     hq_state: string | null;
     source_url: string | null;
-    evidence: { url?: string; via?: string }[] | null;
   };
   const { data: existingOrgs } = await supabase
     .from("organizations")
-    .select("id, name, domain, current_msp_id, hq_city, hq_state, source_url, evidence")
+    .select("id, name, domain, current_msp_id, hq_city, hq_state, source_url")
     .eq("kind", input.kind);
 
   const keyOfExisting = (e: ExistingOrg) =>
@@ -323,15 +320,6 @@ export async function importPayload(
       if (!existing.hq_city && incoming.hq_city) patch.hq_city = incoming.hq_city;
       if (!existing.hq_state && incoming.hq_state) patch.hq_state = incoming.hq_state;
       if (!existing.source_url && incoming.source_url) patch.source_url = incoming.source_url;
-      // Evidence accumulates on merge — a re-source that corroborates an org
-      // is provenance, not noise. Skip URLs the org already carries.
-      const incomingEvidence = evidenceFrom(incoming.source_url);
-      if (incomingEvidence.length) {
-        const existingEvidence = Array.isArray(existing.evidence) ? existing.evidence : [];
-        if (!existingEvidence.some((e) => e?.url === incomingEvidence[0].url)) {
-          patch.evidence = [...existingEvidence, ...incomingEvidence];
-        }
-      }
       if (Object.keys(patch).length) {
         const { error } = await supabase
           .from("organizations")

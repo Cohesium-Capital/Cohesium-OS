@@ -32,94 +32,31 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (!contact) return NextResponse.json({ ok: true, note: "no matching contact" });
 
-  // Status flips are guarded by the prior status: only a touch that actually
-  // went out (sent/delivered) may become replied or bounced — never
-  // planned/queued drafts.
-  async function updateEmailTouches(
-    patch: Record<string, unknown>,
-    fromStatuses?: string[],
-  ) {
+  async function updateEmailTouches(status: string, onlyFromSent = false) {
     let q = supabase
       .from("touches")
-      .update(patch)
+      .update({ status })
       .eq("contact_id", contact!.id)
       .eq("channel", "email")
       .eq("direction", "outbound");
-    if (fromStatuses) q = q.in("status", fromStatuses);
+    if (onlyFromSent) q = q.eq("status", "sent");
     await q;
   }
 
   if (event.includes("REPLY") || event.includes("REPLIED")) {
-    const now = new Date().toISOString();
     await supabase
       .from("contacts")
-      .update({ responded: true, responded_at: now, stage: "responded" })
+      .update({
+        responded: true,
+        responded_at: new Date().toISOString(),
+        stage: "responded",
+      })
       .eq("id", contact.id);
-    await updateEmailTouches(
-      { status: "replied", replied_at: now },
-      ["sent", "delivered"],
-    );
-    // Verbatim reply capture when the payload carries the text — triage
-    // (disposition) stays human.
-    const reply =
-      body.reply_body ?? body.reply_message ?? body.reply ?? body.message ?? body.email_body;
-    const text =
-      typeof reply === "string" ? reply.trim() : reply ? JSON.stringify(reply) : "";
-    if (text) {
-      // Webhook providers redeliver on timeout/5xx — make the capture
-      // idempotent. Prefer a stable payload id as the dedupe key (check-
-      // then-insert against interactions.message_id, like the IMAP path);
-      // when the payload carries none, skip if an identical interaction for
-      // this contact landed in the last 7 days.
-      const replyMsg = body.reply_message;
-      const rawId =
-        (typeof replyMsg === "object" && replyMsg !== null
-          ? (replyMsg as Record<string, unknown>).message_id
-          : undefined) ??
-        body.message_id ??
-        body.stats_id;
-      const messageId =
-        rawId != null && String(rawId).trim() ? `smartlead:${String(rawId).trim()}` : null;
-      let duplicate = false;
-      if (messageId) {
-        const { data: existing } = await supabase
-          .from("interactions")
-          .select("id")
-          .eq("message_id", messageId)
-          .limit(1)
-          .maybeSingle();
-        duplicate = !!existing;
-      } else {
-        const since = new Date(Date.now() - 7 * 86400000).toISOString();
-        const { data: existing } = await supabase
-          .from("interactions")
-          .select("id")
-          .eq("contact_id", contact.id)
-          .eq("source", "smartlead")
-          .eq("raw_content", text)
-          .gte("occurred_at", since)
-          .limit(1)
-          .maybeSingle();
-        duplicate = !!existing;
-      }
-      if (!duplicate) {
-        await supabase.from("interactions").insert({
-          contact_id: contact.id,
-          channel: "email",
-          source: "smartlead",
-          raw_content: text,
-          message_id: messageId,
-          occurred_at: now,
-        });
-      }
-    }
+    await updateEmailTouches("replied");
   } else if (event.includes("BOUNCE")) {
-    await updateEmailTouches(
-      { status: "bounced", bounced_at: new Date().toISOString() },
-      ["sent", "delivered"],
-    );
+    await updateEmailTouches("bounced");
   } else if (event.includes("SENT")) {
-    await updateEmailTouches({ status: "delivered" }, ["sent"]);
+    await updateEmailTouches("delivered", true);
   }
 
   return NextResponse.json({ ok: true });

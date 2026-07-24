@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { activeDraftPromptVersion, storeDrafts } from "../lib/drafting/import-core";
+import { storeDrafts } from "../lib/drafting/import-core";
 import type { Draft } from "../lib/drafting/contracts";
 
 async function main() {
@@ -25,8 +25,7 @@ async function main() {
   const raw = JSON.parse(readFileSync(file, "utf8"));
   const drafts = (raw?.result?.drafts ?? raw?.drafts ?? []) as Draft[];
   const supabase = createClient(url, key, { auth: { persistSession: false } });
-  const promptVersionId = await activeDraftPromptVersion(supabase);
-  const report = await storeDrafts(supabase, drafts, { promptVersionId });
+  const report = await storeDrafts(supabase, drafts);
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exit(1);
 }

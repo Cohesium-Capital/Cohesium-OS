@@ -26,35 +26,30 @@ export async function computeGate(
 ): Promise<GateMetrics> {
   const { data: batch } = await supabase
     .from("batches")
-    .select("id, module, gate_status")
+    .select("id, module")
     .eq("id", batchId)
     .single();
   if (!batch) throw new Error(`batch ${batchId} not found`);
 
   const { data: s } = await supabase
     .from("settings")
-    .select("gate_threshold, sample_rate, min_sample_size")
+    .select("gate_threshold, min_sample_size")
     .eq("module", batch.module)
     .maybeSingle();
   const threshold = s?.gate_threshold ?? 0.2;
   const minSampleSize = s?.min_sample_size ?? 20;
 
-  // Soft-deleted contacts leave the gate math exactly as they leave every
-  // other read path — otherwise a deleted sampled contact (still
-  // 'pending_review') holds the batch open forever.
   const { count: sampleSize } = await supabase
     .from("contacts")
     .select("id", { count: "exact", head: true })
     .eq("batch_id", batchId)
-    .eq("sampled", true)
-    .is("deleted_at", null);
+    .eq("sampled", true);
 
   const { count: gradedCount } = await supabase
     .from("contacts")
     .select("id", { count: "exact", head: true })
     .eq("batch_id", batchId)
     .eq("sampled", true)
-    .is("deleted_at", null)
     .in("review_status", GRADED);
 
   const { count: errorCount } = await supabase
@@ -62,7 +57,6 @@ export async function computeGate(
     .select("id", { count: "exact", head: true })
     .eq("batch_id", batchId)
     .eq("sampled", true)
-    .is("deleted_at", null)
     .in("review_status", ERRORED);
 
   const status = resolveGate({
@@ -74,22 +68,6 @@ export async function computeGate(
   });
 
   await supabase.from("batches").update({ gate_status: status }).eq("id", batchId);
-
-  // Snapshot every status FLIP to gate_decisions (append-only history behind
-  // batches.gate_status). Recomputes happen on every grade, so an unchanged
-  // status writes nothing.
-  if (status !== batch.gate_status) {
-    await supabase.from("gate_decisions").insert({
-      batch_id: batchId,
-      status,
-      graded_count: gradedCount ?? 0,
-      error_count: errorCount ?? 0,
-      sample_size: sampleSize ?? 0,
-      threshold,
-      sample_rate: s?.sample_rate ?? null,
-      min_sample_size: minSampleSize,
-    });
-  }
 
   const graded = gradedCount ?? 0;
   return {

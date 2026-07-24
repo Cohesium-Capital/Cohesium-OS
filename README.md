@@ -1,11 +1,5 @@
 # MSP Intelligence Engine (starter)
 
-> **Looking for the web app?** The real system lives in `web/` (Next.js +
-> Supabase). Start with [docs/TUTORIAL.md](docs/TUTORIAL.md) for a step-by-step
-> guide to the Source → Review → Grade → Draft → Send workflow, and
-> [docs/CLAY.md](docs/CLAY.md) for enrichment setup. What follows below
-> describes the original standalone Python extraction core.
-
 A thin, brain-agnostic core for the MSP customer-intelligence and acquisition
 engine. The principle: own the data and the synthesis, rent the commodity parts
 (enrichment, sending). The moat is the structured dataset and the insight system

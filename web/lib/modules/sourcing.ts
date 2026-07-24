@@ -1,5 +1,5 @@
 import { SourcingPayloadSchema, type SourcingPayload } from "../contracts";
-import { buildPrompt, buildTemplateText, type PromptParams } from "../sourcing/prompts";
+import { buildPrompt, type PromptParams } from "../sourcing/prompts";
 import { importPayload } from "../sourcing/import-core";
 import type { ImportKind } from "../sourcing/types";
 import type { RunModule, IngestContext, IngestOutcome } from "./types";
@@ -20,10 +20,6 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
 
   renderPrompt(_template, config) {
     return buildPrompt(config);
-  },
-
-  templateText(config) {
-    return buildTemplateText(config);
   },
 
   parse(rawText) {
