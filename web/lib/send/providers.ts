@@ -45,28 +45,48 @@ export type HeyreachLead = {
   customUserFields: { name: string; value: string }[];
 };
 
+// HeyReach's AddLeadsToCampaignV2 caps accountLeadPairs at 100 per request, so
+// split larger sends into sequential batches and stop on the first failure.
+const HEYREACH_MAX_PAIRS = 100;
+
+// Leads are sent in order, stopping on the first failed batch, so `sentCount`
+// is the number of leads confirmed added to HeyReach (the first N of `leads`).
+// The caller uses it to mark exactly those touches sent even on a partial send.
 export async function heyreachAddLeads(
   apiKey: string,
   campaignId: string,
   accountId: string,
   leads: HeyreachLead[],
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; sentCount: number }> {
   const url = "https://api.heyreach.io/api/public/campaign/AddLeadsToCampaignV2";
-  const accountLeadPairs = leads.map((lead) => ({
+  const allPairs = leads.map((lead) => ({
     linkedInAccountId: Number(accountId),
     lead,
   }));
+  let sentCount = 0;
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ campaignId: Number(campaignId), accountLeadPairs }),
-    });
-    if (!res.ok) {
-      return { ok: false, error: `HeyReach ${res.status}: ${(await res.text()).slice(0, 200)}` };
+    for (let i = 0; i < allPairs.length; i += HEYREACH_MAX_PAIRS) {
+      const accountLeadPairs = allPairs.slice(i, i + HEYREACH_MAX_PAIRS);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId: Number(campaignId), accountLeadPairs }),
+      });
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: `HeyReach ${res.status}: ${(await res.text()).slice(0, 200)}`,
+          sentCount,
+        };
+      }
+      sentCount += accountLeadPairs.length;
     }
-    return { ok: true };
+    return { ok: true, sentCount };
   } catch (e) {
-    return { ok: false, error: `HeyReach request failed: ${e instanceof Error ? e.message : e}` };
+    return {
+      ok: false,
+      error: `HeyReach request failed: ${e instanceof Error ? e.message : e}`,
+      sentCount,
+    };
   }
 }
