@@ -15,7 +15,10 @@ All three returned SAFE-WITH-ACTIONS; the actions are this runbook.*
 ## Phase 0 — before merging (prod still on main)
 
 1. **Run the HeyReach reconcile once, from main:** `npx tsx --env-file=.env.local scripts/reconcile-heyreach.ts` (dry run, then `--apply`). It exists to clear pre-fix stragglers and its original semantics match prod's current code. (The branch's retrofitted version is for post-merge use only.)
-2. Confirm the Vercel **preview** env for this branch uses dev Supabase keys and `CLAY_TABLE_WEBHOOK_URL` is unset.
+2. **Vercel preview settings for the demo** (dashboard — two minutes, both verified from outside as *unknown*, so check them explicitly):
+   - **Env scoping**: the Preview environment must use the **dev** Supabase project (`stsjidclcinuahzstrxc`). If the project's vars are scoped "All Environments," the preview inherits **production** keys — the demo would then be graded, drafted and triaged against real prod data on a schema that lacks 014–020. Scope the dev values to Preview explicitly.
+   - **`CLAY_TABLE_WEBHOOK_URL` unset** for Preview (the Clay table is production).
+   - **Deployment protection**: the preview URL currently redirects to Vercel SSO, so teammates without Vercel accounts on this project cannot open it. Either add them to the Vercel team, switch the branch's protection to a shareable link / bypass token, or run the demo by screen-share from a local dev server.
 
 ## Phase 1 — migrate prod (expand; old code keeps running)
 
