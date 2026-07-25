@@ -8,6 +8,8 @@ import { recordGrade, finalizeContact, computeGate, type GateMetrics } from "./g
 // Grading actions for the keyboard review queue. A grader either approves a
 // record (clean), corrects specific fields (records field-level grades + writes
 // the fixes back so downstream uses the corrected values), or rejects it.
+// Every decision persists grade rows — approvals included — so the eval set
+// carries positives, not just failures.
 
 // Contact-level fields the grader can correct, mapped to their column.
 const FIELD_COLUMN: Record<string, string> = {
@@ -17,6 +19,15 @@ const FIELD_COLUMN: Record<string, string> = {
   phone: "phone",
   linkedin: "linkedin_url",
   personalization: "personalization",
+};
+
+// Fields graded per module — mirrors FIELDS_BY_MODULE in grade-queue.tsx, so an
+// approval records a 'correct' verdict for exactly what the grader saw.
+const MODULE_FIELDS: Record<string, string[]> = {
+  sourcing: ["name", "title", "linkedin"],
+  enrichment: ["email", "phone", "linkedin"],
+  personalization: ["personalization"],
+  drafting: ["personalization"],
 };
 
 export type FieldGrade = {
@@ -33,6 +44,9 @@ export async function submitGrade(input: {
   batchId?: string | null;
   decision: "approved" | "corrected" | "rejected";
   fieldGrades?: FieldGrade[];
+  // Reject only: why the whole record is wrong (+ optional free-text reason).
+  errorCategory?: string | null;
+  reason?: string | null;
   secondsSpent?: number | null;
 }): Promise<GateMetrics | null> {
   const user = await requireUser();
@@ -53,9 +67,42 @@ export async function submitGrade(input: {
     runId = run?.id ?? null;
   }
 
+  if (input.decision === "approved") {
+    // A clean approve is a positive eval example for every field the queue showed.
+    for (const field of MODULE_FIELDS[input.module] ?? MODULE_FIELDS.sourcing) {
+      await recordGrade(supabase, {
+        contactId: input.contactId,
+        module: input.module,
+        field,
+        verdict: "correct",
+        grader,
+        secondsSpent: input.secondsSpent ?? null,
+        runId,
+      });
+    }
+  }
+
+  if (input.decision === "rejected") {
+    if (!input.errorCategory) throw new Error("Reject requires an error category.");
+    // One record-level grade: the whole row is wrong, not a specific field.
+    await recordGrade(supabase, {
+      contactId: input.contactId,
+      module: input.module,
+      field: "record",
+      verdict: "wrong",
+      correction: input.reason ?? null,
+      previousValue: null,
+      errorCategory: input.errorCategory,
+      grader,
+      secondsSpent: input.secondsSpent ?? null,
+      runId,
+    });
+  }
+
   if (input.decision === "corrected") {
     const patch: Record<string, unknown> = {};
     for (const f of input.fieldGrades ?? []) {
+      if (!f.errorCategory) throw new Error(`Correction to "${f.field}" needs an error category.`);
       await recordGrade(supabase, {
         contactId: input.contactId,
         module: input.module,

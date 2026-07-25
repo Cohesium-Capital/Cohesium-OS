@@ -6,10 +6,13 @@ import {
   Radar,
   ClipboardCheck,
   GraduationCap,
+  Sparkles,
   PenLine,
   Send,
+  Inbox,
   Building2,
   Activity,
+  TrendingUp,
   Settings,
   LogOut,
   type LucideIcon,
@@ -18,7 +21,7 @@ import { signOut } from "@/lib/auth-actions";
 import { cn } from "@/lib/utils";
 
 // Primary navigation. Grouped to mirror the mental model: the PIPELINE group is
-// the workflow in order (numbered 1–5 so the sequence is self-evident), DATA is
+// the workflow in order (numbered 1–7 so the sequence is self-evident), DATA is
 // reference, and Settings sits at the foot. The active route is always
 // highlighted — the one thing the old flat top-nav never showed.
 
@@ -32,14 +35,17 @@ type NavItem = {
 
 const PIPELINE: NavItem[] = [
   { href: "/source", label: "Source", icon: Radar, step: 1 },
-  { href: "/review", label: "Review", icon: ClipboardCheck, step: 2, exact: true },
+  { href: "/review", label: "Review & Enrich", icon: ClipboardCheck, step: 2, exact: true },
   { href: "/review/grade", label: "Grade", icon: GraduationCap, step: 3 },
-  { href: "/draft", label: "Draft", icon: PenLine, step: 4, exact: true },
-  { href: "/draft/queue", label: "Send", icon: Send, step: 5 },
+  { href: "/personalize", label: "Personalize", icon: Sparkles, step: 4 },
+  { href: "/draft", label: "Draft", icon: PenLine, step: 5, exact: true },
+  { href: "/draft/queue", label: "Send", icon: Send, step: 6 },
+  { href: "/triage", label: "Triage", icon: Inbox, step: 7 },
 ];
 
 const DATA: NavItem[] = [
   { href: "/runs", label: "Runs", icon: Activity },
+  { href: "/outcomes", label: "Outcomes", icon: TrendingUp },
   { href: "/msps", label: "MSPs", icon: Building2 },
 ];
 

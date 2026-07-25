@@ -39,6 +39,22 @@ export type EnrichmentContact = {
 
 export type EnrichmentConfig = { contacts: EnrichmentContact[] };
 
+// The static instruction portion; the contact lines are the volatile config and
+// become {{contacts}}. Hashed by createRun for mechanical prompt versioning.
+const TEMPLATE = [
+  `You are finding verified business contact details. For EACH person below, use web search to find their work email, direct phone, and LinkedIn profile URL at the named company.`,
+  ``,
+  `Rules:`,
+  `- Only return a value you can verify from a citable source. Never guess an email pattern; if you cannot confirm it, leave it null.`,
+  `- Always include a "source_url" backing the details. A row with no source_url is dropped at ingest.`,
+  `- Use the exact contact_id from each line.`,
+  ``,
+  `Return ONLY this JSON: { "enrichments": [ { "contact_id": string, "email": string|null, "phone": string|null, "linkedin_url": string|null, "source_url": string|null, "confidence": "high"|"medium"|"low" } ] }`,
+  ``,
+  `Contacts:`,
+  `{{contacts}}`,
+].join("\n");
+
 export const enrichmentModule: RunModule<EnrichmentConfig, EnrichmentPayload> = {
   key: "enrichment",
   label: "enriched contacts",
@@ -54,19 +70,12 @@ export const enrichmentModule: RunModule<EnrichmentConfig, EnrichmentPayload> = 
       ].filter(Boolean);
       return parts.join("; ");
     });
-    return [
-      `You are finding verified business contact details. For EACH person below, use web search to find their work email, direct phone, and LinkedIn profile URL at the named company.`,
-      ``,
-      `Rules:`,
-      `- Only return a value you can verify from a citable source. Never guess an email pattern; if you cannot confirm it, leave it null.`,
-      `- Always include a "source_url" backing the details. A row with no source_url is dropped at ingest.`,
-      `- Use the exact contact_id from each line.`,
-      ``,
-      `Return ONLY this JSON: { "enrichments": [ { "contact_id": string, "email": string|null, "phone": string|null, "linkedin_url": string|null, "source_url": string|null, "confidence": "high"|"medium"|"low" } ] }`,
-      ``,
-      `Contacts:`,
-      lines.join("\n"),
-    ].join("\n");
+    // Function replacement so contact data is inserted literally ($ not special).
+    return TEMPLATE.replace("{{contacts}}", () => lines.join("\n"));
+  },
+
+  templateText() {
+    return TEMPLATE;
   },
 
   parse(rawText) {
@@ -110,7 +119,9 @@ export const enrichmentModule: RunModule<EnrichmentConfig, EnrichmentPayload> = 
         continue;
       }
       const patch: Record<string, unknown> = {};
-      if (!existing.email && e.email) patch.email = e.email;
+      // Lowercase at write time: reply capture matches lowercased IMAP sender
+      // addresses against contacts.email (migration 018 backfilled the rest).
+      if (!existing.email && e.email) patch.email = e.email.toLowerCase();
       if (!existing.phone && e.phone) patch.phone = e.phone;
       if (!existing.linkedin_url && e.linkedin_url) patch.linkedin_url = e.linkedin_url;
       const hasAny = existing.email || existing.phone || patch.email || patch.phone;

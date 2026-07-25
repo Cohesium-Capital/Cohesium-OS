@@ -24,7 +24,12 @@ type ContactRow = {
   confidence: string | null;
   source_url: string | null;
   evidence: unknown;
-  organizations: { name: string; domain: string | null } | null;
+  organizations: {
+    name: string;
+    domain: string | null;
+    kind: string | null;
+    current_msp_id: string | null;
+  } | null;
   batches: { module: string; label: string } | null;
 };
 
@@ -43,11 +48,12 @@ export default async function GradePage({
   let query = supabase
     .from("contacts")
     .select(
-      "id, batch_id, full_name, title, persona, email, phone, linkedin_url, personalization, confidence, source_url, evidence, organizations!inner(name, domain), batches!inner(module, label)",
+      "id, batch_id, full_name, title, persona, email, phone, linkedin_url, personalization, confidence, source_url, evidence, organizations!inner(name, domain, kind, current_msp_id), batches!inner(module, label)",
       { count: "exact" },
     )
     .eq("sampled", true)
-    .eq("review_status", "pending_review");
+    .eq("review_status", "pending_review")
+    .is("deleted_at", null); // soft-deleted contacts never enter the queue
   if (batchId) query = query.eq("batch_id", batchId);
   const { data, count } = await query
     .order("batch_id", { ascending: true })
@@ -69,6 +75,20 @@ export default async function GradePage({
     );
   }
 
+  // Resolve "customer of <MSP>" names so the grader sees which provider a
+  // customer contact belongs to — key context when judging correctness.
+  const mspIds = [
+    ...new Set(rows.map((r) => r.organizations?.current_msp_id).filter(Boolean)),
+  ] as string[];
+  const mspName = new Map<string, string>();
+  if (mspIds.length) {
+    const { data: msps } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .in("id", mspIds);
+    msps?.forEach((m) => mspName.set(m.id, m.name));
+  }
+
   const contacts: GradeContact[] = rows.map((c) => ({
     id: c.id,
     batch_id: c.batch_id,
@@ -88,6 +108,13 @@ export default async function GradePage({
       : [],
     org_name: c.organizations?.name ?? "—",
     org_domain: c.organizations?.domain ?? null,
+    org_kind: c.organizations?.kind ?? null,
+    // Gate on kind like the msp_stats view does: an msp/unknown org carrying a
+    // stray current_msp_id must not render as somebody's customer.
+    customer_of:
+      c.organizations?.kind === "customer" && c.organizations.current_msp_id
+        ? mspName.get(c.organizations.current_msp_id) ?? null
+        : null,
   }));
 
   // One gate per distinct batch in the queue, computed once up front; the queue

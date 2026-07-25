@@ -40,5 +40,6 @@ export type ReviewRow = {
   enrichment_status: string;
   org_name: string;
   org_domain: string | null;
+  org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
   estimated_msp: string | null;
 };

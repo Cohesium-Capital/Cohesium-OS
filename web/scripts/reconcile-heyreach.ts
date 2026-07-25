@@ -1,14 +1,20 @@
 /**
  * One-off reconciliation: find LinkedIn touches still sitting as `planned` in
- * Cohesium whose contact is ALREADY a lead in the HeyReach campaign, and mark
- * them `sent`. This clears out stragglers from before the partial-send fix,
- * where a >100-lead push had early batches land in HeyReach but the whole send
- * errored out, leaving already-added leads in the queue (clutter + a one-time
- * double-send risk on the next push).
+ * Cohesium whose contact is ALREADY a lead in the HeyReach campaign. This
+ * clears out stragglers from before the partial-send fix, where a >100-lead
+ * push had early batches land in HeyReach but the whole send errored out,
+ * leaving already-added leads in the queue (clutter + a one-time double-send
+ * risk on the next push).
  *
- * It pages the campaign's existing leads, matches them to planned linkedin
- * touches by LinkedIn profile handle (the /in/<slug> part, normalized), and —
- * only with --apply — marks the matches sent (provider heyreach).
+ * Redesign-era semantics (post redesign/demo-v1): matches are marked `queued`
+ * with scheduled_at — never `sent` — because lead-add only queues inside
+ * HeyReach; the SENT webhook flips queued -> sent when the request truly goes
+ * out. Soft-deleted touches/contacts are ignored, and a contact who already
+ * has a live queued/sent/delivered/replied linkedin touch is skipped: their
+ * planned row is an intentional re-draft, not a straggler.
+ *
+ * It pages the campaign's existing leads and matches them to planned linkedin
+ * touches by LinkedIn profile handle (the /in/<slug> part, normalized).
  *
  * Usage (dry run — prints what it WOULD mark, changes nothing):
  *   npx tsx --env-file=.env.local scripts/reconcile-heyreach.ts
@@ -89,6 +95,7 @@ async function fetchCampaignLeadKeys(apiKey: string, campaignId: number): Promis
 
 type PlannedTouch = {
   id: string;
+  contact_id: string;
   contacts: { linkedin_url: string | null; full_name: string | null } | null;
 };
 
@@ -114,15 +121,30 @@ async function main() {
 
   const { data, error } = await supabase
     .from("touches")
-    .select("id, contacts!inner(linkedin_url, full_name)")
+    .select("id, contact_id, contacts!inner(linkedin_url, full_name)")
     .eq("status", "planned")
     .eq("direction", "outbound")
-    .eq("channel", "linkedin");
+    .eq("channel", "linkedin")
+    .is("deleted_at", null)
+    .is("contacts.deleted_at", null);
   if (error) throw new Error(error.message);
   const planned = (data ?? []) as unknown as PlannedTouch[];
-  console.log(`${planned.length} planned LinkedIn touches in Cohesium.`);
+  console.log(`${planned.length} live planned LinkedIn touches in Cohesium.`);
+
+  // A contact with a live in-flight/sent linkedin touch already has their send
+  // record — their planned row is an intentional re-draft, not a straggler.
+  const { data: inflight, error: ie } = await supabase
+    .from("touches")
+    .select("contact_id")
+    .eq("direction", "outbound")
+    .eq("channel", "linkedin")
+    .in("status", ["queued", "sent", "delivered", "replied"])
+    .is("deleted_at", null);
+  if (ie) throw new Error(ie.message);
+  const hasLiveSend = new Set((inflight ?? []).map((t) => t.contact_id as string));
 
   const matches = planned.filter((t) => {
+    if (hasLiveSend.has(t.contact_id)) return false;
     const k = linkedinKey(t.contacts?.linkedin_url);
     return k !== null && campaignKeys.has(k);
   });
@@ -138,17 +160,19 @@ async function main() {
   }
 
   if (!apply) {
-    console.log(`\nDry run. Re-run with --apply to mark these ${matches.length} touches sent.`);
+    console.log(`\nDry run. Re-run with --apply to mark these ${matches.length} touches queued.`);
     return;
   }
 
   const nowIso = new Date().toISOString();
   const { error: ue } = await supabase
     .from("touches")
-    .update({ status: "sent", sent_at: nowIso, provider: "heyreach" })
+    .update({ status: "queued", scheduled_at: nowIso, provider: "heyreach" })
     .in("id", matches.map((m) => m.id));
   if (ue) throw new Error(`Update failed: ${ue.message}`);
-  console.log(`\n✅ Marked ${matches.length} touches sent. They'll drop off the Draft queue.`);
+  console.log(
+    `\n✅ Marked ${matches.length} touches queued (SENT webhook will flip them to sent). They'll drop off the Draft queue.`,
+  );
 }
 
 main().catch((e) => {
