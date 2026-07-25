@@ -35,8 +35,8 @@ type NavItem = {
 
 const PIPELINE: NavItem[] = [
   { href: "/source", label: "Source", icon: Radar, step: 1 },
-  { href: "/review", label: "Review & Enrich", icon: ClipboardCheck, step: 2, exact: true },
-  { href: "/review/grade", label: "Grade", icon: GraduationCap, step: 3 },
+  { href: "/review/grade", label: "Grade", icon: GraduationCap, step: 2 },
+  { href: "/review", label: "Review & Enrich", icon: ClipboardCheck, step: 3, exact: true },
   { href: "/personalize", label: "Personalize", icon: Sparkles, step: 4 },
   { href: "/draft", label: "Draft", icon: PenLine, step: 5, exact: true },
   { href: "/draft/queue", label: "Send", icon: Send, step: 6 },

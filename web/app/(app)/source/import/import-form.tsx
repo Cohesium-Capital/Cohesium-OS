@@ -127,8 +127,8 @@ export function ImportForm({
             Paste the JSON from your research, or upload a CSV of known MSPs.
           </p>
         </div>
-        <Button variant="outline" nativeButton={false} render={<Link href="/review" />}>
-          Go to Review →
+        <Button variant="outline" nativeButton={false} render={<Link href="/review/grade" />}>
+          Go to Grade →
         </Button>
       </div>
 

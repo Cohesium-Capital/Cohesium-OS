@@ -191,7 +191,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       headline: `${n} sampled contact${n === 1 ? "" : "s"} awaiting grade`,
       detail:
         "Grading the sample is what lets a batch clear the eval gate and advance to drafting. Verify each field against its sources.",
-      step: 3,
+      step: 2,
     };
   }
 
@@ -204,7 +204,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       headline: `${n} contact${n === 1 ? "" : "s"} to review`,
       detail:
         "On Review & Enrich: first vet the rows (A), then push keepers to Clay for work emails (B).",
-      step: 2,
+      step: 3,
     };
   }
 
@@ -217,7 +217,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       headline: `${n} contact${n === 1 ? "" : "s"} waiting on enrichment`,
       detail:
         "Push pending rows to Clay from Review & Enrich (part B). Clay fills work email — the field drafting needs — plus phone and LinkedIn when it can.",
-      step: 2,
+      step: 3,
     };
   }
 

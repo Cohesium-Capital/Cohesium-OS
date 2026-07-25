@@ -296,8 +296,18 @@ export default async function HomePage() {
       chip: sourceChip,
     },
     {
-      href: "/review",
+      href: "/review/grade",
       step: 2,
+      label: "Grade",
+      icon: GraduationCap,
+      blurb: "Grade the sampled rows so a batch can clear the gate.",
+      count: awaitingGrade.count ?? null,
+      countNoun: "awaiting grade",
+      chip: gradeChip,
+    },
+    {
+      href: "/review",
+      step: 3,
       label: "Review & Enrich",
       icon: ClipboardCheck,
       blurb: "Vet contacts, then push them to Clay for work emails.",
@@ -307,16 +317,6 @@ export default async function HomePage() {
         clayEligible > 0
           ? { text: `${clayEligible} eligible for Clay`, tone: "ok" }
           : { text: "none eligible for Clay", tone: "muted" },
-    },
-    {
-      href: "/review/grade",
-      step: 3,
-      label: "Grade",
-      icon: GraduationCap,
-      blurb: "Grade the sampled rows so a batch can clear the gate.",
-      count: awaitingGrade.count ?? null,
-      countNoun: "awaiting grade",
-      chip: gradeChip,
     },
     {
       href: "/personalize",
