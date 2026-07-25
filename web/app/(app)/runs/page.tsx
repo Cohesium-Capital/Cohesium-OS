@@ -3,39 +3,37 @@ import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  type FlowRun,
+  furthestStage,
+  nextAction,
+  runDetailChips,
+  runTypeLabel,
+  stageCounts,
+} from "@/lib/runs/describe";
+import { formatDateTime, relativeTime } from "@/lib/format/date";
 
-// Runs hub: every batch the pipeline has produced, with its funnel + grading
-// metrics and eval-gate status. The control surface for the eval funnel —
-// where you see what needs grading and whether a batch may advance.
+// Runs hub, read vertically: newest run at the top, and for each one what it
+// was, when it ran, what it produced, and how far that output has travelled
+// through the pipeline. The eval gate lives inside each entry rather than in a
+// column of its own — grading is one thing a run is waiting on, alongside
+// review, enrichment and drafting.
 
-type BatchStat = {
-  id: string;
-  module: string;
-  label: string;
-  gate_status: string;
-  created_at: string;
-  total: number;
-  sampled: number;
-  graded: number;
-  errors: number;
-  pending: number;
-  provenance: string | null;
-};
+const PAGE_SIZE = 20;
 
-const PAGE_SIZE = 30;
-
-function gateVariant(s: string): "default" | "secondary" | "destructive" {
+function gateVariant(s: string | null): "default" | "secondary" | "destructive" {
   if (s === "passed") return "default";
   if (s === "failed") return "destructive";
   return "secondary";
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  queued: "queued",
+  awaiting_input: "awaiting paste",
+  running: "running",
+  ingesting: "importing",
+  review_ready: "imported",
+  failed: "failed",
+};
 
 export default async function RunsPage({
   searchParams,
@@ -48,24 +46,26 @@ export default async function RunsPage({
   const supabase = await createClient();
 
   const { data, count } = await supabase
-    .from("batch_stats")
+    .from("flow_runs")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(from, from + PAGE_SIZE - 1);
 
-  const rows = (data ?? []) as unknown as BatchStat[];
+  const runs = (data ?? []) as unknown as FlowRun[];
   const total = count ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Header summary across all batches (cheap aggregate over the view).
+  // Header summary across every run (cheap: the view is already aggregated).
   const { data: allRows } = await supabase
-    .from("batch_stats")
-    .select("gate_status, pending");
-  const summary = (allRows ?? []) as unknown as { gate_status: string; pending: number }[];
-  const open = summary.filter((b) => b.gate_status === "open").length;
-  const passed = summary.filter((b) => b.gate_status === "passed").length;
-  const failed = summary.filter((b) => b.gate_status === "failed").length;
-  const needGrading = summary.filter((b) => b.pending > 0).length;
+    .from("flow_runs")
+    .select("gate_status, pending, sourced, status");
+  const summary = (allRows ?? []) as unknown as Pick<
+    FlowRun,
+    "gate_status" | "pending" | "sourced" | "status"
+  >[];
+  const needGrading = summary.filter((r) => r.pending > 0).length;
+  const contactsSourced = summary.reduce((n, r) => n + (r.sourced ?? 0), 0);
+  const failed = summary.filter((r) => r.status === "failed").length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -73,8 +73,8 @@ export default async function RunsPage({
         <div>
           <h1 className="text-2xl font-semibold">Runs</h1>
           <p className="text-sm text-muted-foreground">
-            Every sourced batch and its eval-gate status. A batch advances only once its graded
-            sample clears the error threshold.
+            Every run in order, newest first — what it looked for, when it ran, and where its
+            output currently sits in the pipeline.
           </p>
         </div>
         <div className="flex gap-2">
@@ -90,80 +90,29 @@ export default async function RunsPage({
       </div>
 
       <div className="flex flex-wrap gap-3">
+        <SummaryCard label="Runs" value={total} />
+        <SummaryCard label="Contacts sourced" value={contactsSourced} />
         <SummaryCard label="Need grading" value={needGrading} accent />
-        <SummaryCard label="Open" value={open} />
-        <SummaryCard label="Passed" value={passed} />
         <SummaryCard label="Failed" value={failed} />
       </div>
 
-      <div className="rounded-md border" data-tour="runs-table">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Batch</TableHead>
-              <TableHead>Module</TableHead>
-              <TableHead>Gate</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead className="text-right">Sample</TableHead>
-              <TableHead className="text-right">Graded</TableHead>
-              <TableHead className="text-right">Errors</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length ? (
-              rows.map((b) => (
-                <TableRow key={b.id}>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{b.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(b.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{b.module}</TableCell>
-                  <TableCell>
-                    <Badge variant={gateVariant(b.gate_status)}>{b.gate_status}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">{b.total}</TableCell>
-                  <TableCell className="text-right">{b.sampled}</TableCell>
-                  <TableCell className="text-right">
-                    {b.graded}/{b.sampled}
-                  </TableCell>
-                  <TableCell className="text-right">{b.errors}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {b.provenance ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {b.pending > 0 ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        nativeButton={false}
-                        render={<Link href={`/review/grade?batch=${b.id}`} />}
-                      >
-                        Grade ({b.pending})
-                      </Button>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                  No runs yet. Start a sourcing run and import the results.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+      <div data-tour="runs-table">
+        {runs.length ? (
+          <ol className="flex flex-col">
+            {runs.map((run, i) => (
+              <RunEntry key={run.id} run={run} last={i === runs.length - 1} />
+            ))}
+          </ol>
+        ) : (
+          <div className="rounded-md border p-10 text-center text-sm text-muted-foreground">
+            No runs yet. Start a sourcing run and import the results.
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-3 text-sm text-muted-foreground">
         <span>
-          {total} batch{total === 1 ? "" : "es"} · page {page} of {pageCount}
+          {total} run{total === 1 ? "" : "s"} · page {page} of {pageCount}
         </span>
         <Button
           variant="outline"
@@ -183,6 +132,158 @@ export default async function RunsPage({
         >
           Next
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
+  const stages = stageCounts(run);
+  const furthest = furthestStage(run);
+  const action = nextAction(run);
+  const chips = runDetailChips(run);
+  const isDrafting = run.module === "drafting";
+
+  return (
+    <li className="flex gap-4">
+      {/* Rail: the dot marks this run, the line ties it to the one below. */}
+      <div className="flex flex-col items-center">
+        <span
+          className={`mt-5 size-3 shrink-0 rounded-full ring-4 ring-background ${
+            run.status === "failed"
+              ? "bg-destructive"
+              : action
+                ? "bg-primary"
+                : "bg-muted-foreground/40"
+          }`}
+        />
+        {!last && <span className="w-px flex-1 bg-border" />}
+      </div>
+
+      <div className="mb-3 min-w-0 flex-1 rounded-lg border p-4">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+          <div className="min-w-0">
+            <h2 className="font-medium">{runTypeLabel(run)}</h2>
+            <p className="text-xs text-muted-foreground">
+              {formatDateTime(run.created_at)} · {relativeTime(run.created_at)}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {run.gate_status && (
+              <Badge variant={gateVariant(run.gate_status)}>gate {run.gate_status}</Badge>
+            )}
+            <Badge variant={run.status === "failed" ? "destructive" : "secondary"}>
+              {STATUS_LABEL[run.status] ?? run.status}
+            </Badge>
+          </div>
+        </div>
+
+        {(chips.length > 0 || run.entry_kind !== "run") && (
+          <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {chips.map((c) => (
+              <span key={c} className="rounded bg-muted px-1.5 py-0.5">
+                {c}
+              </span>
+            ))}
+            {run.entry_kind === "import" && (
+              <span className="rounded bg-muted px-1.5 py-0.5">
+                direct import — predates run tracking, so only its import totals are known
+              </span>
+            )}
+            {run.entry_kind === "batch" && (
+              <span className="rounded bg-muted px-1.5 py-0.5">
+                batch without a run record
+              </span>
+            )}
+          </p>
+        )}
+
+        {run.error && (
+          <p className="mt-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
+            {run.error}
+          </p>
+        )}
+
+        {isDrafting ? (
+          <p className="mt-3 text-sm">
+            <span className="font-semibold tabular-nums">{run.drafts_created}</span>{" "}
+            <span className="text-muted-foreground">draft(s) written</span>
+          </p>
+        ) : (
+          <FlowBar run={run} stages={stages} />
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          {run.sampled > 0 && (
+            <span>
+              graded {run.graded}/{run.sampled}
+              {run.errors > 0 ? ` · ${run.errors} error${run.errors === 1 ? "" : "s"}` : ""}
+            </span>
+          )}
+          {run.discarded > 0 && <span>{run.discarded} discarded in review</span>}
+          {furthest && <span>furthest stage: {furthest.label}</span>}
+          {run.replied > 0 && <span>{run.replied} replied</span>}
+          <span className="ml-auto flex gap-2">
+            {action && (
+              <Button
+                size="sm"
+                variant={run.pending > 0 ? "default" : "outline"}
+                nativeButton={false}
+                render={<Link href={action.href} />}
+              >
+                {action.label}
+              </Button>
+            )}
+          </span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// Horizontal funnel inside the entry: each stage's share of what the run
+// sourced. Counts are cumulative-by-nature (a sent contact was also drafted,
+// enriched, reviewed), so the bars only ever shrink left to right.
+function FlowBar({
+  run,
+  stages,
+}: {
+  run: FlowRun;
+  stages: { key: string; label: string; count: number }[];
+}) {
+  const base = run.sourced || 0;
+  if (!base) {
+    return (
+      <p className="mt-3 text-sm text-muted-foreground">
+        No records attributed to this run.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      <div className="flex gap-1">
+        {stages.map((s) => {
+          const pct = Math.round((s.count / base) * 100);
+          return (
+            <div key={s.key} className="flex-1" title={`${s.label}: ${s.count} of ${base}`}>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-1 text-xs">
+        {stages.map((s) => (
+          <span key={s.key} className="flex-1 truncate">
+            <span
+              className={`tabular-nums ${s.count > 0 ? "font-medium" : "text-muted-foreground"}`}
+            >
+              {s.count}
+            </span>{" "}
+            <span className="text-muted-foreground">{s.label.toLowerCase()}</span>
+          </span>
+        ))}
       </div>
     </div>
   );

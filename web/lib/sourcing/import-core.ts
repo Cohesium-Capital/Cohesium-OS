@@ -6,6 +6,7 @@ import {
   contactNameMatch,
 } from "../contracts";
 import { isSampled } from "../grading/math";
+import { loadOrgIndex, type OrgIndexRow } from "./known";
 import { type ImportKind, type ImportReport, EMPTY_REPORT } from "./types";
 
 // Evidence for a sourced row: the provenance URL(s) backing the claim. Stored on
@@ -138,7 +139,7 @@ export async function importPayload(
         stubs?.forEach((s) => mspIdByName.set(s.name.toLowerCase(), s.id));
         report.inserted.organizations += stubs?.length ?? 0;
         report.messages.push(
-          `Created ${stubs?.length ?? 0} new MSP reference(s) from customer links (flagged, low confidence).`,
+          `Created ${stubs?.length ?? 0} new MSP reference(s) from customer links — unconfirmed, low confidence until someone reviews them on the MSPs page.`,
         );
       }
     }
@@ -194,32 +195,13 @@ export async function importPayload(
   };
 
   // 3. Load existing orgs of this kind to match against (domain or name+MSP).
-  type ExistingOrg = {
-    id: string;
-    name: string;
-    domain: string | null;
-    current_msp_id: string | null;
-    hq_city: string | null;
-    hq_state: string | null;
-    source_url: string | null;
-    evidence: { url?: string; via?: string }[] | null;
-  };
-  const { data: existingOrgs } = await supabase
-    .from("organizations")
-    .select("id, name, domain, current_msp_id, hq_city, hq_state, source_url, evidence")
-    .eq("kind", input.kind);
-
-  const keyOfExisting = (e: ExistingOrg) =>
-    input.kind === "customer"
-      ? `${nameKey(e.name)}|${e.current_msp_id ?? ""}`
-      : nameKey(e.name);
-  const byDomain = new Map<string, ExistingOrg>();
-  const byKey = new Map<string, ExistingOrg>();
-  for (const e of (existingOrgs as ExistingOrg[] | null) ?? []) {
-    if (e.domain) byDomain.set(e.domain, e);
-    const k = keyOfExisting(e);
-    if (!byKey.has(k)) byKey.set(k, e);
-  }
+  // Paged in loadOrgIndex: an unbounded select is capped by PostgREST max-rows
+  // (~1000 by default) with no error, so past that many orgs this dedupe used
+  // to silently stop matching and admit duplicates as new rows.
+  type ExistingOrg = OrgIndexRow;
+  const orgIndex = await loadOrgIndex(supabase, input.kind);
+  const byDomain = orgIndex.byDomain;
+  const byKey = input.kind === "customer" ? orgIndex.byNameAndMsp : orgIndex.byName;
 
   // 4. Partition incoming rows: merge into an existing org, insert as new, or
   //    skip as an intra-payload duplicate.
@@ -370,7 +352,9 @@ export async function importPayload(
     report.messages.push("Nothing new to import — every row already exists.");
   }
 
-  report.flagged = toInsert.filter((o) => o.confidence === "low" || !o.domain).length;
+  report.needsChecking = toInsert.filter(
+    (o) => o.confidence === "low" || !o.domain,
+  ).length;
 
   // 7. Log the run. new_for_target counts only genuinely-new orgs.
   const newForTarget = input.targetMspId
@@ -378,6 +362,10 @@ export async function importPayload(
     : null;
   await supabase.from("sourcing_runs").insert({
     kind: input.kind,
+    // Ties the yield-log row to the run that produced it. Null on the direct
+    // import path, which is how the Runs timeline tells a tracked run from a
+    // legacy import that predates run tracking.
+    run_id: runId,
     target_msp_id: input.targetMspId ?? null,
     inserted_orgs: report.inserted.organizations,
     inserted_contacts: report.inserted.contacts,

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModule } from "../modules/registry";
 import { templateHash } from "../prompts/hash";
-import type { IngestOutcome, ModuleKey } from "../modules/types";
+import type { Executor, IngestOutcome, ModuleKey } from "../modules/types";
 
 // Run lifecycle for the copy-paste executor (the default, free path). A run
 // pairs with a batch: createRun renders the prompt the operator pastes into
@@ -22,6 +22,9 @@ export interface CreatedRun {
   batchId: string;
   promptVersionId: string | null;
   prompt: string;
+  /** Operator-facing notes from the module's config preparation (e.g. how many
+   *  already-sourced companies the prompt was told to skip). */
+  notes: string[];
 }
 
 // Prompts live in git; versioning is mechanical. When a module exposes
@@ -109,11 +112,29 @@ export async function createRun(
     config: Record<string, unknown>;
     label: string;
     createdBy?: string | null;
+    /** defaults to the copy-paste operator path */
+    executor?: Executor;
+    /** the runner token that drove this run, for traceability */
+    apiTokenId?: string | null;
   },
 ): Promise<CreatedRun> {
   const mod = getModule(opts.module);
+  const executor: Executor = opts.executor ?? "copy_paste";
 
-  const template = mod.templateText?.(opts.config);
+  // Give the module a chance to read the database into its config before the
+  // prompt is built — this is how a run learns what previous runs already
+  // covered (sourcing's do-not-research list). It runs before templateText so
+  // the prompt shape, its hash, and the persisted config all describe the same
+  // run.
+  let config = opts.config;
+  let notes: string[] = [];
+  if (mod.prepareConfig) {
+    const prepared = await mod.prepareConfig(supabase, config, { executor });
+    config = prepared.config;
+    notes = prepared.notes ?? [];
+  }
+
+  const template = mod.templateText?.(config);
   let promptVersionId: string | null = null;
   let hash: string | null = null;
   let renderTemplate: string | null = null;
@@ -136,7 +157,7 @@ export async function createRun(
     renderTemplate = pv?.prompt ?? null;
   }
 
-  const prompt = mod.renderPrompt(renderTemplate, opts.config);
+  const prompt = mod.renderPrompt(renderTemplate, config);
 
   // Drafting runs never attach contacts to their batch (output goes to
   // touches), so the sourcing-style eval gate has nothing to sample — its gate
@@ -159,9 +180,10 @@ export async function createRun(
       module: opts.module,
       prompt_version_id: promptVersionId,
       batch_id: batch.id,
-      executor: "copy_paste",
-      provider_label: "copy-paste",
-      config: opts.config,
+      executor,
+      provider_label: executor === "runner" ? "claude-code-runner" : "copy-paste",
+      api_token_id: opts.apiTokenId ?? null,
+      config,
       status: "awaiting_input",
       created_by: opts.createdBy ?? null,
       // Prompt honesty: what the operator actually pasted, plus the template
@@ -173,7 +195,7 @@ export async function createRun(
     .single();
   if (re || !run) throw new Error(`Could not create run: ${re?.message ?? "no row"}`);
 
-  return { runId: run.id, batchId: batch.id, promptVersionId, prompt };
+  return { runId: run.id, batchId: batch.id, promptVersionId, prompt, notes };
 }
 
 export async function ingestRun(

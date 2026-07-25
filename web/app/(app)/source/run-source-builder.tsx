@@ -69,6 +69,8 @@ export function RunSourceBuilder({
   // paste box. A second "Start run" resets and opens a fresh batch.
   const [runId, setRunId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
+  // What the server excluded from this run's prompt (already-sourced companies).
+  const [notes, setNotes] = useState<string[]>([]);
   const [json, setJson] = useState("");
   const [strict, setStrict] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -100,6 +102,7 @@ export function RunSourceBuilder({
         });
         setRunId(created.runId);
         setPrompt(created.prompt);
+        setNotes(created.notes);
         setJson("");
         setOutcome(null);
         await navigator.clipboard.writeText(created.prompt).catch(() => {});
@@ -256,6 +259,17 @@ export function RunSourceBuilder({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {notes.length > 0 && (
+              <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+                {notes.map((n, i) => (
+                  <p key={i}>{n}</p>
+                ))}
+                <p className="text-muted-foreground">
+                  The model is told to skip them, so this run spends its search budget on
+                  companies you don&rsquo;t already have.
+                </p>
+              </div>
+            )}
             <Textarea readOnly value={prompt} rows={8} className="font-mono text-xs" />
             <Button
               variant="outline"

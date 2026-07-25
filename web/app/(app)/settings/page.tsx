@@ -1,8 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
+import { ApiTokens, type ApiTokenRow } from "./api-tokens";
 
-// Settings: per-module eval-gate config (error threshold, sample rate) and the
-// prompt-version history (which version is active, add a new one).
+// Settings: per-module eval-gate config (error threshold, sample rate), the
+// prompt-version history (which version is active, add a new one), and the
+// runner API tokens.
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -18,6 +20,12 @@ export default async function SettingsPage() {
     .order("module")
     .order("version", { ascending: false });
 
+  // Owner-only by RLS, so this is already just the current user's tokens.
+  const { data: tokens } = await supabase
+    .from("api_tokens")
+    .select("id, name, prefix, scopes, created_at, last_used_at, expires_at, revoked_at")
+    .order("created_at", { ascending: false });
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -30,6 +38,7 @@ export default async function SettingsPage() {
         settings={(settings ?? []) as ModuleSettings[]}
         prompts={(prompts ?? []) as PromptVersion[]}
       />
+      <ApiTokens tokens={(tokens ?? []) as ApiTokenRow[]} />
     </div>
   );
 }

@@ -48,6 +48,22 @@ Click **Source** in the sidebar. This is where new leads enter the system.
 2. **Click Start run.** The app creates a tracked run and copies a research
    prompt to your clipboard.
 
+   The prompt carries a **do-not-research list**: every company already in the
+   database, so the model spends its search budget on companies you don't have
+   instead of rediscovering the ones you do. The page tells you how many were
+   excluded. The scope follows the mode — Research MSPs excludes known MSPs,
+   Research customers excludes known customers, and Find customers for specific
+   MSPs excludes only the clients already recorded *for those MSPs* (the same
+   company turning up under a different MSP is a genuine find, not a
+   duplicate). Import-time matching still catches anything that slips through,
+   so a duplicate costs research time, never data quality.
+
+   That embedded list is capped at 400 companies, because a pasted prompt has to
+   be self-contained and a longer list stops being reliably followed. Once your
+   database outgrows that, run sourcing through **Claude Code** instead: it
+   checks candidates against the whole database via the API, so there's no cap.
+   See [docs/RUNNER.md](./RUNNER.md).
+
 3. **Run the prompt in Claude or ChatGPT with web search turned on.** The
    model does the research and returns a JSON object.
 
@@ -74,7 +90,7 @@ mark keepers as reviewed.
 
 **B — Enrich via Clay.** Sourced contacts usually arrive without a work email,
 and a contact can't be drafted until it has an email or LinkedIn URL. Clay
-fills those in. Send everything still pending either way:
+fills those in. Send the eligible set either way:
 
 - **Push pending to Clay** — sends rows to the Clay table webhook (requires
   `CLAY_TABLE_WEBHOOK_URL`).
@@ -82,8 +98,15 @@ fills those in. Send everything still pending either way:
 
 Clay runs its waterfall (work email is the main prize; phone and LinkedIn when
 it can), then writes each finished row back to the app. Statuses flip from
-**pending** → **enriched** (or **failed**). Re-running push/export is safe —
-it only retries rows Clay hasn't answered yet. Full Clay setup lives in
+**pending** → **enriched** (or **failed**).
+
+**A contact is only ever sent to Clay once.** Both paths mark what they sent,
+and marked contacts drop out of the eligible set — so re-running push/export
+never re-spends credits on someone Clay has already seen. Contacts held back
+this way show up as *"already sent (no write-back yet)"*; if one is stuck
+there, the fix is normally the write-back, not another send. **Re-send N
+already sent…** exists for when a send genuinely didn't land, and asks for
+confirmation because it does spend credits again. Full Clay setup lives in
 [docs/CLAY.md](./CLAY.md).
 
 You can enrich before or after Grade; Grade is what unlocks drafting for a

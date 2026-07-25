@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MspControls } from "./msp-controls";
+import { formatDate, relativeTime } from "@/lib/format/date";
 
 type Status = "unexplored" | "productive" | "exhausted";
 
@@ -26,6 +27,7 @@ type MspStatRow = {
   targeted_runs: number;
   last_yield: number | null;
   status: Status;
+  added_at: string;
 };
 
 const PAGE_SIZE = 50;
@@ -39,14 +41,7 @@ const STATUS_BADGE: Record<
   exhausted: { label: "Exhausted — move on", variant: "outline" },
 };
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
+const fmtDate = formatDate;
 
 export default async function MspsPage({
   searchParams,
@@ -86,6 +81,14 @@ export default async function MspsPage({
         <strong>unexplored</strong>. Use the per-row shortcut to run a targeted search.
       </p>
 
+      <p className="text-sm text-muted-foreground">
+        An <span className="text-amber-600">unconfirmed</span> tag next to a name means the
+        company record itself hasn&rsquo;t been vetted — either nobody has reviewed it, or it
+        was imported with low confidence. Most are stubs created automatically because a
+        customer record named that MSP, so the name may be a guess. Check the details before
+        treating one as a real acquisition target.
+      </p>
+
       <MspControls q={q} page={page} pageCount={pageCount} total={total} />
 
       <div className="rounded-md border">
@@ -95,6 +98,7 @@ export default async function MspsPage({
               <TableHead>MSP</TableHead>
               <TableHead className="text-right">Customers</TableHead>
               <TableHead className="text-right">Contacts</TableHead>
+              <TableHead>Added</TableHead>
               <TableHead>Last sourced</TableHead>
               <TableHead className="text-right">Last run</TableHead>
               <TableHead>Status</TableHead>
@@ -112,7 +116,16 @@ export default async function MspsPage({
                         <span>
                           {r.name}
                           {(!r.reviewed || r.confidence === "low") && (
-                            <span className="ml-2 text-xs text-amber-600">flagged</span>
+                            <span
+                              className="ml-2 text-xs text-amber-600"
+                              title={
+                                r.reviewed
+                                  ? "Low confidence — the company details came from weak evidence. Confirm before relying on it."
+                                  : "Nobody has confirmed this MSP yet. Many are auto-created from a customer record that named them."
+                              }
+                            >
+                              unconfirmed
+                            </span>
                           )}
                         </span>
                         {r.domain && (
@@ -122,6 +135,14 @@ export default async function MspsPage({
                     </TableCell>
                     <TableCell className="text-right">{r.customers}</TableCell>
                     <TableCell className="text-right">{r.contacts}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span>{fmtDate(r.added_at)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {relativeTime(r.added_at)}
+                        </span>
+                      </div>
+                    </TableCell>
                     <TableCell>{fmtDate(r.last_sourced)}</TableCell>
                     <TableCell className="text-right">
                       {r.last_yield === null ? "—" : `+${r.last_yield}`}
@@ -144,7 +165,7 @@ export default async function MspsPage({
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={8} className="h-24 text-center">
                   {q
                     ? "No MSPs match that search."
                     : "No MSPs yet. Import some, or they appear as customers link to them."}

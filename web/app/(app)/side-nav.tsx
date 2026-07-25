@@ -11,6 +11,7 @@ import {
   Send,
   Inbox,
   Building2,
+  Landmark,
   Activity,
   TrendingUp,
   Settings,
@@ -46,6 +47,7 @@ const PIPELINE: NavItem[] = [
 const DATA: NavItem[] = [
   { href: "/runs", label: "Runs", icon: Activity },
   { href: "/outcomes", label: "Outcomes", icon: TrendingUp },
+  { href: "/companies", label: "Companies", icon: Landmark },
   { href: "/msps", label: "MSPs", icon: Building2 },
 ];
 

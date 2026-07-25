@@ -224,8 +224,16 @@ export function ImportForm({
                   and <strong>{report.inserted.contacts}</strong> contact(s).
                 </p>
                 <p className="text-muted-foreground">
-                  {report.merged} existing enriched · {report.flagged} flagged ·{" "}
+                  {report.merged} existing enriched · {report.needsChecking} need checking ·{" "}
                   {report.skippedDuplicates} skipped as duplicates.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  &ldquo;Need checking&rdquo; counts new companies imported with low
+                  confidence or no domain. They are kept, not rejected — confirm the details
+                  on the MSPs page, where they show an{" "}
+                  <span className="text-amber-600">unconfirmed</span> tag. Contacts are
+                  separate: they all start as{" "}
+                  <span className="text-amber-600">Needs review</span> on Review &amp; Enrich.
                 </p>
               </>
             ) : (

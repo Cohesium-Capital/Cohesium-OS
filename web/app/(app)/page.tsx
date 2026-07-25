@@ -9,6 +9,7 @@ import {
   Inbox,
   Activity,
   Building2,
+  Landmark,
   ArrowRight,
   RotateCcw,
   type LucideIcon,
@@ -504,7 +505,19 @@ export default async function HomePage() {
               <div className="flex flex-col">
                 <span className="font-medium">Runs</span>
                 <span className="text-xs text-muted-foreground">
-                  Batches, funnel metrics, and gate status.
+                  Every run in order, with where its output sits in the flow.
+                </span>
+              </div>
+              <ArrowRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+            </Card>
+          </Link>
+          <Link href="/companies" className="group">
+            <Card className="flex-row items-center gap-4 px-5 py-4 transition-shadow group-hover:shadow-elev-2">
+              <Landmark className="size-5 text-muted-foreground" />
+              <div className="flex flex-col">
+                <span className="font-medium">Companies</span>
+                <span className="text-xs text-muted-foreground">
+                  Customers and MSPs with the date each was added.
                 </span>
               </div>
               <ArrowRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />

@@ -8,6 +8,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ModuleKey = "sourcing" | "enrichment" | "personalization" | "drafting";
 
+/**
+ * How a run's AI work is executed. 'copy_paste' is the operator pasting the
+ * prompt into a chat window; 'runner' is an agent session (Claude Code) driving
+ * the run through the API. The distinction changes what a prompt should carry:
+ * a copy-paste prompt must be self-contained, while a runner can query the API
+ * mid-run and therefore needs no embedded snapshot of the database.
+ */
+export type Executor = "copy_paste" | "runner";
+
 export interface IngestContext {
   runId: string | null;
   batchId: string | null;
@@ -47,6 +56,24 @@ export interface RunModule<Config = Record<string, unknown>, Output = unknown> {
    * provenance); `config` carries the run's runtime parameters.
    */
   renderPrompt(template: string | null, config: Config): string;
+  /**
+   * Optional server-side enrichment of the run config, applied by createRun
+   * before the prompt is rendered or hashed. This is where a module reads the
+   * database to make the prompt aware of prior runs — sourcing uses it to pass
+   * the already-sourced companies so the model doesn't research them twice.
+   * The returned config is what gets persisted on the run, so the prompt and
+   * its recorded config always agree. `notes` are operator-facing lines about
+   * what the preparation did.
+   *
+   * `ctx.executor` matters because the two executors need different prompts:
+   * copy-paste has one shot at a self-contained prompt, while a runner can call
+   * the API for the same information without a size limit.
+   */
+  prepareConfig?(
+    supabase: SupabaseClient,
+    config: Config,
+    ctx: { executor: Executor },
+  ): Promise<{ config: Config; notes?: string[] }>;
   /**
    * The static instruction portion of the rendered prompt, volatile config
    * values replaced by {{placeholders}}; hashed for mechanical prompt

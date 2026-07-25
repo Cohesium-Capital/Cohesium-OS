@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
-import { fetchEligibleContacts, type PendingContact } from "@/lib/enrichment/pending";
+import {
+  fetchEligibleContacts,
+  markPushedToClay,
+  type PendingContact,
+} from "@/lib/enrichment/pending";
 import { computeGate } from "@/lib/grading/gate";
 
 // Mutations for the review grid. Run as the signed-in user (RLS applies) and
@@ -66,6 +70,12 @@ export async function deleteContacts(ids: string[], reason?: string) {
 // Like the CSV export, this does not change enrichment_status — rows stay
 // "pending" until the write-back flips them to "enriched"/"failed". Configure
 // the Clay table to dedupe on contact_id so a re-push doesn't duplicate work.
+//
+// It does stamp contacts.clay_pushed_at for every row Clay accepted, which is
+// what keeps the next push from re-sending them. Status can't carry that: a
+// contact Clay never writes back on stays 'pending' forever, so re-running
+// "push all eligible" used to re-bill the whole un-written-back backlog. A
+// deliberate second pass goes through resend=true, which clears the mark.
 
 // Conservative concurrency + retry/backoff: Clay's webhook source rate-limits
 // bursts (429), so a single-shot fan-out drops a large share of rows. We retry
@@ -142,7 +152,15 @@ async function postClayRow(
 // eligible" (the explicit push-all button). Either way the eligibility filter
 // in fetchEligibleContacts is the authority — ineligible ids are dropped, so an
 // unvetted or gate-blocked contact can never reach the production Clay table.
-export async function pushPendingToClay(contactIds: string[]): Promise<{
+//
+// resend=true re-includes contacts already sent to Clay. It exists for the case
+// where a push genuinely didn't take (Clay table wiped, a broken run), and it
+// spends credits a second time — so it is never the default and never implied
+// by a selection.
+export async function pushPendingToClay(
+  contactIds: string[],
+  resend = false,
+): Promise<{
   total: number;
   pushed: number;
   failed: number;
@@ -156,6 +174,7 @@ export async function pushPendingToClay(contactIds: string[]): Promise<{
   const rows = await fetchEligibleContacts(
     supabase,
     contactIds.length ? contactIds : undefined,
+    { includePushed: resend },
   );
   if (!rows.length) return { total: 0, pushed: 0, failed: 0 };
 
@@ -189,6 +208,20 @@ export async function pushPendingToClay(contactIds: string[]): Promise<{
       provenanceError = `pushed, but recording provenance failed: ${error.message}`;
       break;
     }
+  }
+
+  // The double-spend guard. Stamped only for rows Clay accepted, so a row that
+  // failed every retry stays eligible and gets picked up next time. Reported
+  // rather than thrown: the credits are already spent either way, and a silent
+  // failure here is exactly what would cause the next push to re-bill them.
+  const markError = await markPushedToClay(
+    supabase,
+    pushedEvents.map((e) => e.contact_id),
+  );
+  if (markError) {
+    provenanceError =
+      provenanceError ??
+      `pushed, but marking them as sent failed (${markError}) — they may be re-sent on the next push`;
   }
 
   const pushed = pushedEvents.length;
