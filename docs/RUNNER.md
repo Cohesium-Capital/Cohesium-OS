@@ -54,10 +54,15 @@ Instead:
 1. You create a token in the app (**Settings → API tokens**). Only its SHA-256
    hash is stored; the raw value is shown once.
 2. The runner sends it as `Authorization: Bearer <token>`.
-3. The API resolves it to **one owning user** and mints a **5-minute** Supabase
-   user JWT for them (`lib/auth/user-jwt.ts`).
-4. Every query then runs under that user's row-level policies — identical to
-   what their browser session can see, and nothing more.
+3. The API resolves it to **one owning user**, then opens a Postgres transaction
+   that assumes the `authenticated` role with that user's claims
+   (`lib/db/rls.ts`).
+4. Postgres itself filters every statement by the same policies that apply to
+   that person's browser session — nothing more.
+
+Enforcement is Postgres, not a signed token, deliberately: Supabase is migrating
+to asymmetric JWT signing keys whose private key we cannot hold, so minting our
+own user JWTs would be a mechanism with an expiry date. Role + claims is not.
 
 Consequences worth knowing:
 
@@ -65,22 +70,57 @@ Consequences worth knowing:
 - `api_tokens` is owner-only by policy, not `members full access` — one member
   cannot read or mint a credential that acts as another. (Admins included: an
   admin who wants runner access makes their own token.)
-- `SUPABASE_JWT_SECRET` unset ⇒ the runner API returns **500 and refuses the
+- `SUPABASE_DB_URL` unset ⇒ the runner API returns **500 and refuses the
   request**. It never falls back to the service role.
+- The app connects as `postgres`, which carries `rolbypassrls`. `SET LOCAL ROLE
+  authenticated` is therefore the *entire* enforcement, so `withRls` verifies
+  after the fact that `current_user` really changed and that `auth.uid()` really
+  equals the token owner, and aborts if not. A silent failure there would turn
+  every runner request into a full-database read.
 - `runs.api_token_id` records which token drove each run, so a compromised
   token's output can be found and rolled back.
 - Revoking is immediate and keeps the row, preserving that trace.
 
-> **Check before deploying:** this mints HS256 JWTs against the project's shared
-> JWT secret. If your Supabase project has moved to asymmetric-only JWT signing
-> keys, the legacy secret won't validate and this needs to sign with the
-> project's current key instead. Verify in Project Settings → API → JWT Settings
-> that a JWT Secret is present.
+### Transaction semantics
+
+The whole request runs in one transaction, so an ingest is all-or-nothing —
+stricter than the PostgREST path, where each statement commits on its own and a
+mid-ingest failure can leave organizations inserted without their contacts.
+
+Two hazards that come with that, both handled:
+
+- **Individual statements run inside savepoints.** The shared pipeline was
+  written against PostgREST, where a failed statement is isolated, and it relies
+  on that: `importPayload` logs a failed contacts insert and carries on, and
+  `resolvePromptVersion` provokes a unique violation on purpose to detect a
+  race. On one transaction the first such failure would abort everything after
+  it. Savepoints restore statement-level isolation without giving up atomicity.
+- **The commit is verified.** `COMMIT` on an aborted transaction does not raise
+  — Postgres quietly rolls back and reports `ROLLBACK`. Unchecked, that is the
+  worst failure this transport can produce: a route reporting "imported 25
+  contacts" having written nothing. `withRls` inspects the command tag and
+  throws instead.
 
 ## Setup
 
 1. **Settings → API tokens → Create token.** Copy it immediately.
-2. Set `SUPABASE_JWT_SECRET` in the app's environment (see `.env.example`).
+2. Set `SUPABASE_DB_URL` in the app's environment. **Use the transaction-pooler
+   URL** in any deployed environment (Supabase Dashboard → Connect → Transaction
+   pooler) — the direct `db.<ref>.supabase.co` host is IPv6-only and holds a
+   real connection per instance, neither of which suits serverless:
+
+   ```
+   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+
+   Transaction mode is correct here: `SET LOCAL` inside an explicit
+   `BEGIN`/`COMMIT` is exactly what it supports, and node-postgres uses unnamed
+   prepared statements, so there is no pgbouncer incompatibility. A local
+   `.env` can keep the direct connection — the pool detects localhost and
+   turns TLS off for it.
+
+   Note this string carries the database password, a more sensitive secret than
+   the service-role key (which can be rotated without touching the database).
 3. In the runner's shell:
 
 ```bash

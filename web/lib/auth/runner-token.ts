@@ -1,46 +1,32 @@
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashToken, TOKEN_PREFIX } from "./token-hash";
-import { mintUserJwt } from "./user-jwt";
 
 // Authentication for non-browser callers (the runner executor: a Claude Code
 // session driving a sourcing run).
 //
 // The central rule: a runner request must be no more privileged than the person
 // who created its token. So a token is not an authorization by itself — it is a
-// lookup key for a user id, from which we mint a short-lived Supabase user JWT
-// and build a normal RLS-bound client. Every query the runner makes then runs
-// under the same policies as that user's browser session. This is what keeps
-// the path safe to extend to multiple tenants: there is no code path where the
-// runner sees rows its owner could not.
+// lookup key for a user id. The route then opens a Postgres transaction that
+// assumes the `authenticated` role with that user's claims (see lib/db/rls.ts),
+// and every query inside runs under the same policies as their browser session.
+// There is no code path where the runner sees rows its owner could not.
+//
+// Postgres enforces this rather than a signed token, deliberately: Supabase is
+// moving to asymmetric JWT signing keys, so minting our own user JWTs is a
+// mechanism with an expiry date. Role + claims is not.
 //
 // The service-role client appears exactly once here — to look the token hash up
-// before any identity exists. It is never returned to a caller.
+// before any identity exists. It never reaches a caller, and it is never used
+// to read business data.
 
 export type RunnerAuth = {
   ownerId: string;
   tokenId: string;
   scopes: string[];
-  /** RLS-bound client acting as the token's owner. */
-  supabase: SupabaseClient;
 };
 
 export type AuthFailure = { error: string; status: 401 | 403 | 500 };
-
-// A client that carries the minted user JWT. The anon key is the project
-// identifier; Authorization is the identity, so RLS sees auth.uid() = ownerId.
-function clientAsUser(jwt: string): SupabaseClient {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
-    },
-  );
-}
 
 function bearer(req: Request): string | null {
   const header = req.headers.get("authorization") ?? "";
@@ -49,9 +35,8 @@ function bearer(req: Request): string | null {
 }
 
 /**
- * Resolve a request's bearer token to an RLS-bound client for its owner.
- * Returns an AuthFailure (never throws) so route handlers can map it straight
- * to a response.
+ * Resolve a request's bearer token to its owning user. Returns an AuthFailure
+ * (never throws) so route handlers can map it straight to a response.
  */
 export async function authenticateRunner(
   req: Request,
@@ -62,12 +47,11 @@ export async function authenticateRunner(
     return { error: "missing or malformed API token", status: 401 };
   }
 
-  const secret = process.env.SUPABASE_JWT_SECRET;
-  if (!secret) {
-    // Fail closed. Without the secret we cannot mint a user-scoped JWT, and the
-    // only alternative — falling back to the service role — is precisely the
-    // RLS bypass this module exists to avoid.
-    return { error: "runner API is not configured (SUPABASE_JWT_SECRET unset)", status: 500 };
+  if (!process.env.SUPABASE_DB_URL) {
+    // Fail closed. Without a database connection we cannot assume the
+    // authenticated role, and the only alternative — serving the request with
+    // the service-role client — is the RLS bypass this module exists to avoid.
+    return { error: "runner API is not configured (SUPABASE_DB_URL unset)", status: 500 };
   }
 
   // Service-role lookup: unavoidable, since no identity exists yet. Scoped to
@@ -98,12 +82,10 @@ export async function authenticateRunner(
     .eq("id", token.id)
     .then(() => undefined);
 
-  const jwt = await mintUserJwt(token.owner_id as string, secret);
   return {
     ownerId: token.owner_id as string,
     tokenId: token.id as string,
     scopes,
-    supabase: clientAsUser(jwt),
   };
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { guard } from "../_auth";
+import { withRls, asSupabase } from "@/lib/db/rls";
 import { createRun } from "@/lib/runs/lifecycle";
 
 // Start a sourcing run from the runner executor.
@@ -23,6 +24,12 @@ const BodySchema = z.object({
   label: z.string().trim().max(200).optional(),
 });
 
+type MspRow = { id: string; name: string; domain: string | null };
+
+// Distinguishes "you asked for something that isn't there" (404) from a genuine
+// failure (500) across the transaction boundary.
+class NotFound extends Error {}
+
 export async function POST(req: Request) {
   const g = await guard(req, BodySchema);
   if (!g.ok) return g.response;
@@ -30,55 +37,58 @@ export async function POST(req: Request) {
 
   const kind = body.mode === "research_msps" ? "msp" : "customer";
 
-  // Resolve targeted MSPs under the caller's RLS.
-  let msps: { id: string; name: string; domain: string | null }[] = [];
-  if (body.mspIds?.length) {
-    const { data, error } = await auth.supabase
-      .from("organizations")
-      .select("id, name, domain")
-      .eq("kind", "msp")
-      .in("id", body.mspIds);
-    if (error) {
-      return NextResponse.json({ error: `could not load MSPs: ${error.message}` }, { status: 500 });
-    }
-    msps = (data ?? []) as typeof msps;
-    const missing = body.mspIds.filter((id) => !msps.some((m) => m.id === id));
-    if (missing.length) {
-      return NextResponse.json(
-        { error: `unknown MSP id(s): ${missing.join(", ")}` },
-        { status: 404 },
-      );
-    }
-  }
-
-  if (body.mode === "find_customers_for_msps" && !msps.length) {
+  if (body.mode === "find_customers_for_msps" && !body.mspIds?.length) {
     return NextResponse.json(
       { error: "find_customers_for_msps requires at least one entry in mspIds" },
       { status: 400 },
     );
   }
 
-  // A single target lets the run report new_for_target at ingest.
-  const targetMspId = msps.length === 1 ? msps[0].id : null;
-
   try {
-    const created = await createRun(auth.supabase, {
-      module: "sourcing",
-      executor: "runner",
-      apiTokenId: auth.tokenId,
-      createdBy: auth.ownerId,
-      label: body.label ?? `${kind === "msp" ? "MSPs" : "Customers"} · ${body.mode.replace(/_/g, " ")} · runner`,
-      config: {
-        mode: body.mode,
-        region: body.region ?? "",
-        profile: body.profile ?? "",
-        count: body.count,
-        countPer: body.countPer,
-        msps,
-        kind,
-        targetMspId,
-      },
+    // Resolving the MSPs and creating the run share one RLS transaction, so a
+    // run can never be created against MSPs the caller cannot see, and a failure
+    // partway leaves no orphaned batch.
+    const { created, targetMspId } = await withRls(auth.ownerId, async (db) => {
+      const supabase = asSupabase(db);
+
+      let msps: MspRow[] = [];
+      if (body.mspIds?.length) {
+        const { data, error } = await supabase
+          .from("organizations")
+          .select("id, name, domain")
+          .eq("kind", "msp")
+          .in("id", body.mspIds);
+        if (error) throw new Error(`could not load MSPs: ${error.message}`);
+        msps = (data ?? []) as MspRow[];
+        const missing = body.mspIds.filter((id) => !msps.some((m) => m.id === id));
+        if (missing.length) throw new NotFound(`unknown MSP id(s): ${missing.join(", ")}`);
+      }
+
+      // A single target lets the run report new_for_target at ingest.
+      const target = msps.length === 1 ? msps[0].id : null;
+
+      const run = await createRun(supabase, {
+        module: "sourcing",
+        executor: "runner",
+        apiTokenId: auth.tokenId,
+        createdBy: auth.ownerId,
+        label:
+          body.label ??
+          `${kind === "msp" ? "MSPs" : "Customers"} · ${body.mode.replace(/_/g, " ")} · runner`,
+        config: {
+          mode: body.mode,
+          region: body.region ?? "",
+          profile: body.profile ?? "",
+          count: body.count,
+          countPer: body.countPer,
+          msps,
+          kind,
+          targetMspId: target,
+        },
+      });
+      return { created: run, targetMspId: target };
     });
+
     return NextResponse.json({
       runId: created.runId,
       batchId: created.batchId,
@@ -93,6 +103,7 @@ export async function POST(req: Request) {
       checkKnown: { kind, mspId: targetMspId },
     });
   } catch (e) {
+    if (e instanceof NotFound) return NextResponse.json({ error: e.message }, { status: 404 });
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "could not create run" },
       { status: 500 },
