@@ -9,6 +9,7 @@ import {
 } from "../sourcing/prompts";
 import { importPayload } from "../sourcing/import-core";
 import type { ImportKind } from "../sourcing/types";
+import { learnedRuleBlock } from "../learning/rules";
 import type { RunModule, IngestContext, IngestOutcome } from "./types";
 
 // Sourcing as a pipeline module. renderPrompt delegates to the existing
@@ -93,26 +94,38 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
   // where the API is not. The cap only exists because a pasted prompt is a
   // one-shot artifact that cannot ask a follow-up question.
   async prepareConfig(supabase, config, ctx) {
+    // Rules learned from graded mistakes and review deletions ride every
+    // sourcing prompt, on both executors.
+    const learned = await learnedRuleBlock(supabase, "sourcing");
+    const withRules = learned.block
+      ? { ...config, learnedRules: learned.block }
+      : config;
+    const learnedNote = learned.rules.length
+      ? [`Prompt carries ${learned.rules.length} rule(s) learned from your corrections.`]
+      : [];
+
     if (ctx.executor === "runner") {
       return {
-        config: { ...config, checkKnownViaApi: true },
+        config: { ...withRules, checkKnownViaApi: true },
         notes: [
           "Runner run: candidates are checked against the full database via POST /api/sourcing/known, so no exclusion list is embedded and no cap applies.",
+          ...learnedNote,
         ],
       };
     }
     const { known, omitted } = await loadKnownOrgs(supabase, config);
-    if (!known.length) return { config };
+    if (!known.length) return { config: withRules, notes: learnedNote };
     const label =
       config.mode === "research_msps"
         ? `${known.length} MSP${known.length === 1 ? "" : "s"}`
         : `${known.length} compan${known.length === 1 ? "y" : "ies"}`;
     return {
-      config: { ...config, known, knownOmitted: omitted },
+      config: { ...withRules, known, knownOmitted: omitted },
       notes: [
         `Prompt excludes ${label} already sourced${
           config.mode === "find_customers_for_msps" ? " for the selected MSP(s)" : ""
         }${omitted ? `, plus ${omitted} more listed only as a count` : ""}.`,
+        ...learnedNote,
       ],
     };
   },

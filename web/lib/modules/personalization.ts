@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isSampled } from "../grading/math";
+import { learnedRuleBlock } from "../learning/rules";
 import type { RunModule, IngestContext, IngestOutcome } from "./types";
 
 // Personalization as a pipeline module: research ONE durable, verifiable hook
@@ -97,6 +98,8 @@ export type PersonalizationConfig = {
   contacts: PersonalizationContact[];
   /** stamped onto hooks rows so hook_outcomes can split by pipeline track */
   track?: "msp" | "customer";
+  /** Rules learned from rejected hooks (migration 025). */
+  learnedRules?: string;
 };
 
 // The static instruction portion; the contact lines are the volatile config and
@@ -135,11 +138,23 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
       return parts.join("; ");
     });
     // Function replacement so contact data is inserted literally ($ not special).
-    return TEMPLATE.replace("{{contacts}}", () => lines.join("\n"));
+    const rendered = TEMPLATE.replace("{{contacts}}", () => lines.join("\n"));
+    return config.learnedRules ? `${rendered}\n\n${config.learnedRules}` : rendered;
   },
 
-  templateText() {
-    return TEMPLATE;
+  // Learned rules append to the template, so a rule change re-hashes into a
+  // new prompt_version exactly like an edit to the template itself would.
+  async prepareConfig(supabase, config) {
+    const { block, rules } = await learnedRuleBlock(supabase, "personalization");
+    if (!block) return { config };
+    return {
+      config: { ...config, learnedRules: block },
+      notes: [`Prompt carries ${rules.length} rule(s) learned from rejected hooks.`],
+    };
+  },
+
+  templateText(config) {
+    return config.learnedRules ? `${TEMPLATE}\n\n${config.learnedRules}` : TEMPLATE;
   },
 
   parse(rawText) {

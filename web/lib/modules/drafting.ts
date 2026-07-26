@@ -8,6 +8,7 @@ import {
   type TrackKind,
 } from "../drafting/prompt";
 import { storeDrafts } from "../drafting/import-core";
+import { learnedRuleBlock } from "../learning/rules";
 import type { RunModule, IngestOutcome } from "./types";
 
 // Drafting as a pipeline module. Output is one or more drafted touches per
@@ -22,6 +23,10 @@ export type DraftingConfig = {
   // "single": one pasted batch; "agent": Claude Code fans chunks out to subagents.
   mode?: "single" | "agent";
   chunkSize?: number;
+  /** Rendered block of rules learned from human edits (migration 025). Loaded
+   *  in prepareConfig so it is part of the hashed template, which is what makes
+   *  a rule change a new prompt_version and therefore measurable. */
+  learnedRules?: string;
 };
 
 // Prefer the operator's explicit track; derive from the batch otherwise so a
@@ -45,18 +50,33 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   key: "drafting",
   label: "drafted messages",
 
+  // Learned rules are read here, before the prompt is built or hashed, so the
+  // template, its hash, and the persisted config all describe the same run.
+  async prepareConfig(supabase, config) {
+    const kind = trackOf(config);
+    const { block, rules } = await learnedRuleBlock(supabase, "drafting", { track: kind });
+    if (!block) return { config };
+    return {
+      config: { ...config, learnedRules: block },
+      notes: [
+        `Prompt carries ${rules.length} rule(s) learned from your edits to earlier drafts.`,
+      ],
+    };
+  },
+
   renderPrompt(_template, config) {
     const contacts = config.contacts ?? [];
     const kind = trackOf(config);
+    const learned = config.learnedRules ?? "";
     return config.mode === "agent"
-      ? buildDraftAgentPrompt(contacts, config.chunkSize ?? 15, kind)
-      : buildDraftPrompt(contacts, kind);
+      ? buildDraftAgentPrompt(contacts, config.chunkSize ?? 15, kind, learned)
+      : buildDraftPrompt(contacts, kind, learned);
   },
 
   // The static per-track rules text ({{contacts}} placeholder) — what the run
   // lifecycle hashes to version the prompt independent of the pasted batch.
   templateText(config) {
-    return buildTemplateText(trackOf(config));
+    return buildTemplateText(trackOf(config), config.learnedRules ?? "");
   },
 
   parse(rawText) {

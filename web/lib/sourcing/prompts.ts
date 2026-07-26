@@ -42,6 +42,11 @@ export type PromptParams = {
    * candidates against the full database via the API. Set by prepareConfig.
    */
   checkKnownViaApi?: boolean;
+  /**
+   * Rules learned from graded mistakes and review deletions (migration 025),
+   * rendered by prepareConfig so they are part of the hashed template.
+   */
+  learnedRules?: string;
 };
 
 const CONTRACT = `Return ONLY a single JSON object. No markdown, no code fences, no commentary
@@ -113,6 +118,28 @@ const METHODS = `Where to look (highest-yield first):
 A co-mention does not prove a client relationship — verify intent before
 including a company, and set confidence to match the strength of the evidence.`;
 
+// research_customers qualifies on profile + geography. Naming the company's MSP
+// is valuable but optional: requiring it made the model discard good companies
+// whose provider simply is not documented anywhere, which is most of them. It
+// stays a bonus field, and the honest null is explicitly allowed.
+const MSP_LINK_OPTIONAL = `If you can find evidence of which MSP a company uses, set "current_msp_name"
+and let "confidence" reflect how well documented that link is. If you cannot,
+set "current_msp_name" to null and still return the company — an unknown
+provider is NOT a reason to drop a company that fits the profile, and a guessed
+provider is worse than null. Do not spend the bulk of your search budget
+chasing provider relationships; spend it on finding qualified companies and a
+named contact at each.`;
+
+// The provider-relationship methods, offered as an optional bonus pass for
+// research_customers rather than the mode's main job.
+const MSP_LINK_METHODS = `If you want to try to identify a company's IT provider (optional, only when it
+is cheap to do), these are the highest-yield places: the MSP's own case
+studies, testimonials, and client logo walls; review sites like Clutch, G2,
+UpCity and TechBehemoths that name the reviewer's company; web-wide
+co-mentions ("<company>" with client OR "partnered with"); and LinkedIn
+onboarding or win posts. A co-mention does not prove a relationship — if the
+evidence is thin, leave "current_msp_name" null rather than guessing.`;
+
 // The do-not-research instruction. Present only when there is something to
 // exclude, so an empty list never ships a dangling header (and a first run,
 // which has nothing to exclude, keeps its original prompt shape and version).
@@ -178,6 +205,7 @@ export function buildTemplateText(params: PromptParams): string {
       CONTRACT,
       "",
       RULES,
+      params.learnedRules ? `\n${params.learnedRules}` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -185,17 +213,20 @@ export function buildTemplateText(params: PromptParams): string {
 
   if (params.mode === "research_customers") {
     return [
-      `You are sourcing companies that USE a managed IT service provider (an MSP), so we can study the MSP market.`,
-      `Find up to {{count}} real companies based in {{region}} that outsource their IT to an MSP.`,
+      `You are sourcing companies that fit our target profile in a specific geography, so we can study the managed IT market and reach the people running these businesses.`,
+      `Find up to {{count}} real companies based in {{region}}.`,
       profile ? `Target profile: {{targetProfile}}.` : "",
-      `For each company, estimate "current_msp_name" (the MSP they use) when you can find evidence, and set its "confidence" accordingly. Identify a contact who is the owner/decision-maker ("owner") or who leads IT ("head_of_it") when findable. Every organization you return is a customer (not an MSP).`,
+      `Qualification is profile fit and geography — nothing else. A company qualifies if it matches the profile above and is based in the region.`,
+      MSP_LINK_OPTIONAL,
+      `Identify a contact at EVERY company you return: the owner/decision-maker ("owner") or the person who leads IT ("head_of_it"). A company with no contact is not usable, so put the search effort into finding a named person. Every organization you return is a customer (not an MSP).`,
       "",
       viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS : "",
-      METHODS,
+      MSP_LINK_METHODS,
       "",
       CONTRACT,
       "",
       RULES,
+      params.learnedRules ? `\n${params.learnedRules}` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -217,6 +248,7 @@ export function buildTemplateText(params: PromptParams): string {
     CONTRACT,
     "",
     RULES,
+    params.learnedRules ? `\n${params.learnedRules}` : "",
   ]
     .filter(Boolean)
     .join("\n");

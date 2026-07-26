@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMail } from "@/lib/send/smtp";
 import { fetchRecentMessages, type InboxMessage } from "@/lib/send/imap";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { collectSignals, type LearningModule } from "@/lib/learning/signals";
+import { analyzeModule } from "@/lib/learning/analyze";
 
 // Scheduled email worker. Each run: (1) captures replies and bounces from the
 // inbox verbatim into `interactions` (deduped on Message-ID) and flips the
@@ -419,5 +422,25 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json(result);
+  // The prompt learning pass rides this cron rather than its own: Vercel's
+  // Hobby plan allows one scheduled run per day, and this is the run. It goes
+  // last and swallows its own errors — a failure to learn must never stop the
+  // send loop from reporting what it sent.
+  const learning = await runLearningPass(supabase);
+
+  return NextResponse.json({ ...result, learning });
+}
+
+async function runLearningPass(supabase: SupabaseClient) {
+  try {
+    const collected = await collectSignals(supabase);
+    const modules: LearningModule[] = ["drafting", "personalization", "sourcing"];
+    const analyzed = [];
+    for (const moduleKey of modules) {
+      analyzed.push(await analyzeModule(supabase, moduleKey, { trigger: "cron" }));
+    }
+    return { collected, analyzed };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "learning pass failed" };
+  }
 }

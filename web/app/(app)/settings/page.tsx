@@ -2,6 +2,11 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
 import { ApiTokens, type ApiTokenRow } from "./api-tokens";
+import {
+  PromptLearning,
+  type LearningRunRow,
+  type RuleRow,
+} from "./prompt-learning";
 import { RunnerSetup } from "./runner-setup";
 import { RUNNER_SKILL, RUNNER_REPO_URL, runnerEnvTemplate } from "@/lib/runner/skill";
 
@@ -38,6 +43,26 @@ export default async function SettingsPage() {
     .select("id, name, prefix, scopes, created_at, last_used_at, expires_at, revoked_at")
     .order("created_at", { ascending: false });
 
+  // Prompt learning: the rules themselves, the analyzer's audit trail, and how
+  // many corrections are queued but not yet read.
+  const [{ data: rules }, { data: learningRuns }, { count: unprocessed }] =
+    await Promise.all([
+      supabase
+        .from("prompt_rules")
+        .select("*")
+        .in("status", ["active", "proposed"])
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("learning_runs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("learning_signals")
+        .select("id", { count: "exact", head: true })
+        .is("processed_at", null),
+    ]);
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -55,6 +80,12 @@ export default async function SettingsPage() {
         repoUrl={RUNNER_REPO_URL}
         envTemplate={envTemplate}
         hasLiveToken={((tokens ?? []) as ApiTokenRow[]).some((t) => !t.revoked_at)}
+      />
+      <PromptLearning
+        rules={(rules ?? []) as RuleRow[]}
+        runs={(learningRuns ?? []) as LearningRunRow[]}
+        unprocessed={unprocessed ?? 0}
+        analyzerConfigured={Boolean(process.env.ANTHROPIC_API_KEY)}
       />
       <ApiTokens tokens={(tokens ?? []) as ApiTokenRow[]} />
     </div>

@@ -47,12 +47,12 @@ export type DraftContact = {
 
 // The JSON contract is shared by both tracks; only the recipient framing forks.
 const HEADER_FRAMING: Record<TrackKind, string> = {
-  customer: `You draft warm cold-outreach for ${SENDER.name} at Cohesium. Each recipient
+  customer: `You draft warm first-touch outreach for ${SENDER.name} at Cohesium. Each recipient
 runs or leads IT at a company that uses a managed IT service provider (an MSP).
 The goal is an honest ask for a short conversation about how companies like
 theirs work with their IT provider. ${SENDER.name} is genuinely researching the
 managed IT market and is not selling anything.`,
-  msp: `You draft warm cold-outreach for ${SENDER.name} at Cohesium. Each recipient
+  msp: `You draft warm first-touch outreach for ${SENDER.name} at Cohesium. Each recipient
 owns or helps run a managed IT service provider (an MSP). The goal is an honest
 ask for a short conversation about what it takes to build and operate an MSP
 today, from the operator's side. ${SENDER.name} is genuinely researching the
@@ -100,9 +100,9 @@ Thanks,
 ${SENDER.name}
 
 LinkedIn —
-Hi Jim, apologies for the cold note. ${SENDER.intro} researching how companies
-work with their managed IT providers. Would value your take. Open to a quick chat
-in the next week or two? Not selling anything.`,
+Hi Jim, ${SENDER.intro} researching how companies work with their managed IT
+providers, and your read from the practice side would be useful. Open to a quick
+chat in the next week or two? Not selling anything.`,
   msp: `Gold examples (imitate this voice and shape, never copy the facts)
 
 Email —
@@ -125,9 +125,9 @@ Thanks,
 ${SENDER.name}
 
 LinkedIn —
-Hi Sam, apologies for the cold note. ${SENDER.intro} researching the managed IT
-market from the operator's side. Would value your read on where things are
-heading for MSPs. Open to a quick chat? Not selling anything.`,
+Hi Sam, ${SENDER.intro} researching the managed IT market from the operator's
+side, and your read on where things are heading for MSPs would be useful. Open
+to a quick chat? Not selling anything.`,
 };
 
 // The relevance hook per persona, forked by track: customer personas talk about
@@ -153,13 +153,16 @@ const PERSPECTIVE: Record<TrackKind, string> = {
   msp: "what it takes to run a managed IT business today",
 };
 
-function rules(kind: TrackKind): string {
-  return `Structure (model this on warm investor outreach that works)
-- Open with relevance to the recipient. Where the opener goes differs by channel
-  (see the per-channel sections below): an email leads with relevance, while a
-  LinkedIn note may open with a brief apology. Do NOT label the message: never
-  write "this is a cold email", "cold note", "[subject]", or any placeholder as a
-  subject or a line of the body.
+function rules(kind: TrackKind, learned = ""): string {
+  return `${learned ? `${learned}\n\n` : ""}Structure (model this on warm investor outreach that works)
+- Open with relevance to the recipient, on every channel.
+- NEVER acknowledge that the message is unsolicited. Write as one professional
+  writing to another for the first time — which needs no apology and no framing.
+  Banned in the subject and the body, in any wording: "cold" (cold note, cold
+  email, reaching out cold), "apologies"/"sorry" for writing, "you don't know
+  me", "out of the blue", "hope you don't mind", "forgive the intrusion",
+  "random", "unsolicited". Do NOT label the message at all: never write "this is
+  a cold email", "[subject]", or any placeholder as a subject or a body line.
 - Say who you are in one line: "${SENDER.intro}".
 - Give the approach briefly: we learn a market by talking with the experienced
   people running it, about what matters and what pain points still need solving,
@@ -199,12 +202,11 @@ Email
   (2) Who you are and why it is worth their time: "${SENDER.intro}". We learn a
   market by talking with the people running it day to day, and it lets us build a
   network of operators we can be useful to over time.
-  (3) The soft ask, and that you are not selling anything. A brief, light
-  acknowledgment that you came in cold is optional and goes here only, never in
-  paragraph one and never in the subject.
+  (3) The soft ask, and that you are not selling anything. No apology for
+  writing and no reference to how you found them.
   Sign off with "Thanks," then "${SENDER.name}" on their own lines.
-- The first sentence is about the recipient, not about us. No apology and no
-  self-introduction in the first sentence.
+- The first sentence is about the recipient, not about us. No apology anywhere
+  in the message, and no self-introduction in the first sentence.
 - With a hook= token, lead the first sentence with it. Otherwise lead with the
   fallback_angle= text or a true observation about their role or industry. Never
   use an apology as a stand-in for relevance.
@@ -216,14 +218,15 @@ Email
   "Cohesium + <company>"`
       : `"your take on the MSP market", "the state of managed IT",
   "Cohesium + <company>"`
-  }. Never put "sorry", "apologies", or "cold" in the subject.
+  }. Never put "sorry", "apologies", or "cold" anywhere in the subject or body.
   Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
   points.
 
 LinkedIn
 - No subject. The body is a HARD 300-character maximum including spaces; aim for
-  roughly 180 to 260. One line of who you are and what you are researching, then
-  one light ask whose only job is to earn the accept, not to pitch. Count the
+  roughly 180 to 260. Open on them or on what you are researching in their world
+  — never on an apology for writing — then one line of who you are, then one
+  light ask whose only job is to earn the accept, not to pitch. Count the
   characters and keep it tight — a note over 300 will be rejected.
 
 Voice: direct, warm, conversational, a little humble. No em-dashes. No
@@ -285,18 +288,19 @@ function renderContactLines(contacts: DraftContact[], kind: TrackKind): string {
 // contact lines, which sit behind the {{contacts}} placeholder. This is the
 // text the run lifecycle hashes (runs.template_hash) so a prompt version is
 // identified by its instructions, not by whichever contacts were pasted in.
-export function buildTemplateText(kind: TrackKind): string {
-  return [header(kind), "", rules(kind), "", "Contacts:", "{{contacts}}"].join("\n");
+export function buildTemplateText(kind: TrackKind, learned = ""): string {
+  return [header(kind), "", rules(kind, learned), "", "Contacts:", "{{contacts}}"].join("\n");
 }
 
 export function buildDraftPrompt(
   contacts: DraftContact[],
   kind: TrackKind = "customer",
+  learned = "",
 ): string {
   return [
     header(kind),
     "",
-    rules(kind),
+    rules(kind, learned),
     "",
     "Contacts:",
     renderContactLines(contacts, kind),
@@ -322,6 +326,7 @@ export function buildDraftAgentPrompt(
   contacts: DraftContact[],
   chunkSize = 15,
   kind: TrackKind = "customer",
+  learned = "",
 ): string {
   const n = contacts.length;
   const chunks = Math.max(1, Math.ceil(n / chunkSize));
@@ -329,7 +334,7 @@ export function buildDraftAgentPrompt(
     kind === "msp"
       ? "Every contact below owns or helps run a managed IT service provider (an MSP) — the outreach is about operating an MSP, from the operator's side."
       : "Every contact below runs or leads IT at a company that uses a managed IT service provider — the outreach is about how they work with their IT provider.";
-  const orchestration = `You are running a batch cold-outreach drafting job in Claude Code for
+  const orchestration = `You are running a batch outreach drafting job in Claude Code for
 ${SENDER.name} at Cohesium. There are ${n} contacts below. ${audience}
 Do NOT draft them all yourself in one pass — fan the work out so each message
 gets focused attention. Personalization is already researched and verified:
@@ -359,7 +364,7 @@ channel listed on a contact's line.`;
   return [
     orchestration,
     "",
-    rules(kind),
+    rules(kind, learned),
     "",
     `Contacts (${n}):`,
     renderContactLines(contacts, kind),
