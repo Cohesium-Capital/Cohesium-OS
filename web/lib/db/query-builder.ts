@@ -88,7 +88,18 @@ export class PgQueryBuilder<T = Record<string, unknown>> implements PromiseLike<
     quoteIdent(table);
   }
 
-  select(cols = "*"): this {
+  // A second argument is PostgREST's { count, head } options. Count/head are
+  // unimplemented, and unlike an unsupported filter a count returns the wrong
+  // *shape* — rows where the caller expects a number — which would slip through
+  // silently rather than crash. That is the one hole the fail-loud rule above
+  // must not have, so reject it eagerly. Nothing in the runner call graph passes
+  // it today (loadKnownOrgs' count selects run on the copy-paste path only).
+  select(cols = "*", opts?: { count?: string; head?: boolean }): this {
+    if (opts !== undefined) {
+      throw new Error(
+        "count/head queries are not supported by the runner adapter (select received an options argument)",
+      );
+    }
     if (this.op === "select") this.columns = parseColumns(cols);
     // After insert/update, .select() means RETURNING.
     else this.returning = parseColumns(cols);

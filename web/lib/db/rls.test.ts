@@ -382,6 +382,18 @@ describe("adapter safety", () => {
     });
   });
 
+  test("count/head queries are refused, not silently miscounted", async (t) => {
+    if (unavailable(t)) return;
+    // A count returns the wrong shape (rows vs a number), the one unsupported
+    // call that could pass quietly — so it must throw like the operators above.
+    await withRls(USER_A, async (db) => {
+      assert.throws(
+        () => asSupabase(db).from("contacts").select("id", { count: "exact", head: true }),
+        /count\/head queries are not supported/,
+      );
+    });
+  });
+
   test("a malicious column reference is rejected, not interpolated", async (t) => {
     if (unavailable(t)) return;
     const res = await withRls(USER_A, async (db) => {
