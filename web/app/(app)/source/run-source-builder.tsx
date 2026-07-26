@@ -69,32 +69,30 @@ function RunnerHint({ knownCount }: { knownCount: number }) {
     >
       <p>
         {knownCount === 0 ? (
-          <>Nothing sourced yet, so this run has no exclusion list to carry.</>
-        ) : overCap ? (
-          <>
-            You hold <strong className="tabular-nums">{knownCount}</strong> companies, more than
-            the <strong className="tabular-nums">{KNOWN_LIMIT}</strong> this prompt can list. The
-            rest are given to the model as a count only, so some of your research budget will go
-            on companies you already have.
-          </>
+          <>Nothing sourced yet, so this prompt has no do-not-research list to carry.</>
         ) : (
           <>
-            This prompt will tell the model to skip the{" "}
-            <strong className="tabular-nums">{Math.min(knownCount, KNOWN_LIMIT)}</strong>{" "}
-            compan{knownCount === 1 ? "y" : "ies"} you already hold
-            {nearCap ? (
+            The prompt on this page carries its do-not-research list{" "}
+            <em>inline</em>, so it fits at most{" "}
+            <strong className="tabular-nums">{KNOWN_LIMIT}</strong> companies. You hold{" "}
+            <strong className="tabular-nums">{knownCount}</strong>
+            {overCap ? (
               <>
-                {" "}
-                — close to the <span className="tabular-nums">{KNOWN_LIMIT}</span> it can carry
+                , so <strong className="tabular-nums">{knownCount - KNOWN_LIMIT}</strong> of them
+                reach the model as a count only — expect some research to be spent on companies
+                you already have.
               </>
-            ) : null}
-            .
+            ) : nearCap ? (
+              <> — close to the limit.</>
+            ) : (
+              <>, so all of them are listed.</>
+            )}
           </>
         )}{" "}
         <span className="text-muted-foreground">
-          Running sourcing through <strong className="text-foreground">Claude Code</strong> removes
-          that limit — it checks candidates against every company on file and researches only what
-          is new.
+          Sourcing through <strong className="text-foreground">Claude Code</strong> has no such
+          limit: it asks which candidates are new, checked against every company on file, so it
+          never re-researches what you already hold.
         </span>{" "}
         <Link href="/settings" className="text-foreground underline underline-offset-2">
           Set it up in Settings
