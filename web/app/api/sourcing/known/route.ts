@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { guard } from "../_auth";
+import { withRls, asSupabase } from "@/lib/db/rls";
 import { loadOrgIndex, partitionCandidates } from "@/lib/sourcing/known";
 
 // "Which of these companies do we already have?" — the call that removes the
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
 
   let index;
   try {
-    index = await loadOrgIndex(auth.supabase, body.kind);
+    index = await withRls(auth.ownerId, (db) => loadOrgIndex(asSupabase(db), body.kind));
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "could not load organizations" },
