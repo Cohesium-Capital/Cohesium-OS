@@ -1,13 +1,25 @@
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
 import { ApiTokens, type ApiTokenRow } from "./api-tokens";
+import { RunnerSetup } from "./runner-setup";
+import { RUNNER_SKILL, runnerEnvTemplate } from "@/lib/runner/skill";
 
 // Settings: per-module eval-gate config (error threshold, sample rate), the
-// prompt-version history (which version is active, add a new one), and the
-// runner API tokens.
+// prompt-version history (which version is active, add a new one), the runner
+// API tokens, and the runner onboarding kit (skill file + .env) so a
+// collaborator can be set up without repository access.
 
 export default async function SettingsPage() {
   const supabase = await createClient();
+
+  // Build the runner's .env from the host actually serving this page, so the
+  // value handed to a collaborator is already right for prod, preview or local
+  // rather than something they have to know to edit.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  const envTemplate = runnerEnvTemplate(host ? `${proto}://${host}` : "https://your-app.vercel.app");
 
   const { data: settings } = await supabase
     .from("settings")
@@ -37,6 +49,11 @@ export default async function SettingsPage() {
       <SettingsPanel
         settings={(settings ?? []) as ModuleSettings[]}
         prompts={(prompts ?? []) as PromptVersion[]}
+      />
+      <RunnerSetup
+        skill={RUNNER_SKILL}
+        envTemplate={envTemplate}
+        hasLiveToken={((tokens ?? []) as ApiTokenRow[]).some((t) => !t.revoked_at)}
       />
       <ApiTokens tokens={(tokens ?? []) as ApiTokenRow[]} />
     </div>
