@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ExternalLink, Check, X } from "lucide-react";
@@ -83,7 +83,9 @@ export function VerifyQueue({
   const [metricsByBatch, setMetricsByBatch] = useState(initialMetricsByBatch);
   // When the current card appeared — verdicts carry coarse seconds_spent, the
   // fatigue guard's raw material (a 2-second "verified" is a rubber stamp).
-  const [shownAt, setShownAt] = useState(() => Date.now());
+  // A ref rather than state: reading the clock during render is impure, and
+  // nothing rendered depends on this — only decide() reads it, on click.
+  const shownAtRef = useRef(0);
 
   // Snapshot the list on mount so verifying the whole queue is stable:
   // verifyHook revalidates this route, which would otherwise re-render us with
@@ -105,20 +107,20 @@ export function VerifyQueue({
   const currentMetrics = current?.batch_id ? metricsByBatch[current.batch_id] : undefined;
   const isNone = current?.kind === "none";
 
-  // Reset the card timer when the queue advances (the React "adjust state
-  // during render on prop change" pattern — not an effect).
-  const [trackedId, setTrackedId] = useState(current?.id);
-  if (current?.id !== trackedId) {
-    setTrackedId(current?.id);
-    setShownAt(Date.now());
-  }
+  // Restart the timer whenever the queue advances.
+  useEffect(() => {
+    shownAtRef.current = Date.now();
+  }, [current?.id]);
 
   const decide = useCallback(
     (verdict: "verified" | "rejected", category?: HookRejectCategory) => {
       if (!current) return;
       const batchId = current.batch_id;
       const prevStatus = batchId ? metricsByBatch[batchId]?.status : undefined;
-      const secondsSpent = Math.max(0, Math.round((Date.now() - shownAt) / 1000));
+      const secondsSpent = Math.max(
+        0,
+        Math.round((Date.now() - (shownAtRef.current || Date.now())) / 1000),
+      );
       startTransition(async () => {
         try {
           const res = await verifyHook({ hookId: current.id, verdict, category, secondsSpent });
@@ -142,7 +144,7 @@ export function VerifyQueue({
         }
       });
     },
-    [current, metricsByBatch, shownAt],
+    [current, metricsByBatch],
   );
 
   // Keyboard shortcuts (ignored while typing; only plain unmodified keys —

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Sparkles, X } from "lucide-react";
@@ -11,6 +18,23 @@ import { Badge } from "@/components/ui/badge";
 import { wipeDemoTour } from "@/lib/demo/actions";
 import { TOUR_STEPS } from "./steps";
 import { useTour } from "./tour-provider";
+
+// prefers-reduced-motion as an external store. Module scope so the subscribe
+// and snapshot functions keep stable identities across renders.
+const MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+function subscribeReducedMotion(onChange: () => void) {
+  const mq = window.matchMedia(MOTION_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+function getReducedMotion() {
+  return window.matchMedia(MOTION_QUERY).matches;
+}
+// Server render can't know the preference; smooth scrolling is the default and
+// the first client read corrects it before any scroll happens.
+function getReducedMotionServer() {
+  return false;
+}
 
 // Hand-rolled spotlight (no dependency): four fixed dim panels around the
 // target's rect block clicks OUTSIDE the cutout, while the cutout itself is
@@ -44,21 +68,24 @@ export function TourOverlay() {
   const pathname = usePathname();
   const router = useRouter();
   const [rect, setRect] = useState<Rect | null>(null);
-  const [missing, setMissing] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  // Targetless steps are "missing" from the start: they render centered with
+  // no spotlight, and there is nothing to poll for.
+  const [missing, setMissing] = useState(() => !def.target);
+
   const [wiping, startWipe] = useTransition();
   const elRef = useRef<HTMLElement | null>(null);
 
   const onRoute = pathname === def.route;
   const isLast = step === stepCount - 1;
 
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(mq.matches);
-    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
+  // Subscribed rather than copied into state in an effect: the media query IS
+  // the source of truth, and useSyncExternalStore reads it without a render
+  // pass that starts on the wrong value.
+  const reducedMotion = useSyncExternalStore(
+    subscribeReducedMotion,
+    getReducedMotion,
+    getReducedMotionServer,
+  );
 
   // Steer to the step's route. usePathname updates once the push lands, which
   // re-runs this effect into the matched (no-op) branch — no loop, no flag.
@@ -66,17 +93,26 @@ export function TourOverlay() {
     if (!onRoute) router.push(def.route);
   }, [onRoute, def.route, router]);
 
+  // Clear the previous step's anchor as the step changes — a render-phase
+  // adjustment (the pattern the grade queue uses) rather than a setState inside
+  // the effect below, which would render once against the stale spotlight.
+  // Keyed on the route too, not just the step: navigating away mid-tour must
+  // drop the spotlight immediately rather than leave it over a stale position
+  // until the rect tracker notices, which is what the old effect-reset did.
+  const anchorKey = `${step}|${onRoute}`;
+  const [trackedAnchor, setTrackedAnchor] = useState(anchorKey);
+  if (anchorKey !== trackedAnchor) {
+    setTrackedAnchor(anchorKey);
+    setRect(null);
+    setMissing(!def.target);
+  }
+
   // Find the anchor: poll up to ~2s once we're on the right route, then fall
   // back to a centered card. Targetless steps go centered immediately.
   useEffect(() => {
+    // Ref writes belong in the effect, not the render-phase reset above.
     elRef.current = null;
-    setRect(null);
-    setMissing(false);
-    if (!def.target) {
-      setMissing(true);
-      return;
-    }
-    if (!onRoute) return;
+    if (!def.target || !onRoute) return;
     let cancelled = false;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;

@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getNextAction, countDraftable, countNeedingHooks } from "@/lib/journey";
 import { countEligibleContacts } from "@/lib/enrichment/pending";
 import { cn } from "@/lib/utils";
+import { daysAgoIso } from "@/lib/format/date";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DemonstrateButton } from "@/components/tour/demonstrate-button";
@@ -54,8 +55,8 @@ type HealthChip = {
 
 export default async function HomePage() {
   const supabase = await createClient();
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const dayAgo = daysAgoIso(1);
+  const weekAgo = daysAgoIso(7);
   const emailCap = Number(process.env.EMAIL_DAILY_CAP ?? 20) || 20;
 
   const [

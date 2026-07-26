@@ -104,7 +104,10 @@ export function TriageQueue({
   // Log-interaction dialog state.
   const [logOpen, setLogOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<ContactHit[]>([]);
+  // Results carry the query they answered, so the displayed list is derived
+  // rather than cleared by a setState inside the search effect — and a stale
+  // result for a previous query can never flash.
+  const [hits, setHits] = useState<{ q: string; rows: ContactHit[] }>({ q: "", rows: [] });
   const [selected, setSelected] = useState<ContactHit | null>(null);
   const [channel, setChannel] = useState<LogChannel>("email");
   const [content, setContent] = useState("");
@@ -166,23 +169,23 @@ export function TriageQueue({
   useEffect(() => {
     if (!logOpen) return;
     const q = query.trim();
-    if (q.length < 2) {
-      setHits([]);
-      return;
-    }
+    if (q.length < 2) return;
     const t = setTimeout(async () => {
       try {
-        setHits(await searchContacts(q));
+        setHits({ q, rows: await searchContacts(q) });
       } catch {
-        setHits([]);
+        setHits({ q, rows: [] });
       }
     }, 250);
     return () => clearTimeout(t);
   }, [query, logOpen]);
 
+  // Show results only while they still match what's typed.
+  const visibleHits = hits.q === query.trim() && query.trim().length >= 2 ? hits.rows : [];
+
   function resetLogDialog() {
     setQuery("");
-    setHits([]);
+    setHits({ q: "", rows: [] });
     setSelected(null);
     setChannel("email");
     setContent("");
@@ -409,9 +412,9 @@ export function TriageQueue({
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
-                  {hits.length > 0 && (
+                  {visibleHits.length > 0 && (
                     <div className="flex flex-col overflow-hidden rounded-md border">
-                      {hits.map((h) => (
+                      {visibleHits.map((h) => (
                         <button
                           key={h.id}
                           type="button"

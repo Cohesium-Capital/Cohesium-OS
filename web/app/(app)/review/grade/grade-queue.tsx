@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ExternalLink, Check, X, Pencil } from "lucide-react";
@@ -112,8 +112,10 @@ export function GradeQueue({
   const [fieldCategories, setFieldCategories] = useState<Record<string, string>>({});
   const [rejectCategory, setRejectCategory] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  // When the current card appeared — grades carry coarse seconds_spent.
-  const [shownAt, setShownAt] = useState(() => Date.now());
+  // When the current card appeared — grades carry coarse seconds_spent. A ref
+  // rather than state: reading the clock during render is impure, and nothing
+  // rendered depends on this — only grade() reads it, on click.
+  const shownAtRef = useRef(0);
 
   // Snapshot the list on mount so grading the whole queue is stable: submitGrade
   // revalidates this route, which would otherwise re-render us with a shorter
@@ -142,6 +144,8 @@ export function GradeQueue({
 
   // Reset editable state when the queue advances to a new contact (the React
   // "adjust state during render on prop change" pattern — not an effect).
+  // Reset editable state when the queue advances to a new contact (the React
+  // "adjust state during render on prop change" pattern — not an effect).
   const [trackedId, setTrackedId] = useState(current?.id);
   if (current?.id !== trackedId) {
     setTrackedId(current?.id);
@@ -151,8 +155,13 @@ export function GradeQueue({
     setRejectCategory(null);
     setRejectReason("");
     setDrafts(draftsFor(current));
-    setShownAt(Date.now());
   }
+
+  // The card timer restarts in an effect rather than during render: reading the
+  // clock is impure, and only the grade callbacks consume the value.
+  useEffect(() => {
+    shownAtRef.current = Date.now();
+  }, [current?.id]);
 
   const advance = useCallback(() => {
     setIndex((i) => i + 1);
@@ -166,7 +175,10 @@ export function GradeQueue({
       if (!current) return;
       const batchId = current.batch_id;
       const prevStatus = batchId ? metricsByBatch[batchId]?.status : undefined;
-      const secondsSpent = Math.max(0, Math.round((Date.now() - shownAt) / 1000));
+      const secondsSpent = Math.max(
+        0,
+        Math.round((Date.now() - (shownAtRef.current || Date.now())) / 1000),
+      );
       startTransition(async () => {
         try {
           const m = await submitGrade({
@@ -193,7 +205,7 @@ export function GradeQueue({
         }
       });
     },
-    [current, metricsByBatch, advance, shownAt],
+    [current, metricsByBatch, advance],
   );
 
   // Fields whose draft differs from the record — each needs an error category

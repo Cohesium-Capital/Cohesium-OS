@@ -4,9 +4,8 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
+  useSyncExternalStore,
 } from "react";
 import { TOUR_STEPS, TOUR_STORAGE_KEY } from "./steps";
 import { TourOverlay } from "./tour-overlay";
@@ -55,27 +54,66 @@ function readStored(): TourState {
   }
 }
 
-export function TourProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<TourState>({ active: false, step: 0 });
-  const [hydrated, setHydrated] = useState(false);
+const SERVER_STATE: TourState = { active: false, step: 0 };
 
-  useEffect(() => {
-    setState(readStored());
-    setHydrated(true);
-  }, []);
+// Snapshot cache: useSyncExternalStore demands a referentially stable value
+// while the underlying storage is unchanged, or it re-renders forever.
+let cachedRaw: string | null = null;
+let cachedState: TourState = SERVER_STATE;
+const listeners = new Set<() => void>();
+
+function emitTourChange() {
+  listeners.forEach((l) => l());
+}
+
+function subscribeTour(onChange: () => void) {
+  listeners.add(onChange);
+  // A second tab moving the tour keeps this one in step.
+  window.addEventListener("storage", onChange);
+  return () => {
+    listeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+function getTourSnapshot(): TourState {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(TOUR_STORAGE_KEY);
+  } catch {
+    raw = null;
+  }
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    cachedState = readStored();
+  }
+  return cachedState;
+}
+
+function getTourServerSnapshot(): TourState {
+  return SERVER_STATE;
+}
+
+export function TourProvider({ children }: { children: React.ReactNode }) {
+  // localStorage IS the tour's state, so it's read as an external store rather
+  // than copied into React state by a post-mount effect. The server snapshot is
+  // the inactive default, which is also what SSR renders — React swaps in the
+  // stored position after hydration, so markup never mismatches.
+  const state = useSyncExternalStore(subscribeTour, getTourSnapshot, getTourServerSnapshot);
 
   // All transitions persist to localStorage in the same tick so a reload
   // mid-tour lands on the same step.
   const apply = useCallback((fn: (prev: TourState) => TourState) => {
-    setState((prev) => {
-      const next = fn(prev);
-      try {
-        localStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Storage unavailable: the tour still works for this page load.
-      }
-      return next;
-    });
+    const next = fn(getTourSnapshot());
+    try {
+      localStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Storage unavailable: hold the position in memory so the tour still
+      // works for this page load.
+      cachedRaw = null;
+      cachedState = next;
+    }
+    emitTourChange();
   }, []);
 
   const start = useCallback(
@@ -110,7 +148,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   return (
     <TourContext.Provider value={value}>
       {children}
-      {hydrated && state.active && <TourOverlay />}
+      {state.active && <TourOverlay />}
     </TourContext.Provider>
   );
 }
