@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
 import { ApiTokens, type ApiTokenRow } from "./api-tokens";
 import { RunnerSetup } from "./runner-setup";
-import { RUNNER_SKILL, runnerEnvTemplate } from "@/lib/runner/skill";
+import { RUNNER_SKILL, RUNNER_REPO_URL, runnerEnvTemplate } from "@/lib/runner/skill";
 
 // Settings: per-module eval-gate config (error threshold, sample rate), the
 // prompt-version history (which version is active, add a new one), the runner
@@ -52,6 +52,7 @@ export default async function SettingsPage() {
       />
       <RunnerSetup
         skill={RUNNER_SKILL}
+        repoUrl={RUNNER_REPO_URL}
         envTemplate={envTemplate}
         hasLiveToken={((tokens ?? []) as ApiTokenRow[]).some((t) => !t.revoked_at)}
       />
