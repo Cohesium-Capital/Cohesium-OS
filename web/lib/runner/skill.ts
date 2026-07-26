@@ -20,6 +20,20 @@ export const RUNNER_SKILL: {
   content: string;
 } = skill;
 
+/**
+ * Public repository carrying only this skill.
+ *
+ * It exists because Claude Code asks for a repository when creating an
+ * environment, and a collaborator should not need access to this one to run
+ * sourcing. Selecting that repo brings the skill with it, which is why it is the
+ * primary route — the file download only helps someone using the terminal, where
+ * there is no picker to satisfy.
+ *
+ * Public and safe to be: no credentials, no application code, and the research
+ * methodology lives in prompts.ts and only reaches an authenticated caller.
+ */
+export const RUNNER_REPO_URL = "https://github.com/Cohesium-Capital/cohesium-runner";
+
 /** The .env a runner needs. `origin` prefills the deployment they're using. */
 export function runnerEnvTemplate(origin: string): string {
   return [
