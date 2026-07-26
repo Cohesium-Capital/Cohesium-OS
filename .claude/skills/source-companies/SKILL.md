@@ -1,6 +1,6 @@
 ---
 name: source-companies
-description: Run a sourcing run end-to-end against the cohesium-intel API — start a run, shortlist candidates, check them against the full database so nothing is researched twice, deep-research only the new ones, and ingest the results. Use when asked to source MSPs, source customers, find customers for a specific MSP, or top up the pipeline with new companies.
+description: Run a sourcing run end-to-end against the Cohesium API — start a run, shortlist candidates, check them against existing records so nothing is researched twice, research only what is new, and ingest the results. Use when asked to source companies or contacts, find the customers of a named provider, or top up the sourcing pipeline.
 ---
 
 # Sourcing runner
@@ -21,7 +21,7 @@ Two values:
 
 | Variable | Meaning |
 |---|---|
-| `COHESIUM_API_URL` | Base URL, e.g. `https://cohesium-os.vercel.app` (or `http://localhost:3000`) |
+| `COHESIUM_API_URL` | Base URL of the app, e.g. `https://your-app.example.com` (or `http://localhost:3000`) |
 | `COHESIUM_API_TOKEN` | Token from the app: **Settings → API tokens → Create token** |
 
 Load them at the start of every session, before the first request. An exported
@@ -59,7 +59,7 @@ curl -sS -X POST "$COHESIUM_API_URL/api/sourcing/runs" \
 
 `mode` is one of:
 
-- `research_msps` — find MSPs as acquisition targets
+- `research_msps` — find MSPs themselves
 - `research_customers` — find companies that use an MSP
 - `find_customers_for_msps` — find the clients of specific MSPs (requires
   `mspIds: [...]`)
