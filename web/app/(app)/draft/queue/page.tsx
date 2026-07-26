@@ -1,6 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import type { FailedRow } from "@/lib/drafting/types";
 import { DraftQueue, type QueueRowWithHook } from "./draft-queue";
+import { contactRunMap, loadRunScope } from "@/lib/runs/scope";
+import { RunScopeBanner } from "@/components/run-scope-banner";
+
+const NO_MATCH = "00000000-0000-0000-0000-000000000000";
 
 type Touch = {
   id: string;
@@ -10,6 +14,7 @@ type Touch = {
   approved: boolean;
   status: string;
   last_error: string | null;
+  contact_id: string;
   contacts: { full_name: string | null; organization_id: string } | null;
   hooks: {
     text: string | null;
@@ -19,8 +24,14 @@ type Touch = {
   } | null;
 };
 
-export default async function QueuePage() {
+export default async function QueuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ run?: string }>;
+}) {
   const supabase = await createClient();
+  // ?run=<id> from a run's timeline entry: review and send only that run's drafts.
+  const scope = await loadRunScope(supabase, (await searchParams).run ?? null);
 
   // Soft-deleted contacts are excluded here because sendApproved excludes them
   // too — a draft the send path will never pick up must not sit in the queue
@@ -28,18 +39,30 @@ export default async function QueuePage() {
   // The joined hook is what the drafter opened with — surfaced per row so the
   // reviewer can eyeball the claim against its source before approving (the
   // 100% backstop behind the sampled personalization gate).
-  const { data } = await supabase
+  let touchQuery = supabase
     .from("touches")
     .select(
-      "id, channel, subject, body, approved, status, last_error, contacts!inner(full_name, organization_id), hooks(text, source_url, kind, fallback_angle)",
+      "id, channel, subject, body, approved, status, last_error, contact_id, contacts!inner(full_name, organization_id), hooks(text, source_url, kind, fallback_angle)",
     )
     .in("status", ["planned", "failed"])
     .eq("direction", "outbound")
     .is("deleted_at", null)
-    .is("contacts.deleted_at", null)
-    .order("created_at", { ascending: false });
+    .is("contacts.deleted_at", null);
+  if (scope) {
+    touchQuery = touchQuery.in(
+      "contact_id",
+      scope.contactIds.length ? scope.contactIds : [NO_MATCH],
+    );
+  }
+  const { data } = await touchQuery.order("created_at", { ascending: false });
 
   const touches = (data ?? []) as unknown as Touch[];
+
+  // Run identifier + date per drafted contact, for the Run / Run date columns.
+  const runInfo = await contactRunMap(
+    supabase,
+    [...new Set(touches.map((t) => t.contact_id).filter(Boolean))] as string[],
+  );
 
   const orgIds = [
     ...new Set(touches.map((t) => t.contacts?.organization_id).filter(Boolean)),
@@ -78,6 +101,9 @@ export default async function QueuePage() {
         contact_name: t.contacts?.full_name ?? null,
         company: org?.name ?? "—",
         org_kind: org?.kind ?? null,
+        run_code: runInfo.get(t.contact_id)?.code ?? null,
+        run_id: runInfo.get(t.contact_id)?.runId ?? null,
+        run_at: runInfo.get(t.contact_id)?.runAt ?? null,
         hook: t.hooks
           ? {
               text: t.hooks.text,
@@ -102,6 +128,7 @@ export default async function QueuePage() {
           contacts reappear on the Draft page to regenerate.
         </p>
       </div>
+      <RunScopeBanner scope={scope} basePath="/draft/queue" noun="contacts" />
       <DraftQueue initialRows={rows} failedRows={failedRows} />
     </div>
   );

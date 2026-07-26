@@ -9,6 +9,7 @@ import {
   Inbox,
   Activity,
   Building2,
+  Landmark,
   ArrowRight,
   RotateCcw,
   type LucideIcon,
@@ -17,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getNextAction, countDraftable, countNeedingHooks } from "@/lib/journey";
 import { countEligibleContacts } from "@/lib/enrichment/pending";
 import { cn } from "@/lib/utils";
+import { daysAgoIso } from "@/lib/format/date";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DemonstrateButton } from "@/components/tour/demonstrate-button";
@@ -53,8 +55,8 @@ type HealthChip = {
 
 export default async function HomePage() {
   const supabase = await createClient();
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const dayAgo = daysAgoIso(1);
+  const weekAgo = daysAgoIso(7);
   const emailCap = Number(process.env.EMAIL_DAILY_CAP ?? 20) || 20;
 
   const [
@@ -504,7 +506,19 @@ export default async function HomePage() {
               <div className="flex flex-col">
                 <span className="font-medium">Runs</span>
                 <span className="text-xs text-muted-foreground">
-                  Batches, funnel metrics, and gate status.
+                  Every run in order, with where its output sits in the flow.
+                </span>
+              </div>
+              <ArrowRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+            </Card>
+          </Link>
+          <Link href="/companies" className="group">
+            <Card className="flex-row items-center gap-4 px-5 py-4 transition-shadow group-hover:shadow-elev-2">
+              <Landmark className="size-5 text-muted-foreground" />
+              <div className="flex flex-col">
+                <span className="font-medium">Companies</span>
+                <span className="text-xs text-muted-foreground">
+                  Customers and MSPs with the date each was added.
                 </span>
               </div>
               <ArrowRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />

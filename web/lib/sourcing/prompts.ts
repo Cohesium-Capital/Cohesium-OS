@@ -10,6 +10,14 @@ export type SourcingMode =
 
 export type Msp = { id?: string; name: string; domain: string | null };
 
+// A company the system has already researched. Rendered into the prompt as a
+// do-not-return list so a re-run spends its search budget on new companies
+// instead of rediscovering the ones we hold. mspName scopes the exclusion in
+// find_customers_for_msps: a company is only "known" as a client of the MSP it
+// is already linked to, so the same company surfacing under a different MSP is
+// still new information.
+export type KnownOrg = { name: string; domain?: string | null; mspName?: string | null };
+
 export type PromptParams = {
   mode: SourcingMode;
   region?: string;
@@ -17,6 +25,15 @@ export type PromptParams = {
   count?: number;
   countPer?: number;
   msps?: Msp[];
+  /** Already-sourced companies to exclude (filled server-side at run start). */
+  known?: KnownOrg[];
+  /** How many further known companies exist beyond the ones listed. */
+  knownOmitted?: number;
+  /**
+   * Runner executor: instead of embedding a list, instruct the agent to check
+   * candidates against the full database via the API. Set by prepareConfig.
+   */
+  checkKnownViaApi?: boolean;
 };
 
 const CONTRACT = `Return ONLY a single JSON object. No markdown, no code fences, no commentary
@@ -88,12 +105,59 @@ const METHODS = `Where to look (highest-yield first):
 A co-mention does not prove a client relationship — verify intent before
 including a company, and set confidence to match the strength of the evidence.`;
 
+// The do-not-research instruction. Present only when there is something to
+// exclude, so an empty list never ships a dangling header (and a first run,
+// which has nothing to exclude, keeps its original prompt shape and version).
+// The list itself is volatile config and lives behind {{known}}.
+const EXCLUSIONS = `Already in our database — do NOT return any of these, and do not spend search
+effort re-researching them. They are listed so your budget goes to companies we
+do not already have. If a strong candidate is on the list, skip it and find
+another; a shorter honest list of NEW companies beats a padded one.
+{{known}}`;
+
+// Same instruction, scoped per MSP: a company we already know as MSP A's client
+// is still a new find under MSP B, so exclusion is by (company, MSP) pair.
+const EXCLUSIONS_PER_MSP = `Clients we already have on file for these MSPs — do NOT return them again for
+the same MSP, and do not spend search effort re-confirming them. Finding one of
+these companies as a client of a DIFFERENT MSP below is still new and worth
+returning.
+{{known}}`;
+
+// Runner variant of the exclusion instruction. Nothing is embedded: the agent
+// shortlists cheaply, asks the API which candidates are new, and spends the
+// expensive per-company research only on those. This is what removes the cap —
+// the list the prompt carries becomes an INCLUSION list bounded by how many
+// results were requested, rather than an exclusion list that grows with the
+// database.
+const CHECK_VIA_API = `Do NOT research companies we already have. You have an API for this — use it
+instead of guessing:
+
+1. SHORTLIST first, cheaply. Produce a wide list of candidate company names
+   (with a domain where you already know it) that fit the brief. Do not verify
+   them, do not look for contacts, do not open each site yet. Aim for roughly
+   3x the number of results requested, because many will already be known.
+2. CHECK them: POST the candidates to /api/sourcing/known. It answers which are
+   already in the database and which are new. It compares against EVERY
+   organization we hold — there is no cap and no truncation, so its answer is
+   authoritative. Never skip this step to save a call.
+3. RESEARCH only the ones it returns as new, and only up to the number
+   requested. This is where the real work goes: verify the company, establish
+   the MSP relationship, find the contact, and collect a source URL for each.
+4. If step 3 leaves you short of the requested count, go back to step 1 with a
+   different angle (a different city, industry, or source type) rather than
+   padding with companies you could not verify.
+
+Report how many candidates you shortlisted, how many were already known, and
+how many you researched.`;
+
 // The template is the static instruction portion of the prompt: volatile config
 // values become {{placeholders}}. Mode-dependent text (and the optional profile
 // line) stays in the template, so different shapes hash to different
 // prompt_versions — which is honest; mode is recorded in the run config.
 export function buildTemplateText(params: PromptParams): string {
   const profile = params.profile?.trim();
+  const viaApi = !!params.checkKnownViaApi;
+  const hasKnown = !viaApi && !!params.known?.length;
 
   if (params.mode === "research_msps") {
     return [
@@ -102,6 +166,7 @@ export function buildTemplateText(params: PromptParams): string {
       profile ? `Target profile: {{targetProfile}}.` : "",
       `For each MSP, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is an MSP.`,
       "",
+      viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS : "",
       CONTRACT,
       "",
       RULES,
@@ -117,6 +182,7 @@ export function buildTemplateText(params: PromptParams): string {
       profile ? `Target profile: {{targetProfile}}.` : "",
       `For each company, estimate "current_msp_name" (the MSP they use) when you can find evidence, and set its "confidence" accordingly. Identify a contact who is the owner/decision-maker ("owner") or who leads IT ("head_of_it") when findable. Every organization you return is a customer (not an MSP).`,
       "",
+      viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS : "",
       METHODS,
       "",
       CONTRACT,
@@ -137,6 +203,7 @@ export function buildTemplateText(params: PromptParams): string {
     `MSPs:`,
     `{{mspList}}`,
     "",
+    viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS_PER_MSP : "",
     METHODS,
     "",
     CONTRACT,
@@ -151,6 +218,39 @@ export function buildTemplateText(params: PromptParams): string {
 // special) and never re-scanned for placeholders.
 const substitute = (template: string, values: Record<string, string>): string =>
   template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => values[key] ?? match);
+
+const orgLine = (o: KnownOrg): string => `- ${o.name}${o.domain ? ` (${o.domain})` : ""}`;
+
+// Renders the do-not-research list. Flat for the two research modes; grouped by
+// MSP for find_customers_for_msps, where exclusion is per (company, MSP).
+// knownOmitted is stated rather than hidden: the list is capped to keep the
+// prompt workable, and a silently truncated exclusion list would read as "this
+// is everything we have" when it isn't.
+function buildKnownList(params: PromptParams): string {
+  const known = params.known ?? [];
+  if (!known.length) return "";
+
+  let body: string;
+  if (params.mode === "find_customers_for_msps") {
+    const byMsp = new Map<string, KnownOrg[]>();
+    for (const o of known) {
+      const key = o.mspName?.trim() || "(MSP not recorded)";
+      const arr = byMsp.get(key) ?? [];
+      arr.push(o);
+      byMsp.set(key, arr);
+    }
+    body = [...byMsp.entries()]
+      .map(([msp, orgs]) => [`${msp}:`, ...orgs.map((o) => `  ${orgLine(o)}`)].join("\n"))
+      .join("\n");
+  } else {
+    body = known.map(orgLine).join("\n");
+  }
+
+  const omitted = params.knownOmitted ?? 0;
+  return omitted > 0
+    ? `${body}\n(…plus ${omitted} more we already have, not listed here. Treat any company that looks well-covered as likely already known.)`
+    : body;
+}
 
 export function buildPrompt(params: PromptParams): string {
   const region = params.region?.trim() || "the United States";
@@ -170,5 +270,6 @@ export function buildPrompt(params: PromptParams): string {
     count: String(count),
     targetProfile: profile,
     mspList,
+    known: buildKnownList(params),
   });
 }

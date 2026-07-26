@@ -40,4 +40,8 @@ export type QueueRow = {
   contact_name: string | null;
   company: string;
   org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
+  // Which sourcing run this message's contact came from (migration 024).
+  run_code: string | null;
+  run_id: string | null;
+  run_at: string | null;
 };

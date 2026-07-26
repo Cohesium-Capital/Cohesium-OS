@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { pushPendingToClay } from "@/lib/sourcing/review-actions";
@@ -17,16 +17,28 @@ import { useReviewSelection } from "./review-grid";
 // count actually pushed can be smaller than the selection. On success the grid
 // selection is cleared and the page refreshed so the eligible count and
 // selection reflect the new state.
-export function PushToClayButton({ eligibleCount }: { eligibleCount: number }) {
+//
+// Contacts already sent to Clay are excluded from every push by default — they
+// have already cost credits. Re-sending them is a separate, armed action
+// (click, then confirm) so it can never happen as a side effect of pressing
+// "push all".
+export function PushToClayButton({
+  eligibleCount,
+  alreadySentCount = 0,
+}: {
+  eligibleCount: number;
+  alreadySentCount?: number;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [resendArmed, setResendArmed] = useState(false);
   const { selectedIds, requestClear } = useReviewSelection();
 
   // An empty ids array means "all eligible" (see pushPendingToClay).
-  function push(ids: string[]) {
+  function push(ids: string[], resend = false) {
     startTransition(async () => {
       try {
-        const { total, pushed, failed, error } = await pushPendingToClay(ids);
+        const { total, pushed, failed, error } = await pushPendingToClay(ids, resend);
         if (total === 0) {
           toast.info(
             ids.length
@@ -43,6 +55,7 @@ export function PushToClayButton({ eligibleCount }: { eligibleCount: number }) {
           );
         }
         if (pushed > 0) requestClear();
+        setResendArmed(false);
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Push failed.");
@@ -72,6 +85,18 @@ export function PushToClayButton({ eligibleCount }: { eligibleCount: number }) {
           onClick={() => push([])}
         >
           Push all {eligibleCount} eligible
+        </Button>
+      )}
+      {alreadySentCount > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pending}
+          onClick={() => (resendArmed ? push([], true) : setResendArmed(true))}
+        >
+          {resendArmed
+            ? `Confirm: re-send ${alreadySentCount} and spend credits again`
+            : `Re-send ${alreadySentCount} already sent…`}
         </Button>
       )}
     </div>

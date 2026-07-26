@@ -30,11 +30,11 @@ async function main() {
     process.exit(1);
   }
 
-  const module = arg("module") as ModuleKey | undefined;
+  const moduleKey = arg("module") as ModuleKey | undefined;
   const label = arg("label");
   const configFile = arg("config");
   const payloadFile = arg("payload");
-  if (!module || !label || !configFile || !payloadFile) {
+  if (!moduleKey || !label || !configFile || !payloadFile) {
     console.error(
       "usage: tsx scripts/run-ingest.ts --module <key> --label <text> --config <file.json> --payload <file.json>",
     );
@@ -45,7 +45,7 @@ async function main() {
   const rawText = readFileSync(payloadFile, "utf8");
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  const run = await createRun(supabase, { module, config, label });
+  const run = await createRun(supabase, { module: moduleKey, config, label });
   console.log(`run ${run.runId}\nbatch ${run.batchId}\nprompt_version ${run.promptVersionId ?? "(none)"}`);
 
   const outcome = await ingestRun(supabase, { runId: run.runId, rawText });

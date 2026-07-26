@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hookCoverage } from "./hooks/usable";
+import { countEligibleContacts } from "./enrichment/pending";
 
 // The next-best-action engine: given the pipeline's current state, answer
 // "what should I do right now?" with a single action. Used by the home page
@@ -123,11 +124,11 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
       .eq("review_status", "pending_review")
       .not("batch_id", "is", null)
       .is("deleted_at", null),
-    supabase
-      .from("contacts")
-      .select("id", { count: "exact", head: true })
-      .eq("enrichment_status", "pending")
-      .is("deleted_at", null),
+    // Eligible, not merely pending: a contact already sent to Clay is waiting on
+    // a write-back, not on the operator. Counting raw 'pending' here would park
+    // the hero on "Push to Clay" forever once Clay stopped writing back for a
+    // row, hiding every downstream action behind work that can't be done.
+    countEligibleContacts(supabase),
     supabase
       .from("hooks")
       .select("id, contacts!inner(id)", { count: "exact", head: true })
@@ -209,14 +210,14 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
   }
 
   // 4. Enrichment backlog — Clay lives on the same Review page (part B).
-  if ((pendingEnrich.count ?? 0) > 0) {
-    const n = pendingEnrich.count!;
+  if (pendingEnrich > 0) {
+    const n = pendingEnrich;
     return {
       href: "/review",
       cta: "Push to Clay",
-      headline: `${n} contact${n === 1 ? "" : "s"} waiting on enrichment`,
+      headline: `${n} contact${n === 1 ? "" : "s"} ready for enrichment`,
       detail:
-        "Push pending rows to Clay from Review & Enrich (part B). Clay fills work email — the field drafting needs — plus phone and LinkedIn when it can.",
+        "Push them to Clay from Review & Enrich (part B). Clay fills work email — the field drafting needs — plus phone and LinkedIn when it can. Contacts already sent are excluded, so this never re-spends credits on the same person.",
       step: 3,
     };
   }

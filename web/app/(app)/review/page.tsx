@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/card";
 import { ReviewGrid, ReviewSelectionProvider } from "./review-grid";
 import { PushToClayButton } from "./push-to-clay-button";
-import { countEligibleContacts } from "@/lib/enrichment/pending";
+import { countAlreadyPushed, countEligibleContacts } from "@/lib/enrichment/pending";
+import { contactRunMap, loadRunScope } from "@/lib/runs/scope";
+import { RunScopeBanner } from "@/components/run-scope-banner";
 
 type ContactRow = {
   id: string;
@@ -33,18 +35,32 @@ type ContactRow = {
 
 const PAGE_SIZE = 50;
 
+// A uuid that matches nothing, for "scoped to a run that produced no records".
+const NO_MATCH = "00000000-0000-0000-0000-000000000000";
+
 export default async function ReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; flagged?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+    needs_review?: string;
+    flagged?: string;
+    run?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
-  const flagged = sp.flagged === "1";
+  // `flagged=1` is the old name for this filter — still honoured so existing
+  // bookmarks keep working.
+  const needsReviewOnly = sp.needs_review === "1" || sp.flagged === "1";
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
 
   const supabase = await createClient();
+
+  // Arriving from a run's timeline entry scopes the grid to that run's records.
+  const scope = await loadRunScope(supabase, sp.run ?? null);
 
   // Inner join on organizations so we can search by company name and paginate
   // server-side (the dataset will outgrow a client-side load). Soft-deleted
@@ -56,8 +72,11 @@ export default async function ReviewPage({
       { count: "exact" },
     )
     .is("deleted_at", null);
-  if (flagged) query = query.eq("reviewed", false);
+  if (needsReviewOnly) query = query.eq("reviewed", false);
   if (q) query = query.ilike("organizations.name", `%${q}%`);
+  // An empty scope is still a scope: a run with no records shows no rows rather
+  // than silently falling back to every contact in the database.
+  if (scope) query = query.in("id", scope.contactIds.length ? scope.contactIds : [NO_MATCH]);
   const { data, count } = await query
     .order("created_at", { ascending: false })
     .range(from, from + PAGE_SIZE - 1);
@@ -77,8 +96,18 @@ export default async function ReviewPage({
     msps?.forEach((m) => mspName.set(m.id, m.name));
   }
 
+  // Run identifier + date per contact on this page, for the Run / Run date
+  // columns. Scoped to the page's rows, so this stays one small lookup.
+  const runInfo = await contactRunMap(
+    supabase,
+    contacts.map((c) => c.id),
+  );
+
   const rows: ReviewRow[] = contacts.map((c) => ({
     id: c.id,
+    run_code: runInfo.get(c.id)?.code ?? null,
+    run_id: runInfo.get(c.id)?.runId ?? null,
+    run_at: runInfo.get(c.id)?.runAt ?? null,
     full_name: c.full_name,
     persona: c.persona,
     title: c.title,
@@ -98,8 +127,11 @@ export default async function ReviewPage({
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Counts exclude soft-deleted rows. "eligible" is the Clay-push gate:
-  // pending AND reviewed AND (no batch or gate-passed batch).
-  const [unreviewed, pendingEnrich, enriched, failedEnrich, eligible] =
+  // pending AND reviewed AND (no batch or gate-passed batch) AND never sent.
+  // "alreadySent" is the set that clears every bar except the last — shown so
+  // the contacts the double-spend guard holds back are visible rather than
+  // silently missing from the eligible count.
+  const [unreviewed, pendingEnrich, enriched, failedEnrich, eligible, alreadySent] =
     await Promise.all([
       supabase
         .from("contacts")
@@ -122,6 +154,7 @@ export default async function ReviewPage({
         .in("enrichment_status", ["failed", "low_confidence"])
         .is("deleted_at", null),
       countEligibleContacts(supabase),
+      countAlreadyPushed(supabase),
     ]);
   const counts = {
     unreviewed: unreviewed.count ?? 0,
@@ -129,6 +162,7 @@ export default async function ReviewPage({
     enriched: enriched.count ?? 0,
     failed: failedEnrich.count ?? 0,
     eligible,
+    alreadySent,
   };
 
   return (
@@ -140,6 +174,8 @@ export default async function ReviewPage({
           get a work email (and phone / LinkedIn) before drafting.
         </p>
       </div>
+
+      <RunScopeBanner scope={scope} basePath="/review" noun="contacts" />
 
       {/* How-to: make the Review → Enrich sequence self-evident. The provider
           bridges the grid's selection to the push button in card B. */}
@@ -154,22 +190,25 @@ export default async function ReviewPage({
               Vet the contacts
             </CardTitle>
             <CardDescription>
-              Scan the grid below. Flagged / unreviewed rows need a look — check company, title,
-              LinkedIn, and estimated MSP. Delete junk; mark keepers as reviewed.
+              Every sourced contact arrives marked{" "}
+              <span className="font-medium text-amber-600">Needs review</span> — that means
+              nobody has checked it yet, not that anything looks wrong with it. Open the row,
+              check company, title, LinkedIn and estimated MSP, then delete the junk and mark
+              the keepers reviewed. Only reviewed contacts can be enriched in step B.
             </CardDescription>
           </CardHeader>
           <CardContent className="text-sm">
             <span className="font-semibold tabular-nums">{counts.unreviewed}</span>{" "}
-            <span className="text-muted-foreground">still unreviewed</span>
+            <span className="text-muted-foreground">still need review</span>
             {counts.unreviewed > 0 && (
               <Button
                 size="sm"
                 variant="outline"
                 className="ml-3"
                 nativeButton={false}
-                render={<Link href="/review?flagged=1" />}
+                render={<Link href="/review?needs_review=1" />}
               >
-                Show unreviewed
+                Show them
               </Button>
             )}
           </CardContent>
@@ -189,8 +228,9 @@ export default async function ReviewPage({
             <CardDescription>
               Clay finds the missing <strong>work email</strong> (plus phone / LinkedIn when it
               can). Enrichment costs credits, so only <strong>reviewed</strong> contacts from
-              gate-passed batches are eligible. Select rows in the grid to scope the push, or
-              push everything eligible; statuses flip when Clay writes back.
+              gate-passed batches that have <strong>never been sent before</strong> are
+              eligible. Select rows in the grid to scope the push, or push everything eligible;
+              statuses flip when Clay writes back.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -203,6 +243,12 @@ export default async function ReviewPage({
                 <span className="font-semibold tabular-nums">{counts.eligible}</span>{" "}
                 <span className="text-muted-foreground">eligible for Clay</span>
               </span>
+              {counts.alreadySent > 0 && (
+                <span>
+                  <span className="font-semibold tabular-nums">{counts.alreadySent}</span>{" "}
+                  <span className="text-muted-foreground">already sent (no write-back yet)</span>
+                </span>
+              )}
               <span>
                 <span className="font-semibold tabular-nums">{counts.enriched}</span>{" "}
                 <span className="text-muted-foreground">enriched</span>
@@ -214,7 +260,10 @@ export default async function ReviewPage({
             </div>
             {counts.eligible > 0 ? (
               <div className="flex flex-wrap items-center gap-2">
-                <PushToClayButton eligibleCount={counts.eligible} />
+                <PushToClayButton
+                  eligibleCount={counts.eligible}
+                  alreadySentCount={counts.alreadySent}
+                />
                 <Button
                   variant="outline"
                   size="sm"
@@ -224,6 +273,14 @@ export default async function ReviewPage({
                   Export eligible CSV for Clay
                 </Button>
               </div>
+            ) : counts.alreadySent > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing new to send — the {counts.alreadySent} pending contact
+                {counts.alreadySent === 1 ? " has" : "s have"} already been through Clay and
+                {counts.alreadySent === 1 ? " is" : " are"} waiting on a write-back. Sending
+                again spends credits for a second time; only do it if the first send genuinely
+                didn&rsquo;t land.
+              </p>
             ) : counts.pending > 0 ? (
               <p className="text-sm text-muted-foreground">
                 Pending contacts aren&rsquo;t eligible yet — mark keepers reviewed (step A) and
@@ -251,10 +308,11 @@ export default async function ReviewPage({
       </div>
 
       <ReviewGrid
-        key={`${page}|${q}|${flagged ? 1 : 0}`}
+        key={`${page}|${q}|${needsReviewOnly ? 1 : 0}|${scope?.runId ?? ""}`}
         initialRows={rows}
         q={q}
-        flagged={flagged}
+        needsReviewOnly={needsReviewOnly}
+        runId={scope?.runId ?? null}
         page={page}
         pageCount={pageCount}
         total={total}

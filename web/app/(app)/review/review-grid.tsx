@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ContactKindBadge } from "@/components/contact-kind-badge";
+import { RunBadge, RunDate } from "@/components/run-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -99,14 +100,17 @@ const PERSONA_LABEL: Record<string, string> = {
 export function ReviewGrid({
   initialRows,
   q,
-  flagged,
+  needsReviewOnly,
+  runId,
   page,
   pageCount,
   total,
 }: {
   initialRows: ReviewRow[];
   q: string;
-  flagged: boolean;
+  needsReviewOnly: boolean;
+  /** Active ?run= scope, preserved across search/filter/pagination. */
+  runId?: string | null;
   page: number;
   pageCount: number;
   total: number;
@@ -144,14 +148,16 @@ export function ReviewGrid({
     }
   }, [clearSignal]);
 
-  function navigate(next: { q?: string; page?: number; flagged?: boolean }) {
+  function navigate(next: { q?: string; page?: number; needsReviewOnly?: boolean }) {
     const sp = new URLSearchParams();
     const nq = next.q ?? q;
     const np = next.page ?? 1;
-    const nf = next.flagged ?? flagged;
+    const nf = next.needsReviewOnly ?? needsReviewOnly;
     if (nq) sp.set("q", nq);
     if (np > 1) sp.set("page", String(np));
-    if (nf) sp.set("flagged", "1");
+    if (nf) sp.set("needs_review", "1");
+    // Searching or paging inside a run must not silently widen to every contact.
+    if (runId) sp.set("run", runId);
     router.push(`/review${sp.toString() ? `?${sp}` : ""}`);
   }
 
@@ -187,12 +193,16 @@ export function ReviewGrid({
         ),
       },
       {
-        id: "flag",
+        id: "needs_review",
         header: "",
         cell: ({ row }) =>
           row.original.reviewed ? null : (
-            <span className="flex items-center text-amber-600" title="Needs review">
-              <Flag className="size-4" />
+            <span
+              className="flex items-center gap-1 whitespace-nowrap text-xs font-medium text-amber-600"
+              title="Nobody has vetted this contact yet. Check it, then mark it reviewed — only reviewed contacts can be enriched."
+            >
+              <Flag className="size-3.5" />
+              Needs review
             </span>
           ),
       },
@@ -207,6 +217,18 @@ export function ReviewGrid({
             )}
           </div>
         ),
+      },
+      {
+        id: "run",
+        header: "Run",
+        cell: ({ row }) => (
+          <RunBadge code={row.original.run_code} runId={row.original.run_id} />
+        ),
+      },
+      {
+        id: "run_at",
+        header: "Run date",
+        cell: ({ row }) => <RunDate at={row.original.run_at} />,
       },
       {
         accessorKey: "persona",
@@ -368,12 +390,15 @@ export function ReviewGrid({
           )}
         </form>
 
-        <label className="flex items-center gap-2 text-sm">
+        <label
+          className="flex items-center gap-2 text-sm"
+          title="Show only contacts nobody has vetted yet"
+        >
           <Checkbox
-            checked={flagged}
-            onCheckedChange={(v) => navigate({ flagged: !!v, page: 1 })}
+            checked={needsReviewOnly}
+            onCheckedChange={(v) => navigate({ needsReviewOnly: !!v, page: 1 })}
           />
-          Flagged only
+          Needs review only
         </label>
 
         {selectedIds.length > 0 && (
@@ -452,7 +477,7 @@ export function ReviewGrid({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  {q || flagged
+                  {q || needsReviewOnly
                     ? "No rows match."
                     : "No rows yet. Source and import some contacts to get started."}
                 </TableCell>
@@ -461,6 +486,17 @@ export function ReviewGrid({
           </TableBody>
         </Table>
       </div>
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1 font-medium text-amber-600">
+          <Flag className="size-3" />
+          Needs review
+        </span>
+        <span>
+          = nobody has vetted this contact yet. It is not a quality warning — every sourced
+          contact starts this way, and the marker clears when you hit &ldquo;Mark
+          reviewed&rdquo;. Confidence is the separate column.
+        </span>
+      </p>
       <p className="text-xs text-muted-foreground">
         Selection and bulk actions apply to the current page. The selection also scopes the
         Clay push in step B above.
