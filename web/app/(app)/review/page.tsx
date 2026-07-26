@@ -12,6 +12,8 @@ import {
 import { ReviewGrid, ReviewSelectionProvider } from "./review-grid";
 import { PushToClayButton } from "./push-to-clay-button";
 import { countAlreadyPushed, countEligibleContacts } from "@/lib/enrichment/pending";
+import { contactRunMap, loadRunScope } from "@/lib/runs/scope";
+import { RunScopeBanner } from "@/components/run-scope-banner";
 
 type ContactRow = {
   id: string;
@@ -33,6 +35,9 @@ type ContactRow = {
 
 const PAGE_SIZE = 50;
 
+// A uuid that matches nothing, for "scoped to a run that produced no records".
+const NO_MATCH = "00000000-0000-0000-0000-000000000000";
+
 export default async function ReviewPage({
   searchParams,
 }: {
@@ -41,6 +46,7 @@ export default async function ReviewPage({
     page?: string;
     needs_review?: string;
     flagged?: string;
+    run?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -52,6 +58,9 @@ export default async function ReviewPage({
   const from = (page - 1) * PAGE_SIZE;
 
   const supabase = await createClient();
+
+  // Arriving from a run's timeline entry scopes the grid to that run's records.
+  const scope = await loadRunScope(supabase, sp.run ?? null);
 
   // Inner join on organizations so we can search by company name and paginate
   // server-side (the dataset will outgrow a client-side load). Soft-deleted
@@ -65,6 +74,9 @@ export default async function ReviewPage({
     .is("deleted_at", null);
   if (needsReviewOnly) query = query.eq("reviewed", false);
   if (q) query = query.ilike("organizations.name", `%${q}%`);
+  // An empty scope is still a scope: a run with no records shows no rows rather
+  // than silently falling back to every contact in the database.
+  if (scope) query = query.in("id", scope.contactIds.length ? scope.contactIds : [NO_MATCH]);
   const { data, count } = await query
     .order("created_at", { ascending: false })
     .range(from, from + PAGE_SIZE - 1);
@@ -84,8 +96,18 @@ export default async function ReviewPage({
     msps?.forEach((m) => mspName.set(m.id, m.name));
   }
 
+  // Run identifier + date per contact on this page, for the Run / Run date
+  // columns. Scoped to the page's rows, so this stays one small lookup.
+  const runInfo = await contactRunMap(
+    supabase,
+    contacts.map((c) => c.id),
+  );
+
   const rows: ReviewRow[] = contacts.map((c) => ({
     id: c.id,
+    run_code: runInfo.get(c.id)?.code ?? null,
+    run_id: runInfo.get(c.id)?.runId ?? null,
+    run_at: runInfo.get(c.id)?.runAt ?? null,
     full_name: c.full_name,
     persona: c.persona,
     title: c.title,
@@ -152,6 +174,8 @@ export default async function ReviewPage({
           get a work email (and phone / LinkedIn) before drafting.
         </p>
       </div>
+
+      <RunScopeBanner scope={scope} basePath="/review" noun="contacts" />
 
       {/* How-to: make the Review → Enrich sequence self-evident. The provider
           bridges the grid's selection to the push button in card B. */}
@@ -284,10 +308,11 @@ export default async function ReviewPage({
       </div>
 
       <ReviewGrid
-        key={`${page}|${q}|${needsReviewOnly ? 1 : 0}`}
+        key={`${page}|${q}|${needsReviewOnly ? 1 : 0}|${scope?.runId ?? ""}`}
         initialRows={rows}
         q={q}
         needsReviewOnly={needsReviewOnly}
+        runId={scope?.runId ?? null}
         page={page}
         pageCount={pageCount}
         total={total}

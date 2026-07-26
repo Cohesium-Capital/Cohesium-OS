@@ -42,4 +42,9 @@ export type ReviewRow = {
   org_domain: string | null;
   org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
   estimated_msp: string | null;
+  // Which run produced this record (migration 024). Null only for rows with no
+  // resolvable lineage — legacy direct imports carry neither run nor batch.
+  run_code: string | null;
+  run_id: string | null;
+  run_at: string | null;
 };

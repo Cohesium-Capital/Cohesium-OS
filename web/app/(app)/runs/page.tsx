@@ -11,6 +11,7 @@ import {
   stageCounts,
 } from "@/lib/runs/describe";
 import { formatDateTime, relativeTime } from "@/lib/format/date";
+import { RunBadge } from "@/components/run-badge";
 
 // Runs hub, read vertically: newest run at the top, and for each one what it
 // was, when it ran, what it produced, and how far that output has travelled
@@ -45,9 +46,13 @@ export default async function RunsPage({
   const from = (page - 1) * PAGE_SIZE;
   const supabase = await createClient();
 
+  // Only runs that actually produced records. A prompt generated but never
+  // pasted back is not yet a run worth tracking — it has nothing to open, and
+  // listing it buries the runs that do.
   const { data, count } = await supabase
     .from("flow_runs")
     .select("*", { count: "exact" })
+    .eq("has_records", true)
     .order("created_at", { ascending: false })
     .range(from, from + PAGE_SIZE - 1);
 
@@ -58,7 +63,8 @@ export default async function RunsPage({
   // Header summary across every run (cheap: the view is already aggregated).
   const { data: allRows } = await supabase
     .from("flow_runs")
-    .select("gate_status, pending, sourced, status");
+    .select("gate_status, pending, sourced, status")
+    .eq("has_records", true);
   const summary = (allRows ?? []) as unknown as Pick<
     FlowRun,
     "gate_status" | "pending" | "sourced" | "status"
@@ -73,8 +79,10 @@ export default async function RunsPage({
         <div>
           <h1 className="text-2xl font-semibold">Runs</h1>
           <p className="text-sm text-muted-foreground">
-            Every run in order, newest first — what it looked for, when it ran, and where its
-            output currently sits in the pipeline.
+            Every run that produced records, newest first — what it looked for, when it ran, and
+            where its output currently sits in the pipeline. Runs still awaiting their pasted
+            output are not listed until they have records. Open one to see those records; the
+            action button on each entry acts on that run alone.
           </p>
         </div>
         <div className="flex gap-2">
@@ -105,7 +113,8 @@ export default async function RunsPage({
           </ol>
         ) : (
           <div className="rounded-md border p-10 text-center text-sm text-muted-foreground">
-            No runs yet. Start a sourcing run and import the results.
+            No runs with records yet. Start a sourcing run and import the results — a run
+            appears here once its output has been pasted back.
           </div>
         )}
       </div>
@@ -163,7 +172,16 @@ function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
       <div className="mb-3 min-w-0 flex-1 rounded-lg border p-4">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
           <div className="min-w-0">
-            <h2 className="font-medium">{runTypeLabel(run)}</h2>
+            <h2 className="flex items-center gap-2 font-medium">
+              <RunBadge code={run.run_code} />
+              {run.entry_kind === "import" ? (
+                runTypeLabel(run)
+              ) : (
+                <Link href={`/runs/${run.id}`} className="underline-offset-2 hover:underline">
+                  {runTypeLabel(run)}
+                </Link>
+              )}
+            </h2>
             <p className="text-xs text-muted-foreground">
               {formatDateTime(run.created_at)} · {relativeTime(run.created_at)}
             </p>
@@ -224,6 +242,16 @@ function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
           {furthest && <span>furthest stage: {furthest.label}</span>}
           {run.replied > 0 && <span>{run.replied} replied</span>}
           <span className="ml-auto flex gap-2">
+            {run.entry_kind !== "import" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                nativeButton={false}
+                render={<Link href={`/runs/${run.id}`} />}
+              >
+                View records
+              </Button>
+            )}
             {action && (
               <Button
                 size="sm"

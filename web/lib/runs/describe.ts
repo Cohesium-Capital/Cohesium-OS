@@ -34,6 +34,10 @@ export type FlowRun = {
   sent: number;
   replied: number;
   drafts_created: number;
+  run_seq: number | null;
+  run_mode_code: string | null;
+  run_code: string | null;
+  has_records: boolean;
 };
 
 const MODULE_LABEL: Record<string, string> = {
@@ -125,8 +129,19 @@ export function furthestStage(run: FlowRun): { key: FlowStageKey; label: string 
   return last ? { key: last.key, label: last.label } : null;
 }
 
-/** What this run is waiting on, phrased as the next action. Null when it is done. */
+/**
+ * What this run is waiting on, phrased as the next action. Null when it is done.
+ *
+ * Every stage link carries ?run=<id> so the action operates on THIS run's
+ * records. Without it, "Personalize" on one run would open the stage across
+ * every contact waiting there — the button would not mean what it says.
+ */
 export function nextAction(run: FlowRun): { label: string; href: string } | null {
+  // Batch entries scope too — loadRunScope resolves their records via batch_id.
+  // Only legacy imports can't: their contacts carry no lineage at all.
+  const scoped = (path: string) =>
+    run.entry_kind === "import" ? path : `${path}${path.includes("?") ? "&" : "?"}run=${run.id}`;
+
   if (run.status === "failed") return { label: "Run failed — start a new run", href: "/source" };
   if (run.status === "awaiting_input")
     return { label: "Paste the model's output", href: "/source" };
@@ -134,11 +149,12 @@ export function nextAction(run: FlowRun): { label: string; href: string } | null
     return { label: `Grade ${run.pending}`, href: `/review/grade?batch=${run.batch_id}` };
   if (run.gate_status === "failed")
     return { label: "Gate failed — revise the prompt", href: "/settings" };
-  if (run.sourced > run.reviewed) return { label: "Review the contacts", href: "/review" };
-  if (run.reviewed > run.enriched) return { label: "Enrich via Clay", href: "/review" };
+  if (run.sourced > run.reviewed)
+    return { label: "Review the contacts", href: scoped("/review") };
+  if (run.reviewed > run.enriched) return { label: "Enrich via Clay", href: scoped("/review") };
   if (run.enriched > run.personalized)
-    return { label: "Personalize", href: "/personalize" };
-  if (run.personalized > run.drafted) return { label: "Draft", href: "/draft" };
-  if (run.drafted > run.sent) return { label: "Send", href: "/draft/queue" };
+    return { label: "Personalize", href: scoped("/personalize") };
+  if (run.personalized > run.drafted) return { label: "Draft", href: scoped("/draft") };
+  if (run.drafted > run.sent) return { label: "Send", href: scoped("/draft/queue") };
   return null;
 }

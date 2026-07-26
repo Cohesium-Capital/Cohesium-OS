@@ -11,6 +11,7 @@ import { sourceIsFresh, SOURCE_MAX_AGE_MONTHS } from "@/lib/hooks/usable";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ContactKindBadge } from "@/components/contact-kind-badge";
+import { RunBadge, RunDate } from "@/components/run-badge";
 
 // Keyboard-first hook verification, card at a time. The grader CLICKS the
 // source URL and answers: does it support THIS claim, and is the claim
@@ -34,6 +35,10 @@ export type VerifyHook = {
   org_name: string;
   org_domain: string | null;
   org_kind: string | null;
+  // Which sourcing run produced this hook's contact (migration 024).
+  run_code: string | null;
+  run_id: string | null;
+  run_at: string | null;
 };
 
 // One button per reject category, each with a single-key shortcut; all are
@@ -235,6 +240,8 @@ export function VerifyQueue({
                 </Badge>
                 {current.track && <Badge variant="outline">{current.track}</Badge>}
                 <Badge variant="outline">{current.batch_label}</Badge>
+                <RunBadge code={current.run_code} runId={current.run_id} />
+                <RunDate at={current.run_at} />
               </div>
             </div>
 

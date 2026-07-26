@@ -18,6 +18,7 @@ import { sendApproved } from "@/lib/send/send";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ContactKindBadge } from "@/components/contact-kind-badge";
+import { RunBadge, RunDate } from "@/components/run-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -248,6 +249,8 @@ export function DraftQueue({
               </TableHead>
               <TableHead className="w-10">Send</TableHead>
               <TableHead>Contact</TableHead>
+              <TableHead>Run</TableHead>
+              <TableHead>Run date</TableHead>
               <TableHead>Channel</TableHead>
               <TableHead>Message</TableHead>
               <TableHead></TableHead>
@@ -281,6 +284,12 @@ export function DraftQueue({
                       <span>{r.contact_name ?? "—"}</span>
                       <span className="text-xs text-muted-foreground">{r.company}</span>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <RunBadge code={r.run_code} runId={r.run_id} />
+                  </TableCell>
+                  <TableCell>
+                    <RunDate at={r.run_at} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
@@ -365,7 +374,7 @@ export function DraftQueue({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                   Queue is clear — nothing waiting to send.{" "}
                   <button
                     type="button"

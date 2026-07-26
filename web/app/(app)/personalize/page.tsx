@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PersonalizeBuilder } from "./personalize-builder";
 import { VerifyQueue, type VerifyHook } from "./verify-queue";
+import { applyScope, contactRunMap, loadRunScope } from "@/lib/runs/scope";
+import { RunScopeBanner } from "@/components/run-scope-banner";
 
 // Personalize (step 4): research ONE durable, verifiable hook per contact
 // headed to drafting — a claim + source URL a human can check in ~30 seconds —
@@ -54,8 +56,15 @@ function gateVariant(s: string): "default" | "secondary" | "destructive" {
   return "secondary";
 }
 
-export default async function PersonalizePage() {
+export default async function PersonalizePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ run?: string }>;
+}) {
   const supabase = await createClient();
+  // ?run=<id> arrives from a run's timeline entry: research hooks for THAT
+  // run's contacts rather than everything waiting at this stage.
+  const scope = await loadRunScope(supabase, (await searchParams).run ?? null);
 
   // Opportunistic TTL sweep: hooks rot, so any still-undecided candidate older
   // than the TTL flips to 'expired' on load. ONLY candidates — 'verified' is a
@@ -108,8 +117,12 @@ export default async function PersonalizePage() {
   // (canonical definition in lib/hooks/usable.ts), minus those with a hook
   // still in flight (awaiting verdict or gate) — re-researching the latter
   // would only duplicate work.
-  const needing = ((contactData ?? []) as unknown as ContactRow[]).filter(
-    (c) => eligible.has(c.id) && !coverage.usable.has(c.id) && !coverage.pending.has(c.id),
+  const needing = applyScope(
+    ((contactData ?? []) as unknown as ContactRow[]).filter(
+      (c) => eligible.has(c.id) && !coverage.usable.has(c.id) && !coverage.pending.has(c.id),
+    ),
+    scope,
+    (c) => c.id,
   );
 
   // Resolve "customer of <MSP>" names for the prompt's current_msp lines.
@@ -142,7 +155,15 @@ export default async function PersonalizePage() {
   const customerContacts = needing.filter((c) => c.organizations?.kind !== "msp").map(toLine);
 
   const sampledHooks = (sampledData ?? []) as unknown as SampledHookRow[];
+  // Run identifier + date per hook, via its contact's lineage.
+  const hookRunInfo = await contactRunMap(
+    supabase,
+    [...new Set(sampledHooks.map((h) => h.contact_id))],
+  );
   const verifyHooks: VerifyHook[] = sampledHooks.map((h) => ({
+    run_code: hookRunInfo.get(h.contact_id)?.code ?? null,
+    run_id: hookRunInfo.get(h.contact_id)?.runId ?? null,
+    run_at: hookRunInfo.get(h.contact_id)?.runAt ?? null,
     id: h.id,
     batch_id: h.batch_id,
     batch_label: h.batches?.label ?? "—",
@@ -214,6 +235,8 @@ export default async function PersonalizePage() {
           is invented at draft time.
         </p>
       </div>
+
+      <RunScopeBanner scope={scope} basePath="/personalize" noun="contacts" />
 
       {/* Latest batch gate banner */}
       {latestBatch && latestMetrics && (

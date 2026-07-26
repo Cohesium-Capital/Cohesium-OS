@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ContactKindBadge } from "@/components/contact-kind-badge";
+import { RunBadge } from "@/components/run-badge";
 import {
   Table,
   TableBody,
@@ -31,6 +32,9 @@ type CompanyRow = {
   contacts_reviewed: number;
   contacts_enriched: number;
   added_at: string;
+  first_run_id: string | null;
+  first_run_code: string | null;
+  first_run_at: string | null;
 };
 
 const PAGE_SIZE = 50;
@@ -115,6 +119,7 @@ export default async function CompaniesPage({
               <TableHead>Estimated MSP</TableHead>
               <TableHead>Location</TableHead>
               <TableHead className="text-right">Contacts</TableHead>
+              <TableHead>First run</TableHead>
               <TableHead>Added</TableHead>
             </TableRow>
           </TableHeader>
@@ -176,6 +181,9 @@ export default async function CompaniesPage({
                     )}
                   </TableCell>
                   <TableCell>
+                    <RunBadge code={r.first_run_code} runId={r.first_run_id} />
+                  </TableCell>
+                  <TableCell>
                     <div className="flex flex-col">
                       <span>{formatDate(r.added_at)}</span>
                       <span className="text-xs text-muted-foreground">
@@ -187,7 +195,7 @@ export default async function CompaniesPage({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   {q || kind !== "all"
                     ? "No companies match."
                     : "No companies yet. Start a sourcing run to add some."}

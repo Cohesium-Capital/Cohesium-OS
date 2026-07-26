@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ContactKindBadge } from "@/components/contact-kind-badge";
+import { RunBadge, RunDate } from "@/components/run-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -100,6 +101,7 @@ export function ReviewGrid({
   initialRows,
   q,
   needsReviewOnly,
+  runId,
   page,
   pageCount,
   total,
@@ -107,6 +109,8 @@ export function ReviewGrid({
   initialRows: ReviewRow[];
   q: string;
   needsReviewOnly: boolean;
+  /** Active ?run= scope, preserved across search/filter/pagination. */
+  runId?: string | null;
   page: number;
   pageCount: number;
   total: number;
@@ -152,6 +156,8 @@ export function ReviewGrid({
     if (nq) sp.set("q", nq);
     if (np > 1) sp.set("page", String(np));
     if (nf) sp.set("needs_review", "1");
+    // Searching or paging inside a run must not silently widen to every contact.
+    if (runId) sp.set("run", runId);
     router.push(`/review${sp.toString() ? `?${sp}` : ""}`);
   }
 
@@ -211,6 +217,18 @@ export function ReviewGrid({
             )}
           </div>
         ),
+      },
+      {
+        id: "run",
+        header: "Run",
+        cell: ({ row }) => (
+          <RunBadge code={row.original.run_code} runId={row.original.run_id} />
+        ),
+      },
+      {
+        id: "run_at",
+        header: "Run date",
+        cell: ({ row }) => <RunDate at={row.original.run_at} />,
       },
       {
         accessorKey: "persona",

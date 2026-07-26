@@ -5,6 +5,8 @@ import { usableHooksByContact } from "@/lib/hooks/usable";
 import type { DraftContact } from "@/lib/drafting/prompt";
 import { Button } from "@/components/ui/button";
 import { DraftBuilder } from "./draft-builder";
+import { loadRunScope } from "@/lib/runs/scope";
+import { RunScopeBanner } from "@/components/run-scope-banner";
 
 type Row = {
   id: string;
@@ -22,15 +24,22 @@ type Row = {
   } | null;
 };
 
-export default async function DraftPage() {
+export default async function DraftPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ run?: string }>;
+}) {
   const supabase = await createClient();
+  // ?run=<id> from a run's timeline entry narrows drafting to that run's records.
+  const scope = await loadRunScope(supabase, (await searchParams).run ?? null);
 
   // Draft eligibility is the ONE shared definition (lib/journey): has an
   // address, sourcing gate passed, not suppressed, no live planned touch. The
   // home hero, the tiles, and this page all read the same set, so they can
   // never drift apart.
   const eligible = await draftEligibleContactIds(supabase);
-  const ids = [...eligible];
+  const inScope = scope ? new Set(scope.contactIds) : null;
+  const ids = inScope ? [...eligible].filter((id) => inScope.has(id)) : [...eligible];
 
   const { data } = ids.length
     ? await supabase
@@ -125,7 +134,15 @@ export default async function DraftPage() {
     ]);
 
     let reason: { text: string; href: string; cta: string };
-    if ((totalContacts ?? 0) === 0) {
+    // Under a run scope the global diagnostics ("no contacts exist") would be
+    // wrong — the database may be full, just not with this run's records.
+    if (scope) {
+      reason = {
+        text: `Nothing from run ${scope.code ?? "this run"} is ready to draft. Its contacts may still need enrichment, a hook, or their gate — or they already have drafts queued. Clear the run filter to draft across every eligible contact.`,
+        href: `/runs/${scope.runId}`,
+        cta: "Open this run's records",
+      };
+    } else if ((totalContacts ?? 0) === 0) {
       reason = {
         text: "There are no contacts in the system yet. Drafting starts with a sourcing run.",
         href: "/source",
@@ -167,6 +184,7 @@ export default async function DraftPage() {
             Turn researched hooks into per-persona messages, then queue them for review.
           </p>
         </div>
+        <RunScopeBanner scope={scope} basePath="/draft" noun="contacts" />
         <div className="flex flex-col items-start gap-3 rounded-md border p-6">
           <p className="text-sm font-medium">Nothing to draft yet</p>
           <p className="text-sm text-muted-foreground">{reason.text}</p>
@@ -178,5 +196,10 @@ export default async function DraftPage() {
     );
   }
 
-  return <DraftBuilder contacts={contacts} />;
+  return (
+    <div className="flex flex-col gap-6">
+      <RunScopeBanner scope={scope} basePath="/draft" noun="contacts" />
+      <DraftBuilder contacts={contacts} />
+    </div>
+  );
 }
