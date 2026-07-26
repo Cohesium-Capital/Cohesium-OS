@@ -46,7 +46,9 @@ export function RunnerSetup({
   }
 
   return (
-    <Card>
+    // Anchor target for "Set up the runner →" on Source. scroll-mt keeps the
+    // heading clear of the sticky app header when jumped to.
+    <Card id="runner-setup" className="scroll-mt-20">
       <CardHeader>
         <CardTitle>Runner setup (Claude Code)</CardTitle>
         <CardDescription>

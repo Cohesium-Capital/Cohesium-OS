@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -46,60 +47,97 @@ function parseMspLines(text: string): Msp[] {
 
 type Outcome = IngestOutcome & { batchId?: string | null };
 
-// The prompt this page produces carries a do-not-research list of everything
-// already sourced, which is what stops a re-run rediscovering the same
-// companies. That list is capped: a pasted prompt is one-shot and cannot ask a
-// follow-up, and a model stops reliably honouring a name list well before the
-// context window fills. Past the cap the prompt says "plus N more" and the
-// model is on its own — duplicates then cost research time (ingest still
-// dedupes them, so never data quality).
+// Sourcing runs two ways, and the difference is worth stating plainly on the
+// page where you choose: it is not about convenience, it is about how each path
+// avoids re-researching companies already on file.
 //
-// The runner has no cap because it queries instead. Surfacing the real count
-// here means the operator learns that at the point it starts to matter, rather
-// than from a doc they'd have to already know to read.
-function RunnerHint({ knownCount }: { knownCount: number }) {
+// A pasted prompt is a one-shot artefact — it cannot ask a follow-up — so it has
+// to carry its do-not-research list inline, and a model stops reliably honouring
+// a name list well before the context window fills. Past KNOWN_LIMIT the prompt
+// degrades to "plus N more" and research gets spent on companies we hold.
+// (Ingest still dedupes them, so this costs time, never data quality.)
+//
+// The runner asks instead, so it has no such limit. Showing the live count is
+// what makes that concrete: the operator meets the trade-off at the moment it
+// starts costing them something.
+function SourcingPaths({ knownCount }: { knownCount: number }) {
   const overCap = knownCount > KNOWN_LIMIT;
   const nearCap = !overCap && knownCount >= KNOWN_LIMIT * 0.75;
 
   return (
-    <div
-      className={`rounded-md border p-3 text-sm ${
-        overCap ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
-      }`}
-    >
-      <p>
-        {knownCount === 0 ? (
-          <>Nothing sourced yet, so this prompt has no do-not-research list to carry.</>
-        ) : (
-          <>
-            The prompt on this page carries its do-not-research list{" "}
-            <em>inline</em>, so it fits at most{" "}
-            <strong className="tabular-nums">{KNOWN_LIMIT}</strong> companies. You hold{" "}
-            <strong className="tabular-nums">{knownCount}</strong>
-            {overCap ? (
-              <>
-                , so <strong className="tabular-nums">{knownCount - KNOWN_LIMIT}</strong> of them
-                reach the model as a count only — expect some research to be spent on companies
-                you already have.
-              </>
-            ) : nearCap ? (
-              <> — close to the limit.</>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Two ways to run sourcing</CardTitle>
+        <CardDescription>
+          Both open a tracked, gradeable batch and land in Review &amp; Enrich the same way. They
+          differ in how they avoid researching companies you already have.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+        <div
+          className={`flex flex-col gap-2 rounded-md border p-3 ${
+            overCap ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-medium">Paste a prompt</span>
+            <Badge variant="secondary">this page · no setup</Badge>
+          </div>
+          <p className="text-muted-foreground">
+            Configure a run, copy the prompt, run it in Claude or ChatGPT with web search on, then
+            paste the JSON back here.
+          </p>
+          <p>
+            {knownCount === 0 ? (
+              <>Nothing sourced yet, so there is no do-not-research list to carry.</>
             ) : (
-              <>, so all of them are listed.</>
+              <>
+                The prompt carries its do-not-research list <em>inline</em>, so it fits at most{" "}
+                <strong className="tabular-nums">{KNOWN_LIMIT}</strong> companies. You hold{" "}
+                <strong className="tabular-nums">{knownCount}</strong>
+                {overCap ? (
+                  <>
+                    , so <strong className="tabular-nums">{knownCount - KNOWN_LIMIT}</strong> reach
+                    the model as a count only — expect research to be spent on companies you
+                    already have.
+                  </>
+                ) : nearCap ? (
+                  <> — close to the limit.</>
+                ) : (
+                  <>, so all of them are listed.</>
+                )}
+              </>
             )}
-          </>
-        )}{" "}
-        <span className="text-muted-foreground">
-          Sourcing through <strong className="text-foreground">Claude Code</strong> has no such
-          limit: it asks which candidates are new, checked against every company on file, so it
-          never re-researches what you already hold.
-        </span>{" "}
-        <Link href="/settings" className="text-foreground underline underline-offset-2">
-          Set it up in Settings
-        </Link>
-        .
-      </p>
-    </div>
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-md border p-3">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">Claude Code runner</span>
+            <Badge variant="secondary">one-time setup</Badge>
+          </div>
+          <p className="text-muted-foreground">
+            Ask in plain language — &ldquo;source 25 customers in the Richmond VA metro&rdquo; — and
+            it runs the whole loop itself, ingest included.
+          </p>
+          <p>
+            It <strong>asks</strong> which candidates are new instead of carrying a list, checked
+            against every company on file, so there is <strong>no cap</strong> and it never
+            re-researches what you hold.
+          </p>
+          <div className="mt-auto pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/settings#runner-setup" />}
+            >
+              Set up the runner →
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -212,7 +250,7 @@ export function RunSourceBuilder({
         </div>
       </div>
 
-      <RunnerHint knownCount={mode === "research_msps" ? knownCounts.msp : knownCounts.customer} />
+      <SourcingPaths knownCount={mode === "research_msps" ? knownCounts.msp : knownCounts.customer} />
 
       <Card data-tour="source-modes">
         <CardHeader>
