@@ -17,18 +17,33 @@ Use it.
 
 ## Setup
 
-Two environment variables:
+Two values:
 
 | Variable | Meaning |
 |---|---|
-| `COHESIUM_API_URL` | Base URL, e.g. `https://your-app.vercel.app` (or `http://localhost:3000`) |
+| `COHESIUM_API_URL` | Base URL, e.g. `https://cohesium-os.vercel.app` (or `http://localhost:3000`) |
 | `COHESIUM_API_TOKEN` | Token from the app: **Settings → API tokens → Create token** |
 
-Every request sends `Authorization: Bearer $COHESIUM_API_TOKEN`.
+Load them at the start of every session, before the first request. An exported
+shell variable only exists in the terminal that exported it, so a session
+started from the desktop app or an IDE will not see one — read the repo's
+gitignored `.env` as the fallback:
 
-If either is missing, stop and tell the operator how to set them. Do not
-improvise another route into the database — the token is deliberately scoped to
-one user's row-level permissions, and there is no supported path around it.
+```bash
+set -a; [ -f .env ] && . ./.env; set +a
+: "${COHESIUM_API_URL:?set COHESIUM_API_URL (env or .env)}"
+: "${COHESIUM_API_TOKEN:?set COHESIUM_API_TOKEN (env or .env)}"
+```
+
+Run that once per session from the repo root, then reuse the variables. Every
+request sends `Authorization: Bearer $COHESIUM_API_TOKEN`.
+
+Never echo the token, and never paste it into a file that is not gitignored.
+
+If either value is missing, stop and tell the operator to add them to `.env` or
+export them. Do not improvise another route into the database — the token is
+deliberately scoped to one user's row-level permissions, and there is no
+supported path around it.
 
 ## The loop
 
