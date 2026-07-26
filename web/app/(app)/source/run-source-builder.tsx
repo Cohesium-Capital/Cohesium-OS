@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { type Msp, type SourcingMode } from "@/lib/sourcing/prompts";
+import { KNOWN_LIMIT, type Msp, type SourcingMode } from "@/lib/sourcing/prompts";
 import { startRun, submitRunOutput } from "@/lib/runs/actions";
 import type { IngestOutcome } from "@/lib/modules/types";
 import { Button } from "@/components/ui/button";
@@ -46,12 +46,75 @@ function parseMspLines(text: string): Msp[] {
 
 type Outcome = IngestOutcome & { batchId?: string | null };
 
+// The prompt this page produces carries a do-not-research list of everything
+// already sourced, which is what stops a re-run rediscovering the same
+// companies. That list is capped: a pasted prompt is one-shot and cannot ask a
+// follow-up, and a model stops reliably honouring a name list well before the
+// context window fills. Past the cap the prompt says "plus N more" and the
+// model is on its own — duplicates then cost research time (ingest still
+// dedupes them, so never data quality).
+//
+// The runner has no cap because it queries instead. Surfacing the real count
+// here means the operator learns that at the point it starts to matter, rather
+// than from a doc they'd have to already know to read.
+function RunnerHint({ knownCount }: { knownCount: number }) {
+  const overCap = knownCount > KNOWN_LIMIT;
+  const nearCap = !overCap && knownCount >= KNOWN_LIMIT * 0.75;
+
+  return (
+    <div
+      className={`rounded-md border p-3 text-sm ${
+        overCap ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
+      }`}
+    >
+      <p>
+        {knownCount === 0 ? (
+          <>Nothing sourced yet, so this run has no exclusion list to carry.</>
+        ) : overCap ? (
+          <>
+            You hold <strong className="tabular-nums">{knownCount}</strong> companies, more than
+            the <strong className="tabular-nums">{KNOWN_LIMIT}</strong> this prompt can list. The
+            rest are given to the model as a count only, so some of your research budget will go
+            on companies you already have.
+          </>
+        ) : (
+          <>
+            This prompt will tell the model to skip the{" "}
+            <strong className="tabular-nums">{Math.min(knownCount, KNOWN_LIMIT)}</strong>{" "}
+            compan{knownCount === 1 ? "y" : "ies"} you already hold
+            {nearCap ? (
+              <>
+                {" "}
+                — close to the <span className="tabular-nums">{KNOWN_LIMIT}</span> it can carry
+              </>
+            ) : null}
+            .
+          </>
+        )}{" "}
+        <span className="text-muted-foreground">
+          Running sourcing through <strong className="text-foreground">Claude Code</strong> removes
+          that limit — it checks candidates against every company on file and researches only what
+          is new.
+        </span>{" "}
+        <Link href="/settings" className="text-foreground underline underline-offset-2">
+          Set it up in Settings
+        </Link>
+        .
+      </p>
+    </div>
+  );
+}
+
 export function RunSourceBuilder({
   msps,
   initialMspId,
+  knownCounts,
 }: {
   msps: Msp[];
   initialMspId: string | null;
+  /** How many companies we already hold per kind — the pool the pasted
+   *  prompt's do-not-research list is drawn from, and capped at KNOWN_LIMIT. */
+  knownCounts: { msp: number; customer: number };
 }) {
   const [mode, setMode] = useState<SourcingMode>(
     initialMspId ? "find_customers_for_msps" : "research_msps",
@@ -150,6 +213,8 @@ export function RunSourceBuilder({
           </Button>
         </div>
       </div>
+
+      <RunnerHint knownCount={mode === "research_msps" ? knownCounts.msp : knownCounts.customer} />
 
       <Card data-tour="source-modes">
         <CardHeader>

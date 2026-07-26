@@ -10,6 +10,14 @@ export type SourcingMode =
 
 export type Msp = { id?: string; name: string; domain: string | null };
 
+// Cap on the do-not-research list embedded in a pasted prompt. The list has to
+// fit in a prompt an operator pastes into a chat window, and — the binding
+// limit — a model stops reliably honouring a name list long before the window
+// fills. Lives here rather than in the module so the Source page can show the
+// operator how close they are to it without pulling server code into the
+// browser bundle. The runner executor has no equivalent cap; it queries.
+export const KNOWN_LIMIT = 400;
+
 // A company the system has already researched. Rendered into the prompt as a
 // do-not-return list so a re-run spends its search budget on new companies
 // instead of rediscovering the ones we hold. mspName scopes the exclusion in

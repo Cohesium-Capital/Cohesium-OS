@@ -26,8 +26,8 @@ Two values:
 
 Load them at the start of every session, before the first request. An exported
 shell variable only exists in the terminal that exported it, so a session
-started from the desktop app or an IDE will not see one — read the repo's
-gitignored `.env` as the fallback:
+started from the desktop app or an IDE will not see one — fall back to a `.env`
+file in the working directory:
 
 ```bash
 set -a; [ -f .env ] && . ./.env; set +a
@@ -35,8 +35,8 @@ set -a; [ -f .env ] && . ./.env; set +a
 : "${COHESIUM_API_TOKEN:?set COHESIUM_API_TOKEN (env or .env)}"
 ```
 
-Run that once per session from the repo root, then reuse the variables. Every
-request sends `Authorization: Bearer $COHESIUM_API_TOKEN`.
+Run that once per session, then reuse the variables. Every request sends
+`Authorization: Bearer $COHESIUM_API_TOKEN`.
 
 Never echo the token, and never paste it into a file that is not gitignored.
 

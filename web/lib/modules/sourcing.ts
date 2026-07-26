@@ -3,6 +3,7 @@ import { SourcingPayloadSchema, type SourcingPayload } from "../contracts";
 import {
   buildPrompt,
   buildTemplateText,
+  KNOWN_LIMIT,
   type KnownOrg,
   type PromptParams,
 } from "../sourcing/prompts";
@@ -20,13 +21,10 @@ export type SourcingConfig = PromptParams & {
   targetMspId?: string | null;
 };
 
-// Cap on the do-not-research list. The list has to fit in a prompt the operator
-// pastes into a chat window, and a list long enough to crowd out the actual
-// instructions defeats the point. Truncation is stated in the prompt and is
-// only ever a cost (some duplicate research), never a correctness problem —
-// import-core's domain/name matching remains the backstop that keeps duplicates
-// out of the database.
-const KNOWN_LIMIT = 400;
+// KNOWN_LIMIT lives in ../sourcing/prompts so the Source page can surface it.
+// Truncation is stated in the prompt and is only ever a cost (some duplicate
+// research), never a correctness problem — import-core's domain/name matching
+// remains the backstop that keeps duplicates out of the database.
 
 // Read the companies previous runs already sourced, scoped to what this run is
 // actually researching:
