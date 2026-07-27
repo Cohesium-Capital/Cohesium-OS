@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --import tsx --test \"lib/**/*.test.ts\"",
-    "sync:skill": "tsx scripts/sync-skill.ts"
+    "sync:skill": "tsx scripts/sync-skill.ts",
+    "publish:skill": "node scripts/publish-skill.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
