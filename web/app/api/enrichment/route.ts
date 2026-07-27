@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { secretMatches } from "@/lib/auth/secret";
 
 // Write-back endpoint for the enrichment service (Clay). Clay POSTs enriched
 // rows here; we fill the contact and flip enrichment_status. Auth is optional:
@@ -27,17 +28,16 @@ function clean(v: string | null | undefined): string | null {
 }
 
 export async function POST(req: Request) {
-  const secret = process.env.ENRICHMENT_WEBHOOK_SECRET;
-  // Auth is optional for now: when the secret is unset, accept write-backs
-  // without a token (local/dev). When it is set (prod / teammates), require a
-  // matching Authorization: Bearer … or x-webhook-secret header.
-  if (secret) {
-    const header =
-      req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
-    const provided = header.replace(/^Bearer\s+/i, "");
-    if (provided !== secret) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  // FAIL CLOSED: this endpoint authorizes service-role writes to contacts, so
+  // a deployment that forgot to set the secret must reject everything rather
+  // than silently accept unauthenticated write-backs. (It used to allow the
+  // no-secret case for local dev — set ENRICHMENT_WEBHOOK_SECRET in
+  // .env.local instead.) Comparison is constant-time.
+  const header =
+    req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
+  const provided = header.replace(/^Bearer\s+/i, "");
+  if (!secretMatches(provided, process.env.ENRICHMENT_WEBHOOK_SECRET)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   let body: unknown;

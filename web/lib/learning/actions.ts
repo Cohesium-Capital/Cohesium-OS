@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth";
 import { currentWorkspaceId } from "@/lib/workspace/context";
 import { collectSignals, type LearningModule } from "./signals";
 import { analyzeModule } from "./analyze";
@@ -44,18 +45,21 @@ export async function runLearningNow(): Promise<string[]> {
 }
 
 export async function approveRule(ruleId: string): Promise<void> {
+  await requireUser();
   const supabase = await createClient();
   await activateRule(supabase, ruleId, await actor());
   revalidatePath("/settings");
 }
 
 export async function dropRule(ruleId: string, reason: string): Promise<void> {
+  await requireUser();
   const supabase = await createClient();
   await retireRule(supabase, ruleId, await actor(), reason || "retired by operator");
   revalidatePath("/settings");
 }
 
 export async function dismissRule(ruleId: string, reason: string): Promise<void> {
+  await requireUser();
   const supabase = await createClient();
   await rejectRule(supabase, ruleId, await actor(), reason || "rejected by operator");
   revalidatePath("/settings");

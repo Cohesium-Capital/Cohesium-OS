@@ -40,7 +40,14 @@ export async function setDisposition(input: {
 
   // An opt-out disposition IS the do-not-contact signal: record the active
   // suppression atomically with the verdict, not as a separate later step.
-  if (input.disposition === "opt_out") {
+  //
+  // Guarded on contact_id: an unmatched inbound reply legitimately has none
+  // (migration 028's nullable-parent case), and suppressions.contact_id is
+  // NOT NULL — inserting would throw AFTER the disposition update committed,
+  // leaving an opt-out verdict with no suppression and a confusing error.
+  // With no contact there is nobody to suppress; the verdict itself is the
+  // record.
+  if (input.disposition === "opt_out" && interaction.contact_id) {
     const { error: supError } = await supabase.from("suppressions").insert({
       contact_id: interaction.contact_id,
       reason: "opt_out",

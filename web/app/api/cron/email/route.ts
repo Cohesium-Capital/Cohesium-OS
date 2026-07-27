@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { secretMatches } from "@/lib/auth/secret";
 import { soleWorkspaceId } from "@/lib/workspace/resolve";
 import { emailIdentityFor, emailIdentityReady, envEmailIdentity } from "@/lib/send/identity";
 import { sendMail } from "@/lib/send/smtp";
@@ -100,7 +101,9 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const header = req.headers.get("authorization") ?? "";
   const token = searchParams.get("token") ?? header.replace(/^Bearer\s+/i, "");
-  if (!process.env.CRON_SECRET || token !== process.env.CRON_SECRET) {
+  // secretMatches fails closed when CRON_SECRET is unset and compares in
+  // constant time.
+  if (!secretMatches(token, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

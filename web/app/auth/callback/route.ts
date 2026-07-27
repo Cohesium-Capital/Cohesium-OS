@@ -6,7 +6,11 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
+  // Only a same-origin path may ride the redirect: "https://evil.com" or the
+  // "//evil.com" and "/\\evil.com" protocol-relative forms would bounce a
+  // just-authenticated user to another site (or crash URL parsing into a 500).
+  const rawNext = searchParams.get("next") ?? "/";
+  const next = rawNext.startsWith("/") && !/^\/[\\/]/.test(rawNext) ? rawNext : "/";
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
