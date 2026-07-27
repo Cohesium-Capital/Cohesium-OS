@@ -25,9 +25,21 @@ export type Workspace = {
 /** Every workspace the signed-in user belongs to, default first then by name. */
 export async function myWorkspaces(): Promise<Workspace[]> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Filter to THE CALLER'S OWN membership rows. RLS alone is not that filter:
+  // the workspace_members policy deliberately exposes every co-member's row in
+  // workspaces you belong to (that is what the Settings roster reads), so
+  // without this the switcher showed one entry PER MEMBER — four "Cohesium"s
+  // for a four-person workspace — and currentWorkspace() could pick up a
+  // CO-MEMBER's role and is_default instead of the caller's own.
   const { data, error } = await supabase
     .from("workspace_members")
     .select("role, is_default, workspaces(id, name)")
+    .eq("user_id", user.id)
     .order("is_default", { ascending: false });
   if (error) return [];
 
