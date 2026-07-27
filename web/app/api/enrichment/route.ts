@@ -28,16 +28,21 @@ function clean(v: string | null | undefined): string | null {
 }
 
 export async function POST(req: Request) {
-  // FAIL CLOSED: this endpoint authorizes service-role writes to contacts, so
-  // a deployment that forgot to set the secret must reject everything rather
-  // than silently accept unauthenticated write-backs. (It used to allow the
-  // no-secret case for local dev — set ENRICHMENT_WEBHOOK_SECRET in
-  // .env.local instead.) Comparison is constant-time.
-  const header =
-    req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
-  const provided = header.replace(/^Bearer\s+/i, "");
-  if (!secretMatches(provided, process.env.ENRICHMENT_WEBHOOK_SECRET)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Auth is OPT-IN, by the operator's explicit decision (2026-07-27): with
+  // ENRICHMENT_WEBHOOK_SECRET unset, write-backs are accepted with no token.
+  // The accepted trade: this endpoint updates contacts' enrichment fields via
+  // the service role, keyed by contact UUIDs — which do travel in the CSVs
+  // handed to Clay — so anyone holding such a file could rewrite those
+  // contacts' outreach addresses. Setting the env var turns the check on
+  // (constant-time; Authorization: Bearer or x-webhook-secret).
+  const secret = process.env.ENRICHMENT_WEBHOOK_SECRET;
+  if (secret) {
+    const header =
+      req.headers.get("authorization") ?? req.headers.get("x-webhook-secret") ?? "";
+    const provided = header.replace(/^Bearer\s+/i, "");
+    if (!secretMatches(provided, secret)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
   }
 
   let body: unknown;
