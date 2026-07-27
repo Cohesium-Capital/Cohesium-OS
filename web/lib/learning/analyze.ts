@@ -1,5 +1,4 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -17,20 +16,25 @@ import {
 } from "./rules";
 import { healthFor } from "./health";
 import { evidenceIsIndependent } from "./sessions";
+import { callModel, providerHint, resolveProvider } from "./provider";
 
 // The analyzer: read a batch of human corrections, propose prompt rules.
 //
-// This is the only place in the pipeline that spends the metered API rather
-// than the operator's subscription — deliberately, because it is small (a few
-// dozen short diffs, a few times a week) and because it is the one job that
-// cannot be a copy-paste step: nobody is going to paste their own edit history
-// into a chat window every night.
+// This is the only place in the pipeline that spends a metered API rather than
+// the operator's subscription — deliberately, because it is small (a few dozen
+// short diffs, a few times a week) and because it is the one job that cannot be
+// a copy-paste step: nobody is going to paste their own edit history into a chat
+// window every night.
+//
+// Which API is the operator's choice, not this file's: the model is named by
+// LEARNING_MODEL as provider/model and reached through lib/learning/provider.
+// The analyzer asks for JSON matching a schema and validates it here, so a
+// provider swap changes an env var rather than this code.
 //
 // The model proposes; it does not decide. Activation is gated on evidence
 // count in code below, every rule keeps its receipts, and a human can retire
 // any of them from Settings.
 
-const MODEL = "claude-opus-5";
 const MAX_TOKENS = 16_000;
 
 // Enough signals to see a pattern, few enough to keep one call cheap.
@@ -221,14 +225,14 @@ export async function analyzeModule(
     };
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = resolveProvider();
+  if (!provider) {
     return {
       module,
       signalsConsidered: signals.length,
       proposed: 0,
       autoActivated: 0,
-      skipped: "ANTHROPIC_API_KEY is not set — signals are being collected but not analyzed",
+      skipped: `${providerHint()} — corrections are being collected but not analyzed`,
     };
   }
 
@@ -236,7 +240,6 @@ export async function analyzeModule(
   const health = await healthFor(supabase, module);
   // A failing stage gets a replacement approach instead of another bullet.
   const strategyMode = Boolean(health?.needs_new_strategy);
-  const client = new Anthropic({ apiKey });
 
   const userPrompt = [
     `Stage: ${module}`,
@@ -258,27 +261,22 @@ export async function analyzeModule(
   let raw: string;
   let usage: { input_tokens: number; output_tokens: number } | null = null;
   try {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
+    const response = await callModel(provider, {
       system: strategyMode ? STRATEGY_SYSTEM : SYSTEM,
-      output_config: {
-        effort: "high",
-        format: { type: "json_schema", schema: OUTPUT_SCHEMA },
-      },
-      messages: [{ role: "user", content: userPrompt }],
+      user: userPrompt,
+      schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+      schemaName: "prompt_rule_proposals",
+      maxTokens: MAX_TOKENS,
     });
 
-    // A refusal is a successful HTTP response with no usable content — check it
-    // before reading content, or the parse below fails with a confusing error.
-    if (response.stop_reason === "refusal") {
+    if (response.refused) {
       await recordRun(supabase, {
         module,
         signals_considered: signals.length,
         proposed: 0,
         auto_activated: 0,
-        model: MODEL,
-        error: "analysis refused by safety classifiers",
+        model: provider.label,
+        error: "the model declined to analyze this batch",
         trigger,
       });
       return {
@@ -291,13 +289,10 @@ export async function analyzeModule(
     }
 
     usage = {
-      input_tokens: response.usage.input_tokens,
-      output_tokens: response.usage.output_tokens,
+      input_tokens: response.inputTokens ?? 0,
+      output_tokens: response.outputTokens ?? 0,
     };
-    raw = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
+    raw = response.text;
   } catch (e) {
     const message = e instanceof Error ? e.message : "unknown error";
     await recordRun(supabase, {
@@ -305,7 +300,7 @@ export async function analyzeModule(
       signals_considered: signals.length,
       proposed: 0,
       auto_activated: 0,
-      model: MODEL,
+      model: provider.label,
       error: message,
       trigger,
     });
@@ -320,7 +315,7 @@ export async function analyzeModule(
       signals_considered: signals.length,
       proposed: 0,
       auto_activated: 0,
-      model: MODEL,
+      model: provider.label,
       error: message,
       trigger,
       ...usage,
@@ -388,7 +383,7 @@ export async function analyzeModule(
         ? (health ? `${health.rejected} of ${health.judged} rejected when proposed` : null)
         : spread.reason,
       source: "analyzer",
-      created_by: `analyzer:${MODEL}`,
+      created_by: `analyzer:${provider.label}`,
       activated_at: qualifies ? new Date().toISOString() : null,
     });
 
@@ -422,7 +417,7 @@ export async function analyzeModule(
     signals_considered: signals.length,
     proposed: rows.length,
     auto_activated: autoActivated,
-    model: MODEL,
+    model: provider.label,
     trigger,
     ...usage,
   });

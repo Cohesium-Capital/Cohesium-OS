@@ -79,12 +79,14 @@ export function PromptLearning({
   health,
   unprocessed,
   analyzerConfigured,
+  analyzerLabel,
 }: {
   rules: RuleRow[];
   runs: LearningRunRow[];
   health: StageHealthRow[];
   unprocessed: number;
   analyzerConfigured: boolean;
+  analyzerLabel: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -151,12 +153,18 @@ export function PromptLearning({
           </Button>
         </div>
 
-        {!analyzerConfigured && (
+        {analyzerConfigured ? (
+          <p className="text-xs text-muted-foreground">
+            Analyzing with <span className="font-mono">{analyzerLabel}</span>. Change it with{" "}
+            <span className="font-mono">LEARNING_MODEL</span> (provider/model) and{" "}
+            <span className="font-mono">LEARNING_API_KEY</span>.
+          </p>
+        ) : (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-            <strong className="text-amber-600">ANTHROPIC_API_KEY is not set.</strong>{" "}
-            Corrections are still being collected and nothing is lost — they queue up and get
-            analyzed the first time the key is present. Only the analysis step needs the API;
-            the research prompts stay on your subscription.
+            <strong className="text-amber-600">No analysis model configured.</strong>{" "}
+            {analyzerLabel}. Corrections are still being collected and nothing is lost — they
+            queue up and get analyzed the first time a key is present. Only this step needs a
+            metered API; the research prompts stay on your subscription.
           </p>
         )}
 

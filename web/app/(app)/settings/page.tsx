@@ -9,6 +9,7 @@ import {
   type StageHealthRow,
 } from "./prompt-learning";
 import { RunnerSetup } from "./runner-setup";
+import { providerHint, resolveProvider } from "@/lib/learning/provider";
 import { RUNNER_SKILL, RUNNER_REPO_URL, runnerEnvTemplate } from "@/lib/runner/skill";
 
 // Settings: per-module eval-gate config (error threshold, sample rate), the
@@ -88,7 +89,8 @@ export default async function SettingsPage() {
         runs={(learningRuns ?? []) as LearningRunRow[]}
         health={(health ?? []) as StageHealthRow[]}
         unprocessed={unprocessed ?? 0}
-        analyzerConfigured={Boolean(process.env.ANTHROPIC_API_KEY)}
+        analyzerConfigured={Boolean(resolveProvider())}
+        analyzerLabel={resolveProvider()?.label ?? providerHint()}
       />
       <ApiTokens tokens={(tokens ?? []) as ApiTokenRow[]} />
     </div>
