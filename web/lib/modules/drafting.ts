@@ -8,7 +8,7 @@ import {
   type TrackKind,
 } from "../drafting/prompt";
 import { storeDrafts } from "../drafting/import-core";
-import { findExampleLeaks, describeLeaks } from "../drafting/example-leak";
+import { exampleLeakDetector, describeLeaks } from "../drafting/example-leak";
 import { learnedRuleBlock } from "../learning/rules";
 import { workspaceProfile } from "../workspace/profile";
 import { DEFAULT_PROFILE, type WorkspaceProfile } from "../workspace/identity";
@@ -116,6 +116,9 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
     // positive that binned a good draft would cost more than the thing it
     // guards against, and every draft is human-reviewed before it sends anyway.
     const byId = new Map((config.contacts ?? []).map((c) => [c.contact_id, c]));
+    // Built once for the whole batch — the example and its baseline do not vary
+    // per draft.
+    const detectLeaks = exampleLeakDetector(profileOf(config), trackOf(config));
     const leakNotes: string[] = [];
     for (const d of output.drafts) {
       const c = byId.get(d.contact_id);
@@ -132,9 +135,7 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
       ]
         .filter(Boolean)
         .join(" ");
-      const note = describeLeaks(
-        findExampleLeaks(d.body, profileOf(config), context, trackOf(config)),
-      );
+      const note = describeLeaks(detectLeaks(d.body, context));
       if (note) leakNotes.push(`${c.full_name ?? d.contact_id}: ${note}`);
     }
 
