@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { mintToken } from "./token-hash";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 // Create and revoke runner API tokens. Runs as the signed-in user, and the
 // api_tokens RLS policy is owner-only, so a member can neither read nor mint a
@@ -24,6 +25,9 @@ export async function createApiToken(input: {
   if (!name) throw new Error("Give the token a name so you can recognise it later.");
 
   const supabase = await createClient();
+  // A token acts inside one workspace: the one it was minted from. The runner
+  // authenticating with it writes there and nowhere else.
+  const workspaceId = await currentWorkspaceId();
   const { raw, hash, prefix } = await mintToken();
 
   const expiresAt =
@@ -34,6 +38,7 @@ export async function createApiToken(input: {
   const { data, error } = await supabase
     .from("api_tokens")
     .insert({
+      workspace_id: workspaceId,
       name,
       token_hash: hash,
       prefix,

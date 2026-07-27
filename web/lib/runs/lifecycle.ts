@@ -142,7 +142,10 @@ export async function createRun(
   let config = opts.config;
   let notes: string[] = [];
   if (mod.prepareConfig) {
-    const prepared = await mod.prepareConfig(supabase, config, { executor });
+    const prepared = await mod.prepareConfig(supabase, config, {
+      executor,
+      workspaceId: opts.workspaceId,
+    });
     config = prepared.config;
     notes = prepared.notes ?? [];
   }
@@ -280,6 +283,7 @@ export async function ingestRun(
   const { data: s } = await supabase
     .from("settings")
     .select("sample_rate")
+    .eq("workspace_id", run.workspace_id)
     .eq("module", run.module)
     .maybeSingle();
   const sampleRate = s?.sample_rate ?? 1;

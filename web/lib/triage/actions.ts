@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
+import { workspaceOfContact } from "@/lib/workspace/resolve";
 
 // Triage actions for the keyboard reply queue. A triager reads each reply
 // verbatim and marks a disposition; opt-outs write a suppression in the same
@@ -139,7 +140,13 @@ export async function logInteraction(input: {
 
   // disposition stays null so the logged conversation enters the triage queue
   // like any captured reply.
+  // From the contact rather than the current cookie: a logged conversation
+  // belongs to the workspace that owns the person it was with.
+  const workspaceId = await workspaceOfContact(supabase, input.contactId);
+  if (!workspaceId) throw new Error("That contact no longer exists.");
+
   const { error } = await supabase.from("interactions").insert({
+    workspace_id: workspaceId,
     contact_id: input.contactId,
     channel: input.channel,
     occurred_at: new Date().toISOString(),

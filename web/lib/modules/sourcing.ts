@@ -96,7 +96,7 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
   async prepareConfig(supabase, config, ctx) {
     // Rules learned from graded mistakes and review deletions ride every
     // sourcing prompt, on both executors.
-    const learned = await learnedRuleBlock(supabase, "sourcing");
+    const learned = await learnedRuleBlock(supabase, "sourcing", ctx.workspaceId);
     const withRules = learned.block
       ? { ...config, learnedRules: learned.block }
       : config;

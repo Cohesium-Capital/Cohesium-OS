@@ -144,8 +144,12 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
 
   // Learned rules append to the template, so a rule change re-hashes into a
   // new prompt_version exactly like an edit to the template itself would.
-  async prepareConfig(supabase, config) {
-    const { block, rules } = await learnedRuleBlock(supabase, "personalization");
+  async prepareConfig(supabase, config, ctx) {
+    const { block, rules } = await learnedRuleBlock(
+      supabase,
+      "personalization",
+      ctx.workspaceId,
+    );
     if (!block) return { config };
     return {
       config: { ...config, learnedRules: block },
@@ -176,7 +180,14 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
 
   async ingest(supabase, output, ctx: IngestContext): Promise<IngestOutcome> {
     const messages: string[] = [];
-    const rejects: { run_id: string | null; payload: unknown; reason: string }[] = [];
+    // rejected_ingest is a root table (its run_id is nullable, so it cannot
+    // inherit), which means every reject carries the run's workspace itself.
+    const rejects: {
+      workspace_id: string;
+      run_id: string | null;
+      payload: unknown;
+      reason: string;
+    }[] = [];
 
     // Evidence gate — defense in depth behind parse(): a real hook without a
     // source_url violates the contract regardless of ctx.requireEvidence.
@@ -186,7 +197,7 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
     for (const h of output.hooks) {
       if (h.kind !== "none" && !(h.source_url && h.source_url.trim())) {
         rejected++;
-        rejects.push({ run_id: ctx.runId, payload: h, reason: "hook has no source_url (evidence)" });
+        rejects.push({ workspace_id: ctx.workspaceId, run_id: ctx.runId, payload: h, reason: "hook has no source_url (evidence)" });
         continue;
       }
       candidates.push(h);
@@ -206,7 +217,7 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
       duplicates++;
       const discarded = seen.kind === "none" && h.kind !== "none" ? seen : h;
       if (discarded === seen) byContact.set(h.contact_id, h);
-      rejects.push({ run_id: ctx.runId, payload: discarded, reason: "duplicate contact_id in paste" });
+      rejects.push({ workspace_id: ctx.workspaceId, run_id: ctx.runId, payload: discarded, reason: "duplicate contact_id in paste" });
     }
     const deduped = [...byContact.values()];
     if (duplicates) messages.push(`${duplicates} duplicate contact_id row(s) in paste discarded`);

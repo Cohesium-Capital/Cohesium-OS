@@ -209,12 +209,16 @@ export type AnalyzeResult = {
 export async function analyzeModule(
   supabase: SupabaseClient,
   module: LearningModule,
+  workspaceId: string,
   opts: { trigger?: "cron" | "manual"; minSignals?: number } = {},
 ): Promise<AnalyzeResult> {
   const trigger = opts.trigger ?? "cron";
   const minSignals = opts.minSignals ?? 4;
 
-  const signals = await unprocessedSignals(supabase, module, BATCH);
+  // Everything below — the evidence read, the rules compared against, the health
+  // that decides strategy mode, and the rows written — is one workspace's. A
+  // lesson learned from one firm's corrections must never enter another's prompt.
+  const signals = await unprocessedSignals(supabase, module, workspaceId, BATCH);
   if (signals.length < minSignals) {
     return {
       module,
@@ -236,8 +240,8 @@ export async function analyzeModule(
     };
   }
 
-  const existing = await activeRules(supabase, module);
-  const health = await healthFor(supabase, module);
+  const existing = await activeRules(supabase, module, workspaceId);
+  const health = await healthFor(supabase, module, workspaceId);
   // A failing stage gets a replacement approach instead of another bullet.
   const strategyMode = Boolean(health?.needs_new_strategy);
 
@@ -270,7 +274,7 @@ export async function analyzeModule(
     });
 
     if (response.refused) {
-      await recordRun(supabase, {
+      await recordRun(supabase, workspaceId, {
         module,
         signals_considered: signals.length,
         proposed: 0,
@@ -295,7 +299,7 @@ export async function analyzeModule(
     raw = response.text;
   } catch (e) {
     const message = e instanceof Error ? e.message : "unknown error";
-    await recordRun(supabase, {
+    await recordRun(supabase, workspaceId, {
       module,
       signals_considered: signals.length,
       proposed: 0,
@@ -310,7 +314,7 @@ export async function analyzeModule(
   const parsed = ResultSchema.safeParse(safeJson(raw));
   if (!parsed.success) {
     const message = `analyzer returned unusable output: ${parsed.error.issues[0]?.message ?? "parse failed"}`;
-    await recordRun(supabase, {
+    await recordRun(supabase, workspaceId, {
       module,
       signals_considered: signals.length,
       proposed: 0,
@@ -362,6 +366,7 @@ export async function analyzeModule(
     }
 
     rows.push({
+      workspace_id: workspaceId,
       module,
       kind: strategyMode ? "strategy" : "rule",
       // The rejection rate this experiment is trying to beat. Without it,
@@ -398,6 +403,7 @@ export async function analyzeModule(
           retire_reason: `superseded: ${p.rule_text.trim()}`,
           decided_by: "analyzer",
         })
+        .eq("workspace_id", workspaceId)
         .eq("id", p.supersedes_rule_id);
       activeCount = Math.max(0, activeCount - 1);
     }
@@ -412,7 +418,7 @@ export async function analyzeModule(
   // the two should re-analyze, not silently drop the batch.
   await markProcessed(supabase, signals.map((s) => s.id));
 
-  await recordRun(supabase, {
+  await recordRun(supabase, workspaceId, {
     module,
     signals_considered: signals.length,
     proposed: rows.length,
@@ -454,7 +460,8 @@ function safeJson(text: string): unknown {
 
 async function recordRun(
   supabase: SupabaseClient,
+  workspaceId: string,
   row: Record<string, unknown>,
 ): Promise<void> {
-  await supabase.from("learning_runs").insert(row);
+  await supabase.from("learning_runs").insert({ ...row, workspace_id: workspaceId });
 }

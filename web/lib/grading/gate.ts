@@ -26,14 +26,18 @@ export async function computeGate(
 ): Promise<GateMetrics> {
   const { data: batch } = await supabase
     .from("batches")
-    .select("id, module, gate_status")
+    .select("id, module, gate_status, workspace_id")
     .eq("id", batchId)
     .single();
   if (!batch) throw new Error(`batch ${batchId} not found`);
 
+  // Settings are keyed (workspace_id, module) — filtering on module alone would
+  // match one row per workspace and maybeSingle would then return nothing,
+  // silently falling back to the defaults below.
   const { data: s } = await supabase
     .from("settings")
     .select("gate_threshold, sample_rate, min_sample_size")
+    .eq("workspace_id", batch.workspace_id)
     .eq("module", batch.module)
     .maybeSingle();
   const threshold = s?.gate_threshold ?? 0.2;

@@ -22,8 +22,15 @@ export type StageHealth = {
 
 export async function stageHealth(
   supabase: SupabaseClient,
+  workspaceId: string,
 ): Promise<StageHealth[]> {
-  const { data, error } = await supabase.from("stage_health").select("*");
+  // stage_health aggregates per workspace (migration 030); without the filter a
+  // two-tenant install would read one row per workspace per module and the
+  // `find` below would pick whichever came first.
+  const { data, error } = await supabase
+    .from("stage_health")
+    .select("*")
+    .eq("workspace_id", workspaceId);
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as StageHealth[];
 }
@@ -31,9 +38,10 @@ export async function stageHealth(
 export async function healthFor(
   supabase: SupabaseClient,
   module: LearningModule,
+  workspaceId: string,
 ): Promise<StageHealth | null> {
   try {
-    const all = await stageHealth(supabase);
+    const all = await stageHealth(supabase, workspaceId);
     return all.find((h) => h.module === module) ?? null;
   } catch {
     // Health is an input to how the loop behaves, never a precondition for it

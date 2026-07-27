@@ -50,10 +50,12 @@ export const MAX_ACTIVE_RULES = 8;
 export async function activeRules(
   supabase: SupabaseClient,
   module: LearningModule,
+  workspaceId: string,
 ): Promise<PromptRule[]> {
   const { data, error } = await supabase
     .from("prompt_rules")
     .select("*")
+    .eq("workspace_id", workspaceId)
     .eq("module", module)
     .eq("status", "active")
     .order("activated_at", { ascending: true });
@@ -94,10 +96,11 @@ export function renderRuleBlock(rules: PromptRule[]): string {
 export async function learnedRuleBlock(
   supabase: SupabaseClient,
   module: LearningModule,
+  workspaceId: string,
   scope: Record<string, unknown> = {},
 ): Promise<{ block: string; rules: PromptRule[] }> {
   try {
-    const all = await activeRules(supabase, module);
+    const all = await activeRules(supabase, module, workspaceId);
     const scoped = rulesForScope(all, scope);
     return { block: renderRuleBlock(scoped), rules: scoped };
   } catch {

@@ -76,7 +76,7 @@ export interface RunModule<Config = Record<string, unknown>, Output = unknown> {
   prepareConfig?(
     supabase: SupabaseClient,
     config: Config,
-    ctx: { executor: Executor },
+    ctx: { executor: Executor; workspaceId: string },
   ): Promise<{ config: Config; notes?: string[] }>;
   /**
    * The static instruction portion of the rendered prompt, volatile config

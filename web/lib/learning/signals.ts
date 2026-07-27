@@ -65,12 +65,18 @@ function since(days = LOOKBACK_DAYS): string {
  * operator read the draft, disagreed, and wrote what it should have said. The
  * before/after pair is exactly the lesson.
  */
-async function collectDraftEdits(supabase: SupabaseClient): Promise<LearningSignal[]> {
+async function collectDraftEdits(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<LearningSignal[]> {
+  // touch_edits has no workspace_id of its own — it inherits from its touch —
+  // so the scope comes from an inner join on the parent.
   const { data } = await supabase
     .from("touch_edits")
     .select(
-      "id, field, previous_value, new_value, created_at, touches(channel, track, prompt_version_id, run_id)",
+      "id, field, previous_value, new_value, created_at, touches!inner(channel, track, prompt_version_id, run_id, workspace_id)",
     )
+    .eq("touches.workspace_id", workspaceId)
     .gte("created_at", since())
     .order("created_at", { ascending: false })
     .limit(200);
@@ -114,10 +120,14 @@ async function collectDraftEdits(supabase: SupabaseClient): Promise<LearningSign
  * saying what right looks like — but a cluster of them on one channel is still
  * a signal, and the delete_reason sometimes carries the why.
  */
-async function collectRedrafts(supabase: SupabaseClient): Promise<LearningSignal[]> {
+async function collectRedrafts(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<LearningSignal[]> {
   const { data } = await supabase
     .from("touches")
     .select("id, channel, track, body, delete_reason, deleted_at, prompt_version_id, run_id")
+    .eq("workspace_id", workspaceId)
     .not("deleted_at", "is", null)
     .eq("delete_reason", "redraft")
     .gte("deleted_at", since())
@@ -150,10 +160,14 @@ async function collectRedrafts(supabase: SupabaseClient): Promise<LearningSignal
  * Rejected hooks, with the category the verifier chose. 'generic' and
  * 'hallucinated' are the two the personalization prompt can actually act on.
  */
-async function collectHookRejects(supabase: SupabaseClient): Promise<LearningSignal[]> {
+async function collectHookRejects(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<LearningSignal[]> {
   const { data } = await supabase
     .from("hooks")
     .select("id, text, kind, track, reject_category, verified_at, run_id, prompt_version_id")
+    .eq("workspace_id", workspaceId)
     .eq("status", "rejected")
     .gte("verified_at", since())
     .limit(100);
@@ -186,10 +200,17 @@ async function collectHookRejects(supabase: SupabaseClient): Promise<LearningSig
  * Graded corrections on sourced records: the field, what the model produced,
  * what the human replaced it with, and the error category.
  */
-async function collectGradeCorrections(supabase: SupabaseClient): Promise<LearningSignal[]> {
+async function collectGradeCorrections(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<LearningSignal[]> {
+  // Like touch_edits, a grade inherits its workspace from the contact it grades.
   const { data } = await supabase
     .from("grades")
-    .select("id, module, field, verdict, correction, previous_value, error_category, created_at, run_id")
+    .select(
+      "id, module, field, verdict, correction, previous_value, error_category, created_at, run_id, contacts!inner(workspace_id)",
+    )
+    .eq("contacts.workspace_id", workspaceId)
     .in("verdict", ["wrong", "missing"])
     .gte("created_at", since())
     .limit(200);
@@ -223,10 +244,14 @@ async function collectGradeCorrections(supabase: SupabaseClient): Promise<Learni
  * reason ("wrong company size", "not a decision maker") is a sourcing brief
  * that the prompt is currently missing.
  */
-async function collectContactDeletes(supabase: SupabaseClient): Promise<LearningSignal[]> {
+async function collectContactDeletes(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<LearningSignal[]> {
   const { data } = await supabase
     .from("contacts")
     .select("id, title, persona, delete_reason, deleted_at, run_id, organizations(name, kind)")
+    .eq("workspace_id", workspaceId)
     .not("deleted_at", "is", null)
     .not("delete_reason", "is", null)
     .gte("deleted_at", since())
@@ -265,20 +290,28 @@ async function collectContactDeletes(supabase: SupabaseClient): Promise<Learning
  * landed; conflicts on (ref_table, ref_id, kind) are ignored, which is what
  * makes this safe to run on every cron tick.
  */
-export async function collectSignals(supabase: SupabaseClient): Promise<number> {
+export async function collectSignals(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<number> {
   const batches = await Promise.all([
-    collectDraftEdits(supabase),
-    collectRedrafts(supabase),
-    collectHookRejects(supabase),
-    collectGradeCorrections(supabase),
-    collectContactDeletes(supabase),
+    collectDraftEdits(supabase, workspaceId),
+    collectRedrafts(supabase, workspaceId),
+    collectHookRejects(supabase, workspaceId),
+    collectGradeCorrections(supabase, workspaceId),
+    collectContactDeletes(supabase, workspaceId),
   ]);
-  const rows = batches.flat();
+  const rows = batches.flat().map((r) => ({ ...r, workspace_id: workspaceId }));
   if (!rows.length) return 0;
 
+  // The conflict key is (workspace_id, ref_table, ref_id, kind): the same
+  // correction in two workspaces is two lessons, not a duplicate.
   const { data, error } = await supabase
     .from("learning_signals")
-    .upsert(rows, { onConflict: "ref_table,ref_id,kind", ignoreDuplicates: true })
+    .upsert(rows, {
+      onConflict: "workspace_id,ref_table,ref_id,kind",
+      ignoreDuplicates: true,
+    })
     .select("id");
   if (error) throw new Error(`Signal collection failed: ${error.message}`);
   return (data ?? []).length;
@@ -288,11 +321,13 @@ export async function collectSignals(supabase: SupabaseClient): Promise<number> 
 export async function unprocessedSignals(
   supabase: SupabaseClient,
   module: LearningModule,
+  workspaceId: string,
   limit = 80,
 ): Promise<(LearningSignal & { id: string })[]> {
   const { data, error } = await supabase
     .from("learning_signals")
     .select("*")
+    .eq("workspace_id", workspaceId)
     .eq("module", module)
     .is("processed_at", null)
     .order("occurred_at", { ascending: true })

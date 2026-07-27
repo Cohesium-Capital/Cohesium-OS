@@ -18,7 +18,7 @@ export async function computeHookGate(
 ): Promise<GateMetrics> {
   const { data: batch } = await supabase
     .from("batches")
-    .select("id, gate_status")
+    .select("id, gate_status, workspace_id")
     .eq("id", batchId)
     .single();
   if (!batch) throw new Error(`batch ${batchId} not found`);
@@ -26,6 +26,7 @@ export async function computeHookGate(
   const { data: s } = await supabase
     .from("settings")
     .select("gate_threshold, sample_rate, min_sample_size")
+    .eq("workspace_id", batch.workspace_id)
     .eq("module", "personalization")
     .maybeSingle();
   // Fallbacks mirror the seeded personalization row (0.25 per the redesign's

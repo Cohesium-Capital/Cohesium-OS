@@ -49,10 +49,10 @@ create or replace function public.user_role() returns text
 $$;
 
 create table public.organizations (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id              uuid primary key default gen_random_uuid(),
     name            text not null,
-    domain          text unique,
+    domain          text,
     kind            text,
     is_acq_target   boolean default false,
     current_msp_id  uuid references public.organizations(id),
@@ -66,7 +66,7 @@ create table public.organizations (
 );
 
 create table public.batches (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id          uuid primary key default gen_random_uuid(),
     module      text not null,
     label       text,
@@ -75,7 +75,7 @@ create table public.batches (
 );
 
 create table public.prompt_versions (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id            uuid primary key default gen_random_uuid(),
     module        text not null,
     version       int not null,
@@ -85,12 +85,12 @@ create table public.prompt_versions (
     created_by    text,
     notes         text,
     created_at    timestamptz not null default now(),
-    unique (module, version),
-    unique (module, template_hash)
+    unique (workspace_id, module, version),
+    unique (workspace_id, module, template_hash)
 );
 
 create table public.api_tokens (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id         uuid primary key default gen_random_uuid(),
     name       text not null,
     token_hash text not null unique,
@@ -102,7 +102,7 @@ create table public.api_tokens (
 );
 
 create table public.runs (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id                uuid primary key default gen_random_uuid(),
     module            text not null,
     prompt_version_id uuid references public.prompt_versions(id),
@@ -125,7 +125,7 @@ create table public.runs (
 );
 
 create table public.contacts (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id                uuid primary key default gen_random_uuid(),
     organization_id   uuid not null references public.organizations(id) on delete cascade,
     full_name         text,
@@ -151,15 +151,16 @@ create table public.contacts (
 );
 
 create table public.settings (
-    workspace_id uuid references public.workspaces(id),
-    module          text primary key,
+    workspace_id uuid not null references public.workspaces(id),
+    module          text not null,
     gate_threshold  numeric,
     sample_rate     numeric not null default 1,
-    min_sample_size int
+    min_sample_size int,
+    primary key (workspace_id, module)
 );
 
 create table public.rejected_ingest (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id         uuid primary key default gen_random_uuid(),
     run_id     uuid references public.runs(id),
     payload    jsonb not null,
@@ -168,7 +169,7 @@ create table public.rejected_ingest (
 );
 
 create table public.sourcing_runs (
-    workspace_id uuid references public.workspaces(id),
+    workspace_id uuid not null references public.workspaces(id),
     id                 uuid primary key default gen_random_uuid(),
     kind               text not null,
     target_msp_id      uuid,
@@ -181,6 +182,9 @@ create table public.sourcing_runs (
     created_at         timestamptz not null default now(),
     run_id             uuid
 );
+
+create unique index organizations_workspace_domain_key
+  on public.organizations (workspace_id, domain) where domain is not null;
 
 -- RLS mirroring production: data tables are member-gated, api_tokens is
 -- owner-only. The api_tokens policy is what proves the connection is genuinely

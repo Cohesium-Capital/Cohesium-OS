@@ -21,12 +21,13 @@ export async function importSourced(input: {
 }): Promise<ImportReport> {
   const user = await requireUser();
   const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
 
   const label = `${input.kind === "msp" ? "MSPs" : "Customers"} import · ${new Date().toISOString().slice(0, 10)}`;
 
   const { data: batch } = await supabase
     .from("batches")
-    .insert({ module: "sourcing", label })
+    .insert({ workspace_id: workspaceId, module: "sourcing", label })
     .select("id")
     .single();
   const batchId = (batch?.id as string | null) ?? null;
@@ -36,6 +37,7 @@ export async function importSourced(input: {
     const { data: run } = await supabase
       .from("runs")
       .insert({
+        workspace_id: workspaceId,
         module: "sourcing",
         batch_id: batchId,
         executor: "copy_paste",
@@ -51,12 +53,13 @@ export async function importSourced(input: {
   const { data: s } = await supabase
     .from("settings")
     .select("sample_rate")
+    .eq("workspace_id", workspaceId)
     .eq("module", "sourcing")
     .maybeSingle();
   const sampleRate = s?.sample_rate ?? 1;
 
   const report = await importPayload(supabase, {
-    workspaceId: await currentWorkspaceId(),
+    workspaceId,
     ...input,
     createdBy: user.id,
     batchId,

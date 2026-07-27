@@ -29,11 +29,13 @@ const COOLDOWN_MINUTES = 60;
 async function recentlyAnalyzed(
   supabase: SupabaseClient,
   moduleKey: LearningModule,
+  workspaceId: string,
 ): Promise<boolean> {
   const cutoff = new Date(Date.now() - COOLDOWN_MINUTES * 60 * 1000).toISOString();
   const { count } = await supabase
     .from("learning_runs")
     .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
     .eq("module", moduleKey)
     .gte("created_at", cutoff);
   return (count ?? 0) > 0;
@@ -47,20 +49,25 @@ async function recentlyAnalyzed(
 export async function learningTick(
   supabase: SupabaseClient,
   moduleKey: LearningModule,
+  workspaceId: string,
 ): Promise<void> {
   try {
-    await collectSignals(supabase);
+    await collectSignals(supabase, workspaceId);
 
-    if (await recentlyAnalyzed(supabase, moduleKey)) return;
+    if (await recentlyAnalyzed(supabase, moduleKey, workspaceId)) return;
 
     const { count } = await supabase
       .from("learning_signals")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("module", moduleKey)
       .is("processed_at", null);
     if ((count ?? 0) < MIN_SIGNALS) return;
 
-    await analyzeModule(supabase, moduleKey, { trigger: "cron", minSignals: MIN_SIGNALS });
+    await analyzeModule(supabase, moduleKey, workspaceId, {
+      trigger: "cron",
+      minSignals: MIN_SIGNALS,
+    });
   } catch {
     // Intentionally silent: the operator's ingest already succeeded, and the
     // next tick or the daily cron will pick the work up.

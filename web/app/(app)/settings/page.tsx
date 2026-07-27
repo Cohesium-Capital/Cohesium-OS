@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
 import { ApiTokens, type ApiTokenRow } from "./api-tokens";
 import {
@@ -19,6 +20,9 @@ import { RUNNER_SKILL, RUNNER_REPO_URL, runnerEnvTemplate } from "@/lib/runner/s
 
 export default async function SettingsPage() {
   const supabase = await createClient();
+  // Settings, prompts and learned rules are all per workspace: this page shows
+  // the one on screen, not the union of every workspace the user belongs to.
+  const workspaceId = await currentWorkspaceId();
 
   // Build the runner's .env from the host actually serving this page, so the
   // value handed to a collaborator is already right for prod, preview or local
@@ -31,11 +35,13 @@ export default async function SettingsPage() {
   const { data: settings } = await supabase
     .from("settings")
     .select("module, gate_threshold, sample_rate, min_sample_size")
+    .eq("workspace_id", workspaceId)
     .order("module");
 
   const { data: prompts } = await supabase
     .from("prompt_versions")
     .select("id, module, version, prompt, notes, active, created_at, created_by")
+    .eq("workspace_id", workspaceId)
     .order("module")
     .order("version", { ascending: false });
 
@@ -52,18 +58,21 @@ export default async function SettingsPage() {
       supabase
         .from("prompt_rules")
         .select("*")
+        .eq("workspace_id", workspaceId)
         .in("status", ["active", "proposed"])
         .order("created_at", { ascending: false }),
       supabase
         .from("learning_runs")
         .select("*")
+        .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(5),
       supabase
         .from("learning_signals")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .is("processed_at", null),
-      supabase.from("stage_health").select("*"),
+      supabase.from("stage_health").select("*").eq("workspace_id", workspaceId),
     ]);
 
   return (

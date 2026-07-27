@@ -52,11 +52,11 @@ export async function submitRunOutput(input: {
   // throws — the ingest above has already succeeded either way.
   const { data: run } = await supabase
     .from("runs")
-    .select("module")
+    .select("module, workspace_id")
     .eq("id", input.runId)
     .maybeSingle();
-  if (run?.module) {
-    await learningTick(supabase, run.module as LearningModule);
+  if (run?.module && run?.workspace_id) {
+    await learningTick(supabase, run.module as LearningModule, run.workspace_id as string);
   }
 
   return outcome;

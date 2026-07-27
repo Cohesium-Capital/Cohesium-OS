@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { collectSignals, type LearningModule } from "./signals";
 import { analyzeModule } from "./analyze";
 import { activateRule, rejectRule, retireRule } from "./rules";
@@ -21,11 +22,12 @@ async function actor(): Promise<string> {
 /** Collect signals and analyze every module now. Returns a human summary. */
 export async function runLearningNow(): Promise<string[]> {
   const supabase = await createClient();
-  const collected = await collectSignals(supabase);
+  const workspaceId = await currentWorkspaceId();
+  const collected = await collectSignals(supabase, workspaceId);
 
   const results = [];
   for (const moduleKey of MODULES) {
-    results.push(await analyzeModule(supabase, moduleKey, { trigger: "manual" }));
+    results.push(await analyzeModule(supabase, moduleKey, workspaceId, { trigger: "manual" }));
   }
 
   revalidatePath("/settings");
@@ -74,9 +76,11 @@ export async function submitPromptFeedback(
   if (text.length < 4) throw new Error("Say a little more than that.");
 
   const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
   const who = await actor();
 
   const { error } = await supabase.from("learning_signals").insert({
+    workspace_id: workspaceId,
     module: moduleKey,
     kind: "operator_note",
     scope: {},
@@ -94,7 +98,7 @@ export async function submitPromptFeedback(
   // Analyze this stage right away: feedback typed into a box should visibly do
   // something, not sit until 14:00 UTC tomorrow. minSignals 1 because a
   // deliberate note is worth reading on its own.
-  const result = await analyzeModule(supabase, moduleKey, {
+  const result = await analyzeModule(supabase, moduleKey, workspaceId, {
     trigger: "manual",
     minSignals: 1,
   });
@@ -119,6 +123,7 @@ export async function addRule(
   if (!text) throw new Error("A rule needs text.");
   const supabase = await createClient();
   const { error } = await supabase.from("prompt_rules").insert({
+    workspace_id: await currentWorkspaceId(),
     module,
     rule_text: text,
     status: "active",

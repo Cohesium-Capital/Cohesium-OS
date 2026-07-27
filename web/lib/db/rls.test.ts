@@ -57,13 +57,16 @@ before(async () => {
         USER_B,
       ]);
       await c.query(
-        `insert into public.api_tokens (name, token_hash, prefix, owner_id)
-         values ('a','hash-a','cin_aaaa',$1), ('b','hash-b','cin_bbbb',$2)`,
-        [USER_A, USER_B],
-      );
-      await c.query(
         `insert into public.workspace_members (workspace_id, user_id, role, is_default)
          values ($1,$2,'admin',true), ($3,$4,'admin',true)`,
+        [WORKSPACE_A, USER_A, WORKSPACE_B, USER_B],
+      );
+      // Every seeded row names its workspace: migration 031 removed the
+      // defaults, so an omission here is a NOT NULL violation exactly as it
+      // would be in production.
+      await c.query(
+        `insert into public.api_tokens (workspace_id, name, token_hash, prefix, owner_id)
+         values ($1,'a','hash-a','cin_aaaa',$2), ($3,'b','hash-b','cin_bbbb',$4)`,
         [WORKSPACE_A, USER_A, WORKSPACE_B, USER_B],
       );
     } finally {
@@ -200,6 +203,31 @@ describe("workspace isolation", () => {
         }),
       /row-level security|violates/i,
       "WITH CHECK must refuse a cross-workspace insert",
+    );
+  });
+
+  test("a write that names no workspace fails instead of landing somewhere", async (t) => {
+    if (unavailable(t)) return;
+
+    // The guarantee migration 031 bought. While the bridge defaults existed
+    // (029), this insert succeeded and filed the row under whichever workspace
+    // the default resolved to — plausible, invisible, and wrong the moment a
+    // second tenant exists. It must now be a hard NOT NULL violation, because
+    // that is a failure someone can see and fix.
+    const { error } = await withRls(USER_A, async (db) =>
+      asSupabase(db).from("organizations").insert({ name: "NO WORKSPACE", kind: "customer" }),
+    );
+
+    assert.ok(error, "an insert without workspace_id must not succeed");
+    // Either refusal is correct, and which one fires is worth knowing: the RLS
+    // WITH CHECK evaluates is_workspace_member(null) -> false and rejects the
+    // row before the NOT NULL constraint is ever reached. So the policy is the
+    // first line of defence and the constraint the backstop — a workspace-less
+    // write cannot land even if a table's NOT NULL were somehow dropped.
+    assert.match(
+      error!.message,
+      /row-level security|null value in column "workspace_id"|not-null/i,
+      "it must fail on the missing workspace, not something incidental",
     );
   });
 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { soleWorkspaceId } from "@/lib/workspace/resolve";
 import { sendMail } from "@/lib/send/smtp";
 import { fetchRecentMessages, type InboxMessage } from "@/lib/send/imap";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -125,6 +126,13 @@ export async function GET(req: Request) {
   // them below, then the guard before the send window fails closed.
   const inbox = await fetchRecentMessages(7);
 
+  // The workspace this mailbox files into. Resolved once per run, and loudly:
+  // the cron polls one shared inbox and sends from one identity, so it has no
+  // way to tell two tenants apart yet. Making that explicit here means a second
+  // workspace stops the job instead of quietly filing one tenant's replies
+  // under another (see soleWorkspaceId; per-workspace sending is phase 4).
+  const mailboxWorkspaceId = await soleWorkspaceId(supabase);
+
   // Dedupe against interactions captured by earlier polls of the same window.
   const withIds = inbox.messages.filter((m) => m.messageId);
   const seen = new Set<string>();
@@ -152,14 +160,23 @@ export async function GET(req: Request) {
   const senders = [
     ...new Set(fresh.filter((m) => !isDsn(m)).map((m) => m.fromAddress)),
   ].filter((s) => !/[,()"]/.test(s));
-  const contactByEmail = new Map<string, string>();
+  // id + workspace, because a captured reply is stored in the workspace that
+  // owns the contact it came from — not in whichever one the mailbox belongs to.
+  const contactByEmail = new Map<string, { id: string; workspaceId: string }>();
   if (senders.length) {
     const { data: matched } = await supabase
       .from("contacts")
-      .select("id, email")
+      .select("id, email, workspace_id")
       .or(senders.map((s) => `email.ilike.${likeEscape(s)}`).join(","))
       .is("deleted_at", null);
-    matched?.forEach((c) => c.email && contactByEmail.set(c.email.toLowerCase(), c.id));
+    matched?.forEach(
+      (c) =>
+        c.email &&
+        contactByEmail.set(c.email.toLowerCase(), {
+          id: c.id,
+          workspaceId: c.workspace_id,
+        }),
+    );
   }
 
   for (const m of fresh) {
@@ -173,16 +190,18 @@ export async function GET(req: Request) {
       const hard = isHardDsn(m);
       let contactId: string | null = null;
       let touchId: string | null = null;
+      let contactWorkspaceId: string | null = null;
       const recipient = bouncedRecipient(m.text, selfAddress);
       if (recipient) {
         const { data: contact } = await supabase
           .from("contacts")
-          .select("id")
+          .select("id, workspace_id")
           .ilike("email", likeEscape(recipient))
           .is("deleted_at", null)
           .maybeSingle();
         if (contact) {
           contactId = contact.id;
+          contactWorkspaceId = contact.workspace_id;
           const { data: touch } = await supabase
             .from("touches")
             .select("id")
@@ -225,6 +244,10 @@ export async function GET(req: Request) {
         }
       }
       const { error: ie } = await supabase.from("interactions").insert({
+        // An unresolvable DSN has no contact to inherit from, so it files under
+        // the mailbox's own workspace — see soleWorkspaceId for why that is
+        // safe today and how it stops being silent later.
+        workspace_id: contactWorkspaceId ?? mailboxWorkspaceId,
         contact_id: contactId,
         touch_id: touchId,
         channel: "email",
@@ -241,7 +264,8 @@ export async function GET(req: Request) {
       continue;
     }
 
-    const contactId = contactByEmail.get(m.fromAddress);
+    const matchedContact = contactByEmail.get(m.fromAddress);
+    const contactId = matchedContact?.id;
     if (!contactId) continue; // stranger mail is not ours to store
 
     // Touch match: In-Reply-To/References against the Message-IDs we stamped
@@ -303,6 +327,7 @@ export async function GET(req: Request) {
       }
     }
     const { error: ie } = await supabase.from("interactions").insert({
+      workspace_id: matchedContact?.workspaceId ?? mailboxWorkspaceId,
       contact_id: contactId,
       touch_id: touch?.id ?? null,
       channel: "email",
@@ -426,18 +451,18 @@ export async function GET(req: Request) {
   // Hobby plan allows one scheduled run per day, and this is the run. It goes
   // last and swallows its own errors — a failure to learn must never stop the
   // send loop from reporting what it sent.
-  const learning = await runLearningPass(supabase);
+  const learning = await runLearningPass(supabase, mailboxWorkspaceId);
 
   return NextResponse.json({ ...result, learning });
 }
 
-async function runLearningPass(supabase: SupabaseClient) {
+async function runLearningPass(supabase: SupabaseClient, workspaceId: string) {
   try {
-    const collected = await collectSignals(supabase);
+    const collected = await collectSignals(supabase, workspaceId);
     const modules: LearningModule[] = ["drafting", "personalization", "sourcing"];
     const analyzed = [];
     for (const moduleKey of modules) {
-      analyzed.push(await analyzeModule(supabase, moduleKey, { trigger: "cron" }));
+      analyzed.push(await analyzeModule(supabase, moduleKey, workspaceId, { trigger: "cron" }));
     }
     return { collected, analyzed };
   } catch (e) {

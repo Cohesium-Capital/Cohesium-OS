@@ -141,7 +141,7 @@ export async function storeDrafts(
     } else {
       inserts.push({
         contact_id: d.contact_id,
-    workspace_id: workspaceId,
+        workspace_id: workspaceId,
         channel: d.channel,
         direction: "outbound",
         sequence_step: 1,

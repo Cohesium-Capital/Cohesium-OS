@@ -100,12 +100,19 @@ export const enrichmentModule: RunModule<EnrichmentConfig, EnrichmentPayload> = 
     let rejected = 0;
     let sampledCount = 0;
     const messages: string[] = [];
-    const rejects: { run_id: string | null; payload: unknown; reason: string }[] = [];
+    // rejected_ingest is a root table (its run_id is nullable, so it cannot
+    // inherit), which means every reject carries the run's workspace itself.
+    const rejects: {
+      workspace_id: string;
+      run_id: string | null;
+      payload: unknown;
+      reason: string;
+    }[] = [];
 
     for (const e of output.enrichments) {
       if (ctx.requireEvidence && !(e.source_url && e.source_url.trim())) {
         rejected++;
-        rejects.push({ run_id: ctx.runId, payload: e, reason: "enrichment has no source_url (evidence)" });
+        rejects.push({ workspace_id: ctx.workspaceId, run_id: ctx.runId, payload: e, reason: "enrichment has no source_url (evidence)" });
         continue;
       }
       // Fill only NULL fields. Read current values first.

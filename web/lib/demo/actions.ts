@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 // Demonstrate-mode dataset: a clearly-fake, wipeable pipeline snapshot the
 // spotlight tour walks a first-time user through. Every row is identifiable
@@ -60,10 +61,12 @@ function daysAgoDate(days: number): string {
 async function activePromptVersionId(
   supabase: SupabaseClient,
   module: "sourcing" | "personalization" | "drafting",
+  workspaceId: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from("prompt_versions")
     .select("id")
+    .eq("workspace_id", workspaceId)
     .eq("module", module)
     .eq("active", true)
     .is("retired_at", null)
@@ -77,9 +80,12 @@ async function activePromptVersionId(
 export async function demoTourStatus(): Promise<DemoTourStatus> {
   await requireUser();
   const supabase = await createClient();
+  // Per workspace: the demo dataset is seeded, toured and wiped inside one
+  // workspace, so another workspace's marker must not read as "already seeded".
   const { data, error } = await supabase
     .from("organizations")
     .select("id")
+    .eq("workspace_id", await currentWorkspaceId())
     .eq("domain", MARKER_DOMAIN)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -89,26 +95,28 @@ export async function demoTourStatus(): Promise<DemoTourStatus> {
 export async function seedDemoTour(): Promise<SeedDemoTourResult> {
   await requireUser();
   const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
 
   // Idempotency guard: the marker MSP org is inserted first, so its presence
   // means a previous seed ran (or is mid-flight). Never double-seed.
   const { data: marker, error: markerError } = await supabase
     .from("organizations")
     .select("id")
+    .eq("workspace_id", workspaceId)
     .eq("domain", MARKER_DOMAIN)
     .maybeSingle();
   if (markerError) throw new Error(markerError.message);
   if (marker) return { seeded: true, alreadySeeded: true };
 
   try {
-    const outcome = await seedAll(supabase);
+    const outcome = await seedAll(supabase, workspaceId);
     if (outcome === "already") return { seeded: true, alreadySeeded: true };
   } catch (e) {
     // A partial seed would strand the marker and block re-seeding; roll back
     // whatever landed (the wipe is prefix/domain-scoped, so this is safe),
     // then surface the original failure.
     try {
-      await wipeCore(supabase);
+      await wipeCore(supabase, workspaceId);
     } catch {
       // Rollback is best-effort; the original error matters more.
     }
@@ -122,7 +130,7 @@ export async function seedDemoTour(): Promise<SeedDemoTourResult> {
 export async function wipeDemoTour(): Promise<WipeDemoTourResult> {
   await requireUser();
   const supabase = await createClient();
-  await wipeCore(supabase);
+  await wipeCore(supabase, await currentWorkspaceId());
   revalidateTourPaths();
   return { wiped: true };
 }
@@ -131,7 +139,10 @@ export async function wipeDemoTour(): Promise<WipeDemoTourResult> {
 // seeding
 // ---------------------------------------------------------------------------
 
-async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> {
+async function seedAll(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<"seeded" | "already"> {
   // ---------- 1. SOURCING: marker org + batch + run + orgs + contacts ----------
 
   // The marker MSP org goes in FIRST: its presence is the seeded flag, and its
@@ -140,6 +151,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
   const { data: msp, error: mspError } = await supabase
     .from("organizations")
     .insert({
+      workspace_id: workspaceId,
       name: "Walkthrough Managed IT",
       domain: MARKER_DOMAIN,
       kind: "msp",
@@ -163,6 +175,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
   const { data: sourcingBatch, error: batchError } = await supabase
     .from("batches")
     .insert({
+      workspace_id: workspaceId,
       module: "sourcing",
       label: `${LABEL_PREFIX} sourcing`,
       gate_status: "open",
@@ -171,11 +184,12 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
     .single();
   if (batchError) throw new Error(batchError.message);
 
-  const sourcingPv = await activePromptVersionId(supabase, "sourcing");
+  const sourcingPv = await activePromptVersionId(supabase, "sourcing", workspaceId);
 
   const { data: sourcingRun, error: runError } = await supabase
     .from("runs")
     .insert({
+      workspace_id: workspaceId,
       module: "sourcing",
       prompt_version_id: sourcingPv,
       batch_id: sourcingBatch.id,
@@ -194,9 +208,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
     .single();
   if (runError) throw new Error(runError.message);
 
-  const { data: customers, error: custError } = await supabase
-    .from("organizations")
-    .insert([
+  const customerRows = [
       {
         name: "Bright Harbor Clinics",
         domain: `brightharbor${DEMO_DOMAIN_SUFFIX}`,
@@ -233,7 +245,11 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
         reviewed: true,
         evidence: EVIDENCE,
       },
-    ])
+    ];
+
+  const { data: customers, error: custError } = await supabase
+    .from("organizations")
+    .insert(customerRows.map((r) => ({ ...r, workspace_id: workspaceId })))
     .select("id, domain");
   if (custError) throw new Error(custError.message);
 
@@ -255,6 +271,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
   //   #7-8  enriched via LinkedIn (no email), sampled=false / skipped_sampling
   //         — the unsampled riders that advance when the gate passes.
   const stamp = {
+    workspace_id: workspaceId,
     batch_id: sourcingBatch.id,
     run_id: sourcingRun.id,
     evidence: EVIDENCE,
@@ -414,6 +431,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
   const { data: hooksBatch, error: hooksBatchError } = await supabase
     .from("batches")
     .insert({
+      workspace_id: workspaceId,
       module: "personalization",
       label: `${LABEL_PREFIX} hooks`,
       gate_status: "open",
@@ -422,11 +440,12 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
     .single();
   if (hooksBatchError) throw new Error(hooksBatchError.message);
 
-  const personalizationPv = await activePromptVersionId(supabase, "personalization");
+  const personalizationPv = await activePromptVersionId(supabase, "personalization", workspaceId);
 
   const { data: hooksRun, error: hooksRunError } = await supabase
     .from("runs")
     .insert({
+      workspace_id: workspaceId,
       module: "personalization",
       prompt_version_id: personalizationPv,
       batch_id: hooksBatch.id,
@@ -446,6 +465,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
   if (hooksRunError) throw new Error(hooksRunError.message);
 
   const hookStamp = {
+    workspace_id: workspaceId,
     track: "customer",
     run_id: hooksRun.id,
     batch_id: hooksBatch.id,
@@ -533,9 +553,9 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
 
   // ---------- 3. DRAFTS: two planned, unapproved touches ----------
 
-  const draftingPv = await activePromptVersionId(supabase, "drafting");
+  const draftingPv = await activePromptVersionId(supabase, "drafting", workspaceId);
 
-  const { error: draftsError } = await supabase.from("touches").insert([
+  const draftRows = [
     {
       contact_id: ana,
       channel: "email",
@@ -564,7 +584,11 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
       body:
         "Hi Tom, researching how logistics firms work with managed IT providers (not selling anything). Saw the news on Northlake's second warehouse coming online. Would value your take on what a good IT partner does during a build-out. Open to a quick chat?",
     },
-  ]);
+  ];
+
+  const { error: draftsError } = await supabase
+    .from("touches")
+    .insert(draftRows.map((r) => ({ ...r, workspace_id: workspaceId })));
   if (draftsError) throw new Error(draftsError.message);
 
   // ---------- 4. REPLY / TRIAGE: one sent touch + two captured replies ----------
@@ -576,6 +600,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
   const { data: sentTouch, error: sentError } = await supabase
     .from("touches")
     .insert({
+      workspace_id: workspaceId,
       contact_id: priya,
       channel: "email",
       direction: "outbound",
@@ -597,7 +622,7 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
     .single();
   if (sentError) throw new Error(sentError.message);
 
-  const { error: interactionsError } = await supabase.from("interactions").insert([
+  const interactionRows = [
     {
       // (a) the enthusiastic yes — triage's positive-disposition try-it.
       contact_id: priya,
@@ -620,7 +645,11 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
       message_id: `${MESSAGE_ID_PREFIX}-reply-2`,
       disposition: null,
     },
-  ]);
+  ];
+
+  const { error: interactionsError } = await supabase
+    .from("interactions")
+    .insert(interactionRows.map((r) => ({ ...r, workspace_id: workspaceId })));
   if (interactionsError) throw new Error(interactionsError.message);
 
   // A pending auto-matcher suppression on a THIRD contact, so the tour's
@@ -648,11 +677,12 @@ async function seedAll(supabase: SupabaseClient): Promise<"seeded" | "already"> 
  * message_id prefix, so real data is untouchable by construction. Safe to run
  * twice — a second pass finds nothing.
  */
-async function wipeCore(supabase: SupabaseClient) {
+async function wipeCore(supabase: SupabaseClient, workspaceId: string) {
   // Resolve demo org + contact ids up front.
   const { data: orgs, error: orgsError } = await supabase
     .from("organizations")
     .select("id")
+    .eq("workspace_id", workspaceId)
     .like("domain", `%${DEMO_DOMAIN_SUFFIX}`);
   if (orgsError) throw new Error(orgsError.message);
   const orgIds = (orgs ?? []).map((o) => o.id);
@@ -673,6 +703,7 @@ async function wipeCore(supabase: SupabaseClient) {
     const { error } = await supabase
       .from("interactions")
       .delete()
+      .eq("workspace_id", workspaceId)
       .like("message_id", `${MESSAGE_ID_PREFIX}%`);
     if (error) throw new Error(error.message);
   }

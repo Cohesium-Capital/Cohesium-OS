@@ -52,9 +52,11 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
 
   // Learned rules are read here, before the prompt is built or hashed, so the
   // template, its hash, and the persisted config all describe the same run.
-  async prepareConfig(supabase, config) {
+  async prepareConfig(supabase, config, ctx) {
     const kind = trackOf(config);
-    const { block, rules } = await learnedRuleBlock(supabase, "drafting", { track: kind });
+    const { block, rules } = await learnedRuleBlock(supabase, "drafting", ctx.workspaceId, {
+      track: kind,
+    });
     if (!block) return { config };
     return {
       config: { ...config, learnedRules: block },

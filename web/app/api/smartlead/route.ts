@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const supabase = createAdminClient();
   const { data: contact } = await supabase
     .from("contacts")
-    .select("id")
+    .select("id, workspace_id")
     .ilike("email", email)
     .maybeSingle();
   if (!contact) return NextResponse.json({ ok: true, note: "no matching contact" });
@@ -104,6 +104,8 @@ export async function POST(req: Request) {
       }
       if (!duplicate) {
         await supabase.from("interactions").insert({
+          // The reply belongs wherever the contact does.
+          workspace_id: contact.workspace_id,
           contact_id: contact.id,
           channel: "email",
           source: "smartlead",
