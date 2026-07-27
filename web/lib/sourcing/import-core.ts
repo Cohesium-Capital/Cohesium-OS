@@ -183,8 +183,19 @@ export async function importPayload(
   // default), so this is a no-op fast path.
   const sampleContacts = async (ids: string[]): Promise<number> => {
     if (!ids.length || sampleRate >= 1) return ids.length;
-    const sampled = ids.filter((id) => isSampled(id, sampleRate));
-    const skipped = ids.filter((id) => !isSampled(id, sampleRate));
+    let sampled = ids.filter((id) => isSampled(id, sampleRate));
+    let skipped = ids.filter((id) => !isSampled(id, sampleRate));
+
+    // A batch that samples ZERO records can never pass its gate: there is
+    // nothing to grade, so resolveGate keeps it 'open' forever and every
+    // contact in it is permanently blocked from enrichment and drafting.
+    // Deterministic sampling makes that a real outcome on small batches — at
+    // a 0.2 rate, a five-row batch selects nothing roughly a third of the time.
+    // So the floor is one: always keep something gradeable.
+    if (!sampled.length) {
+      sampled = [ids[0]];
+      skipped = ids.slice(1);
+    }
     if (skipped.length) {
       await supabase
         .from("contacts")
