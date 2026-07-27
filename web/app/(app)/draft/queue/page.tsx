@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import type { FailedRow } from "@/lib/drafting/types";
 import { DraftQueue, type QueueRowWithHook } from "./draft-queue";
 import { contactRunMap, loadRunScope } from "@/lib/runs/scope";
@@ -30,6 +31,9 @@ export default async function QueuePage({
   searchParams: Promise<{ run?: string }>;
 }) {
   const supabase = await createClient();
+  // The workspace on screen (028's contract: RLS bounds membership, the app
+  // filters to the selected workspace).
+  const workspaceId = await currentWorkspaceId();
   // ?run=<id> from a run's timeline entry: review and send only that run's drafts.
   const scope = await loadRunScope(supabase, (await searchParams).run ?? null);
 
@@ -44,6 +48,7 @@ export default async function QueuePage({
     .select(
       "id, channel, subject, body, approved, status, last_error, contact_id, contacts!inner(full_name, organization_id), hooks(text, source_url, kind, fallback_angle)",
     )
+    .eq("workspace_id", workspaceId)
     .in("status", ["planned", "failed"])
     .eq("direction", "outbound")
     .is("deleted_at", null)

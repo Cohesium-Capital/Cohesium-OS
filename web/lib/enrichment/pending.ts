@@ -1,7 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Shared eligibility + fetch for "send to Clay" contacts, used by the Clay push
-// (server action) and the CSV export (route handler).
+// (server action) and the CSV export (route handler). Everything here takes an
+// explicit workspaceId: RLS alone spans every workspace the caller belongs to,
+// and a push/export must never sweep another workspace's contacts into Clay
+// (spending credits and leaking its pipeline).
 //
 // Eligible-for-Clay = pending AND vetted AND not deleted AND gate-passed AND
 // never sent before:
@@ -46,10 +49,11 @@ const SELECT =
   "id, full_name, title, persona, linkedin_url, organizations!inner(name, domain, kind)";
 const PAGE = 1000;
 
-async function passedBatchIds(supabase: SupabaseClient): Promise<string[]> {
+async function passedBatchIds(supabase: SupabaseClient, workspaceId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from("batches")
     .select("id")
+    .eq("workspace_id", workspaceId)
     .eq("gate_status", "passed");
   if (error) throw new Error(error.message);
   return (data ?? []).map((b) => b.id as string);
@@ -87,11 +91,15 @@ function eligible<T>(q: T, passed: string[], opts?: EligibilityOptions): T {
 
 export async function countEligibleContacts(
   supabase: SupabaseClient,
+  workspaceId: string,
   opts?: EligibilityOptions,
 ): Promise<number> {
-  const passed = await passedBatchIds(supabase);
+  const passed = await passedBatchIds(supabase, workspaceId);
   const { count, error } = await eligible(
-    supabase.from("contacts").select("id", { count: "exact", head: true }),
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId),
     passed,
     opts,
   );
@@ -103,10 +111,16 @@ export async function countEligibleContacts(
 // vetted + gate-passed, but already spent. Surfaced on Review so the backlog
 // that "disappeared" from the eligible count is visible and re-sendable rather
 // than mysteriously missing.
-export async function countAlreadyPushed(supabase: SupabaseClient): Promise<number> {
-  const passed = await passedBatchIds(supabase);
+export async function countAlreadyPushed(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<number> {
+  const passed = await passedBatchIds(supabase, workspaceId);
   const { count, error } = await eligible(
-    supabase.from("contacts").select("id", { count: "exact", head: true }),
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId),
     passed,
     { includePushed: true },
   ).not("clay_pushed_at", "is", null);
@@ -119,14 +133,18 @@ export async function countAlreadyPushed(supabase: SupabaseClient): Promise<numb
 // the authority, not the caller.
 export async function fetchEligibleContacts(
   supabase: SupabaseClient,
+  workspaceId: string,
   ids?: string[],
   opts?: EligibilityOptions,
 ): Promise<PendingContact[]> {
   if (ids && !ids.length) return [];
-  const passed = await passedBatchIds(supabase);
+  const passed = await passedBatchIds(supabase, workspaceId);
 
   let countQuery = eligible(
-    supabase.from("contacts").select("id", { count: "exact", head: true }),
+    supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId),
     passed,
     opts,
   );
@@ -138,7 +156,11 @@ export async function fetchEligibleContacts(
   const all: PendingContact[] = [];
   let from = 0;
   while (all.length < total) {
-    let query = eligible(supabase.from("contacts").select(SELECT), passed, opts);
+    let query = eligible(
+      supabase.from("contacts").select(SELECT).eq("workspace_id", workspaceId),
+      passed,
+      opts,
+    );
     if (ids) query = query.in("id", ids);
     const { data, error } = await query
       .order("id", { ascending: true })
@@ -158,6 +180,7 @@ export async function fetchEligibleContacts(
 // contact must not be sent again by default.
 export async function markPushedToClay(
   supabase: SupabaseClient,
+  workspaceId: string,
   contactIds: string[],
 ): Promise<string | undefined> {
   if (!contactIds.length) return undefined;
@@ -166,6 +189,7 @@ export async function markPushedToClay(
     const { error } = await supabase
       .from("contacts")
       .update({ clay_pushed_at: at })
+      .eq("workspace_id", workspaceId)
       .in("id", contactIds.slice(i, i + 500));
     if (error) return error.message;
   }

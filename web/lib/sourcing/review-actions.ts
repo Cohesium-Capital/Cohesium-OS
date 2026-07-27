@@ -9,6 +9,7 @@ import {
   type PendingContact,
 } from "@/lib/enrichment/pending";
 import { computeGate } from "@/lib/grading/gate";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 // Mutations for the review grid. Run as the signed-in user (RLS applies) and
 // revalidate the page so the grid reflects the change.
@@ -171,8 +172,12 @@ export async function pushPendingToClay(
   if (!url) throw new Error("CLAY_TABLE_WEBHOOK_URL is not set.");
 
   const supabase = await createClient();
+  // The workspace on screen: "push all eligible" must never sweep another
+  // workspace's contacts into Clay just because this user belongs to both.
+  const workspaceId = await currentWorkspaceId();
   const rows = await fetchEligibleContacts(
     supabase,
+    workspaceId,
     contactIds.length ? contactIds : undefined,
     { includePushed: resend },
   );
@@ -216,6 +221,7 @@ export async function pushPendingToClay(
   // failure here is exactly what would cause the next push to re-bill them.
   const markError = await markPushedToClay(
     supabase,
+    workspaceId,
     pushedEvents.map((e) => e.contact_id),
   );
   if (markError) {

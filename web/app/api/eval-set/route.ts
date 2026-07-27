@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 // JSONL eval set: every graded correction pair (a field a grader marked wrong or
 // missing, with the corrected value). This is the regression set used to compare
@@ -27,10 +28,17 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const moduleParam = new URL(req.url).searchParams.get("module");
+  // Grades carry no workspace_id (child of contacts); scope through the join
+  // so the eval set never blends correction pairs — real contact data — from
+  // another workspace this user happens to belong to.
+  const workspaceId = await currentWorkspaceId();
 
   let query = supabase
     .from("grades")
-    .select("contact_id, module, field, verdict, correction, previous_value, error_category, run_id, created_at")
+    .select(
+      "contact_id, module, field, verdict, correction, previous_value, error_category, run_id, created_at, contacts!inner(workspace_id)",
+    )
+    .eq("contacts.workspace_id", workspaceId)
     .in("verdict", ["wrong", "missing"])
     .order("created_at", { ascending: true });
   if (moduleParam) query = query.eq("module", moduleParam);
