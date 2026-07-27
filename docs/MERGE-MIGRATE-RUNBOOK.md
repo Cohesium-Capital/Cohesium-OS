@@ -62,3 +62,79 @@ Why this is safe under old code: every column is nullable-or-default, new CHECKs
 ## Rollback story
 
 There is no DB rollback because none is needed: migrations are additive and inert under old code. Code rollback = revert the merge commit; the schema stays. The demo-phase rollback is simpler still: don't merge.
+
+---
+
+# Multi-workspace tenancy (migrations 028–031)
+
+**Status: phase 1 complete.** A second workspace is safe to create. Cohesium's
+data lives in one workspace named `Cohesium`; nothing about the single-tenant
+workflow changed.
+
+## What "phase 1 complete" means
+
+Every table that owns rows carries `workspace_id`, RLS gates it on membership,
+and — since 031 — nothing supplies a default. A write that cannot name its
+workspace fails. That failure is the feature: while 029's bridge defaults
+existed, forgetting `workspace_id` filed the row somewhere plausible instead,
+which is invisible until it is a cross-tenant leak.
+
+Order matters if you ever rebuild this from scratch: **028** (columns + RLS +
+per-workspace unique keys) → **029** (temporary defaults so prod keeps working)
+→ **030** (views expose and group by `workspace_id`) → **031** (defaults dropped;
+this is the finish line). Applying 028 without 029 breaks every INSERT
+immediately.
+
+## The rule for new code
+
+Any INSERT into a root table must pass `workspace_id` explicitly:
+
+- **Request-scoped code** (pages, server actions): `currentWorkspaceId()` from
+  `lib/workspace/context` — the workspace on screen, validated against
+  membership.
+- **Pipeline code**: `ctx.workspaceId`, which the run carries. Never re-derive.
+- **Background jobs with no session** (cron, webhooks): derive from the data —
+  `workspaceOfContact()` / `workspaceOfTouch()` in `lib/workspace/resolve`. When
+  there genuinely is nothing to derive from (an unresolvable bounce),
+  `soleWorkspaceId()` is the honest fallback: it returns the only workspace and
+  **throws once a second exists**, which is the signal that the job needs the
+  per-workspace treatment phase 4 gives it.
+
+Child tables (`grades`, `suppressions`, `touch_edits`, `gate_decisions`,
+`enrichment_events`) have no `workspace_id`. They inherit through their parent
+FK, and their RLS policies traverse it. Do not add the column to them.
+
+`interactions` and `rejected_ingest` look like child tables but are roots: their
+parent FKs are nullable, so an orphan row would otherwise be visible to nobody.
+
+## Reads
+
+Filtering by workspace is not optional on reads either, even though RLS bounds
+them. RLS restricts to workspaces the user *belongs to* — for a member of two,
+that is still both. Anything keyed `(workspace_id, module)` — `settings`,
+`prompt_versions`, `prompt_rules`, `stage_health` — must filter explicitly, or a
+`maybeSingle()` lookup matches two rows and silently falls back to a hardcoded
+default.
+
+## Verifying the invariant
+
+```sql
+-- Must be 0. Anything else means a default crept back in.
+select count(*) from information_schema.columns
+ where table_schema='public' and column_name='workspace_id'
+   and column_default is not null;
+```
+
+`npm test` covers the rest: a member of one workspace cannot read or write
+another's rows, and an insert naming no workspace is refused (by the RLS
+`WITH CHECK`, before `NOT NULL` is even reached).
+
+## Still to come
+
+- **Phase 2** — per-workspace vocabulary and firm identity. Prompts currently
+  hardcode "MSP" and "Cohesium"; these become workspace config. Target: Cohesium's
+  rendered prompts stay byte-identical.
+- **Phase 3** — Settings surface for workspaces and member invites.
+- **Phase 4** — per-user outbound sending (HeyReach account, SMTP identity).
+  Until this lands, the email cron is single-workspace by construction and says
+  so out loud.
