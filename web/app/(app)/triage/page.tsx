@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import {
   TriageQueue,
   type TriageInteraction,
@@ -41,6 +42,10 @@ type SuppressionRow = {
 
 export default async function TriagePage() {
   const supabase = await createClient();
+  // The workspace on screen — RLS alone would blend every workspace this user
+  // belongs to into one triage queue. Suppressions carry no workspace_id
+  // (child table), so they scope through the joined contact.
+  const workspaceId = await currentWorkspaceId();
 
   const [{ data: interactionData }, { data: suppressionData }] = await Promise.all([
     supabase
@@ -48,15 +53,17 @@ export default async function TriagePage() {
       .select(
         "id, contact_id, channel, occurred_at, raw_content, source, contacts!inner(full_name, title, email, organizations(name)), touches(subject, channel)",
       )
+      .eq("workspace_id", workspaceId)
       .is("disposition", null)
       .is("contacts.deleted_at", null)
       .order("occurred_at", { ascending: true }),
     supabase
       .from("suppressions")
       .select(
-        "id, reason, source, note, created_at, contacts!inner(full_name, organizations(name))",
+        "id, reason, source, note, created_at, contacts!inner(full_name, workspace_id, organizations(name))",
       )
       .eq("status", "pending")
+      .eq("contacts.workspace_id", workspaceId)
       .is("contacts.deleted_at", null)
       .order("created_at", { ascending: true }),
   ]);

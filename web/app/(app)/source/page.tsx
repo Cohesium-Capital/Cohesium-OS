@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { RunSourceBuilder } from "./run-source-builder";
 import type { Msp } from "@/lib/sourcing/prompts";
 
@@ -17,16 +18,26 @@ export default async function SourcePage({
 }) {
   const sp = await searchParams;
   const supabase = await createClient();
+  // The workspace on screen: another workspace's MSPs must not be offered as
+  // targets, and its holdings must not inflate the exclusion-list counts.
+  const workspaceId = await currentWorkspaceId();
 
   const [{ data }, mspCount, customerCount] = await Promise.all([
-    supabase.from("organizations").select("id, name, domain").eq("kind", "msp").order("name"),
+    supabase
+      .from("organizations")
+      .select("id, name, domain")
+      .eq("workspace_id", workspaceId)
+      .eq("kind", "msp")
+      .order("name"),
     supabase
       .from("organizations")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("kind", "msp"),
     supabase
       .from("organizations")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("kind", "customer"),
   ]);
 

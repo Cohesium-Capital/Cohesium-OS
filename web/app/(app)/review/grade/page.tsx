@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { computeGate, type GateMetrics } from "@/lib/grading/gate";
 import { Button } from "@/components/ui/button";
 import { GradeQueue, type GradeContact } from "./grade-queue";
@@ -41,6 +42,9 @@ export default async function GradePage({
   const sp = await searchParams;
   const batchId = sp.batch ?? null;
   const supabase = await createClient();
+  // The workspace on screen — the grade queue must not interleave another
+  // workspace's sampled contacts.
+  const workspaceId = await currentWorkspaceId();
 
   // All sampled contacts still awaiting a grade — across every batch, or scoped
   // to one when ?batch= is given. Ordered by batch so same-module records (and
@@ -51,6 +55,7 @@ export default async function GradePage({
       "id, batch_id, full_name, title, persona, email, phone, linkedin_url, personalization, confidence, source_url, evidence, organizations!inner(name, domain, kind, current_msp_id), batches!inner(module, label)",
       { count: "exact" },
     )
+    .eq("workspace_id", workspaceId)
     .eq("sampled", true)
     .eq("review_status", "pending_review")
     .is("deleted_at", null); // soft-deleted contacts never enter the queue

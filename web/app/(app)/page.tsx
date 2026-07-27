@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { getNextAction, countDraftable, countNeedingHooks } from "@/lib/journey";
 import { countEligibleContacts } from "@/lib/enrichment/pending";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,9 @@ type HealthChip = {
 
 export default async function HomePage() {
   const supabase = await createClient();
+  // Every count on this page is per the workspace on screen — RLS alone spans
+  // all of a member's workspaces (028's contract: the app filters).
+  const workspaceId = await currentWorkspaceId();
   const dayAgo = daysAgoIso(1);
   const weekAgo = daysAgoIso(7);
   const emailCap = Number(process.env.EMAIL_DAILY_CAP ?? 20) || 20;
@@ -75,11 +79,13 @@ export default async function HomePage() {
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("reviewed", false)
       .is("deleted_at", null),
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("sampled", true)
       .eq("review_status", "pending_review")
       .not("batch_id", "is", null)
@@ -87,37 +93,44 @@ export default async function HomePage() {
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("enrichment_status", "pending")
       .is("deleted_at", null),
     supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("status", "planned")
       .eq("direction", "outbound")
       .is("deleted_at", null),
     supabase
       .from("interactions")
       .select("id, contacts!inner(id)", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .is("disposition", null)
       .is("contacts.deleted_at", null),
     supabase
       .from("suppressions")
-      .select("id, contacts!inner(id)", { count: "exact", head: true })
+      .select("id, contacts!inner(id, workspace_id)", { count: "exact", head: true })
       .eq("status", "pending")
+      .eq("contacts.workspace_id", workspaceId)
       .is("contacts.deleted_at", null),
     supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("status", "failed")
       .is("deleted_at", null),
     supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .gte("bounced_at", weekAgo)
       .is("deleted_at", null),
     supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("channel", "email")
       .eq("direction", "outbound")
       .gte("sent_at", dayAgo)
@@ -128,9 +141,10 @@ export default async function HomePage() {
     supabase
       .from("batches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("gate_status", "failed")
       .in("module", ["sourcing", "enrichment"]),
-    getNextAction(supabase),
+    getNextAction(supabase, workspaceId),
   ]);
 
   // Tile-row gate readings. Each reads the same source its workspace uses.
@@ -147,6 +161,7 @@ export default async function HomePage() {
     supabase
       .from("batch_stats")
       .select("gate_status, sampled, graded, errors")
+      .eq("workspace_id", workspaceId)
       .eq("module", "sourcing")
       .neq("label", "legacy")
       .order("created_at", { ascending: false })
@@ -155,6 +170,7 @@ export default async function HomePage() {
     supabase
       .from("batches")
       .select("id, gate_status")
+      .eq("workspace_id", workspaceId)
       .eq("module", "personalization")
       .order("created_at", { ascending: false })
       .limit(1)
@@ -162,23 +178,26 @@ export default async function HomePage() {
     supabase
       .from("batches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("gate_status", "open")
       .in("module", ["sourcing", "enrichment"]),
     supabase
       .from("batches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .in("module", ["sourcing", "enrichment"]),
     supabase
       .from("prompt_versions")
       .select("version")
+      .eq("workspace_id", workspaceId)
       .eq("module", "drafting")
       .eq("active", true)
       .order("version", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    countEligibleContacts(supabase),
-    countDraftable(supabase),
-    countNeedingHooks(supabase),
+    countEligibleContacts(supabase, workspaceId),
+    countDraftable(supabase, workspaceId),
+    countNeedingHooks(supabase, workspaceId),
   ]);
 
   // Source gate chip: the latest real sourcing batch's error rate + verdict.

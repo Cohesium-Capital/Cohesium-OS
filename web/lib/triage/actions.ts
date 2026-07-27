@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { workspaceOfContact } from "@/lib/workspace/resolve";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 // Triage actions for the keyboard reply queue. A triager reads each reply
 // verbatim and marks a disposition; opt-outs write a suppression in the same
@@ -101,19 +102,24 @@ export async function searchContacts(query: string): Promise<ContactHit[]> {
   const term = query.trim();
   if (term.length < 2) return [];
   const supabase = await createClient();
-  const pattern = `%${term}%`;
+  // The workspace on screen: the picker must not offer (and the insert must
+  // not file under) another workspace's contacts.
+  const workspaceId = await currentWorkspaceId();
+  const pattern = `%${term.replace(/([\\%_])/g, "\\$1")}%`;
 
   // Two queries because PostgREST can't OR across the org join; merged by id.
   const [byName, byOrg] = await Promise.all([
     supabase
       .from("contacts")
       .select("id, full_name, organizations(name)")
+      .eq("workspace_id", workspaceId)
       .ilike("full_name", pattern)
       .is("deleted_at", null)
       .limit(8),
     supabase
       .from("contacts")
       .select("id, full_name, organizations!inner(name)")
+      .eq("workspace_id", workspaceId)
       .ilike("organizations.name", pattern)
       .is("deleted_at", null)
       .limit(8),

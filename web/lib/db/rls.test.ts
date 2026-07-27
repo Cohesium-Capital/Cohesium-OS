@@ -531,7 +531,9 @@ describe("the shared pipeline over the adapter", () => {
 
   test("loadOrgIndex + partitionCandidates see the imported rows", async (t) => {
     if (unavailable(t)) return;
-    const index = await withRls(USER_A, (db) => loadOrgIndex(asSupabase(db), "customer"));
+    const index = await withRls(USER_A, (db) =>
+      loadOrgIndex(asSupabase(db), "customer", WORKSPACE_A),
+    );
     assert.ok(index.rows.length >= 1);
 
     const { known, fresh } = partitionCandidates(index, [

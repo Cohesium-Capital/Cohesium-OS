@@ -37,6 +37,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         rawText: JSON.stringify({ organizations: body.organizations }),
         createdBy: auth.ownerId,
         requireEvidence: body.requireEvidence ?? true,
+        // The token acts in exactly one workspace (migration 028); enforce
+        // that here, not just at run creation.
+        expectedWorkspaceId: auth.workspaceId,
       }),
     );
   } catch (e) {

@@ -121,9 +121,13 @@ export async function importPayload(
       ...new Set(orgs.map((o) => o.current_msp_name).filter(Boolean)),
     ] as string[];
     if (names.length) {
+      // Scoped to the ingesting workspace: a name collision with another
+      // workspace's MSP must create this workspace's own stub, not a
+      // cross-tenant current_msp_id link.
       const { data: existingMsps } = await supabase
         .from("organizations")
         .select("id, name")
+        .eq("workspace_id", workspaceId)
         .eq("kind", "msp");
       existingMsps?.forEach((m) => mspIdByName.set(m.name.toLowerCase(), m.id));
 
@@ -217,7 +221,7 @@ export async function importPayload(
   // (~1000 by default) with no error, so past that many orgs this dedupe used
   // to silently stop matching and admit duplicates as new rows.
   type ExistingOrg = OrgIndexRow;
-  const orgIndex = await loadOrgIndex(supabase, input.kind);
+  const orgIndex = await loadOrgIndex(supabase, input.kind, workspaceId);
   const byDomain = orgIndex.byDomain;
   const byKey = input.kind === "customer" ? orgIndex.byNameAndMsp : orgIndex.byName;
 
@@ -291,11 +295,23 @@ export async function importPayload(
         .from("contacts")
         .insert(newContacts)
         .select("id");
-      if (ce) report.messages.push(`Contacts insert error: ${ce.message}`);
-      else {
-        report.inserted.contacts += ic?.length ?? 0;
-        report.sampledCount += await sampleContacts((ic ?? []).map((r) => r.id));
+      if (ce) {
+        // A failed contact insert is a FAILED import, not a footnote: orgs
+        // without their contacts would report success while the runner's whole
+        // yield is missing, and the run would advance to review with nothing
+        // gradeable in it.
+        report.messages.push(
+          `${report.inserted.organizations} organization(s) were inserted before the failure.`,
+        );
+        return {
+          ...report,
+          ok: false,
+          error: `Contacts insert failed: ${ce.message}`,
+          batchId,
+        };
       }
+      report.inserted.contacts += ic?.length ?? 0;
+      report.sampledCount += await sampleContacts((ic ?? []).map((r) => r.id));
     }
   }
 
@@ -359,11 +375,18 @@ export async function importPayload(
         .from("contacts")
         .insert(mergeContacts)
         .select("id");
-      if (me) report.messages.push(`Merged contacts error: ${me.message}`);
-      else {
-        report.inserted.contacts += mc?.length ?? 0;
-        report.sampledCount += await sampleContacts((mc ?? []).map((r) => r.id));
+      if (me) {
+        // Same rule as the new-org path: silently losing the merged contacts
+        // must not read as success.
+        return {
+          ...report,
+          ok: false,
+          error: `Merged contacts insert failed: ${me.message}`,
+          batchId,
+        };
       }
+      report.inserted.contacts += mc?.length ?? 0;
+      report.sampledCount += await sampleContacts((mc ?? []).map((r) => r.id));
     }
   }
 
@@ -379,7 +402,7 @@ export async function importPayload(
   const newForTarget = input.targetMspId
     ? insertedOrgs.filter((r) => r.current_msp_id === input.targetMspId).length
     : null;
-  await supabase.from("sourcing_runs").insert({
+  const { error: logError } = await supabase.from("sourcing_runs").insert({
     kind: input.kind,
     workspace_id: workspaceId,
     // Ties the yield-log row to the run that produced it. Null on the direct
@@ -393,6 +416,9 @@ export async function importPayload(
     new_for_target: newForTarget,
     created_by: input.createdBy ?? null,
   });
+  // Not fatal — the records themselves landed — but a lost yield-log row
+  // corrupts the MSP explored/exhausted accounting, so say so.
+  if (logError) report.messages.push(`Yield log not recorded: ${logError.message}`);
 
   report.batchId = batchId;
   return report;

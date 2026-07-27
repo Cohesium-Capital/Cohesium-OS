@@ -2,25 +2,40 @@ import "server-only";
 import type { Readable } from "node:stream";
 import { ImapFlow, type MessageStructureObject } from "imapflow";
 
+// Every function here takes the mailbox EXPLICITLY. These used to read
+// process.env.IMAP_*, which was one mailbox for the whole instance — with
+// per-workspace identities (migration 036) that silently pointed every
+// tenant's Sent copies and reply capture at the operator's inbox. The caller
+// resolves an identity and passes its IMAP half; env values only ever arrive
+// here via the operator workspace's own identity resolution.
+export type ImapConfig = {
+  host: string | null;
+  port: number;
+  user: string | null;
+  pass: string | null;
+};
+
+export function imapConfigured(cfg: ImapConfig): boolean {
+  return !!(cfg.host && cfg.user && cfg.pass);
+}
+
 // Save a copy of an outgoing message to the mailbox's Sent folder. SMTP sending
 // does not populate "Sent" (that's an IMAP-side action a mail client normally
 // does), so app-sent mail is invisible in webmail without this. Best-effort:
 // callers send first and append after, ignoring failures here.
 export async function appendToSent(
   raw: Buffer | string,
+  cfg: ImapConfig,
 ): Promise<{ ok: boolean; error?: string }> {
-  const host = process.env.IMAP_HOST;
-  const user = process.env.IMAP_USER;
-  const pass = process.env.IMAP_PASS;
-  if (!host || !user || !pass) {
-    return { ok: false, error: "IMAP not configured." };
+  if (!imapConfigured(cfg)) {
+    return { ok: false, error: "IMAP not configured for this identity." };
   }
 
   const client = new ImapFlow({
-    host,
-    port: Number(process.env.IMAP_PORT ?? 993),
+    host: cfg.host!,
+    port: cfg.port,
     secure: true,
-    auth: { user, pass },
+    auth: { user: cfg.user!, pass: cfg.pass! },
     logger: false,
   });
 
@@ -56,20 +71,18 @@ export async function appendToSent(
 // re-scan a rolling window each run; flipping is idempotent, so we never mutate
 // message flags (which would fight with you reading the inbox).
 export async function fetchRecentSenders(
-  days = 3,
+  days: number,
+  cfg: ImapConfig,
 ): Promise<{ ok: boolean; senders: string[]; error?: string }> {
-  const host = process.env.IMAP_HOST;
-  const user = process.env.IMAP_USER;
-  const pass = process.env.IMAP_PASS;
-  if (!host || !user || !pass) {
-    return { ok: false, senders: [], error: "IMAP not configured." };
+  if (!imapConfigured(cfg)) {
+    return { ok: false, senders: [], error: "IMAP not configured for this identity." };
   }
 
   const client = new ImapFlow({
-    host,
-    port: Number(process.env.IMAP_PORT ?? 993),
+    host: cfg.host!,
+    port: cfg.port,
     secure: true,
-    auth: { user, pass },
+    auth: { user: cfg.user!, pass: cfg.pass! },
     logger: false,
   });
 
@@ -169,20 +182,18 @@ async function streamToString(stream: Readable): Promise<string> {
 // mutated, so re-polling the same rolling window is safe; callers dedupe on
 // messageId against interactions.message_id.
 export async function fetchRecentMessages(
-  days = 7,
+  days: number,
+  cfg: ImapConfig,
 ): Promise<{ ok: boolean; messages: InboxMessage[]; error?: string }> {
-  const host = process.env.IMAP_HOST;
-  const user = process.env.IMAP_USER;
-  const pass = process.env.IMAP_PASS;
-  if (!host || !user || !pass) {
-    return { ok: false, messages: [], error: "IMAP not configured." };
+  if (!imapConfigured(cfg)) {
+    return { ok: false, messages: [], error: "IMAP not configured for this identity." };
   }
 
   const client = new ImapFlow({
-    host,
-    port: Number(process.env.IMAP_PORT ?? 993),
+    host: cfg.host!,
+    port: cfg.port,
     secure: true,
-    auth: { user, pass },
+    auth: { user: cfg.user!, pass: cfg.pass! },
     logger: false,
   });
 

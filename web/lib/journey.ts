@@ -25,19 +25,27 @@ export type NextAction = {
  * planned outbound touch — a drafted contact belongs to the send queue until
  * its draft sends or is soft-deleted back to drafting.
  */
-export async function draftEligibleContactIds(supabase: SupabaseClient): Promise<Set<string>> {
+export async function draftEligibleContactIds(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<Set<string>> {
   const [{ data: withAddress }, { data: planned }, { data: sup }] = await Promise.all([
     supabase
       .from("contacts")
       .select("id, batch_id, batches(gate_status)")
+      .eq("workspace_id", workspaceId)
       .or("email.not.is.null,linkedin_url.not.is.null")
       .is("deleted_at", null),
     supabase
       .from("touches")
       .select("contact_id")
+      .eq("workspace_id", workspaceId)
       .eq("status", "planned")
       .eq("direction", "outbound")
       .is("deleted_at", null),
+    // Suppressions carry no workspace_id (child table); the ids are only ever
+    // intersected with the workspace-scoped contact set above, so a superset
+    // here is harmless.
     supabase
       .from("suppressions")
       .select("contact_id")
@@ -63,8 +71,11 @@ export async function draftEligibleContactIds(supabase: SupabaseClient): Promise
   );
 }
 
-export async function countDraftable(supabase: SupabaseClient): Promise<number> {
-  return (await draftEligibleContactIds(supabase)).size;
+export async function countDraftable(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<number> {
+  return (await draftEligibleContactIds(supabase, workspaceId)).size;
 }
 
 /**
@@ -75,19 +86,28 @@ export async function countDraftable(supabase: SupabaseClient): Promise<number> 
  * lib/hooks/usable.ts, the same one drafting and the Personalize workspace
  * consume, so the hero, the home tile, and the workspace read one number.
  */
-export async function contactsNeedingHookIds(supabase: SupabaseClient): Promise<Set<string>> {
-  const eligible = await draftEligibleContactIds(supabase);
+export async function contactsNeedingHookIds(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<Set<string>> {
+  const eligible = await draftEligibleContactIds(supabase, workspaceId);
   if (eligible.size === 0) return eligible;
 
-  const { usable, pending } = await hookCoverage(supabase);
+  const { usable, pending } = await hookCoverage(supabase, workspaceId);
   return new Set([...eligible].filter((id) => !usable.has(id) && !pending.has(id)));
 }
 
-export async function countNeedingHooks(supabase: SupabaseClient): Promise<number> {
-  return (await contactsNeedingHookIds(supabase)).size;
+export async function countNeedingHooks(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<number> {
+  return (await contactsNeedingHookIds(supabase, workspaceId)).size;
 }
 
-export async function getNextAction(supabase: SupabaseClient): Promise<NextAction> {
+export async function getNextAction(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<NextAction> {
   const [
     untriaged,
     pendingSuppressions,
@@ -101,25 +121,31 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
     supabase
       .from("interactions")
       .select("id, contacts!inner(id)", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .is("disposition", null)
       .is("contacts.deleted_at", null),
+    // Suppressions have no workspace_id; scope through the joined contact.
     supabase
       .from("suppressions")
-      .select("id, contacts!inner(id)", { count: "exact", head: true })
+      .select("id, contacts!inner(id, workspace_id)", { count: "exact", head: true })
       .eq("status", "pending")
+      .eq("contacts.workspace_id", workspaceId)
       .is("contacts.deleted_at", null),
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .is("deleted_at", null),
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("reviewed", false)
       .is("deleted_at", null),
     supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("sampled", true)
       .eq("review_status", "pending_review")
       .not("batch_id", "is", null)
@@ -128,16 +154,18 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
     // a write-back, not on the operator. Counting raw 'pending' here would park
     // the hero on "Push to Clay" forever once Clay stopped writing back for a
     // row, hiding every downstream action behind work that can't be done.
-    countEligibleContacts(supabase),
+    countEligibleContacts(supabase, workspaceId),
     supabase
       .from("hooks")
       .select("id, contacts!inner(id)", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("sampled", true)
       .eq("status", "candidate")
       .is("contacts.deleted_at", null),
     supabase
       .from("touches")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("status", "planned")
       .eq("direction", "outbound")
       .is("deleted_at", null),
@@ -240,7 +268,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
   // 6. Hook research. Deliberately outranks drafting in the walk, but drafting
   //    stays open regardless — the no-hook arm is the rent check's control
   //    group, so a missing hook must never block a draft.
-  const needingHooks = await countNeedingHooks(supabase);
+  const needingHooks = await countNeedingHooks(supabase, workspaceId);
   if (needingHooks > 0) {
     return {
       href: "/personalize",
@@ -254,7 +282,7 @@ export async function getNextAction(supabase: SupabaseClient): Promise<NextActio
 
   // 7. Drafting — eligibility shared with the home page tiles via
   //    countDraftable so the hero and the map can never drift apart.
-  const draftable = await countDraftable(supabase);
+  const draftable = await countDraftable(supabase, workspaceId);
   if (draftable > 0) {
     return {
       href: "/draft",

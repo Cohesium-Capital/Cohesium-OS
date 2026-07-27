@@ -121,6 +121,9 @@ async function notifyOperator(req: {
       to: address,
       subject: `Access request: ${req.full_name ?? req.email}${req.firm_name ? ` (${req.firm_name})` : ""}`,
       text: lines.join("\n"),
+      // Instance-level notification TO the operator — the env identity is the
+      // operator's own mailbox, so this is the one legitimate direct use.
+      identity: envEmailIdentity(),
     });
   } catch {
     // Swallowed on purpose — see the doc comment above.
@@ -216,6 +219,9 @@ async function notifyApproved(email: string, fullName: string | null): Promise<v
         "",
         ...(origin ? [`${origin}/settings`] : []),
       ].join("\n"),
+      // Sent BY the operator (the approver), announcing the new tenant — the
+      // env identity is the operator's mailbox.
+      identity: envEmailIdentity(),
     });
   } catch {
     // Deliberately swallowed — see above.
