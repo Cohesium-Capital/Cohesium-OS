@@ -52,7 +52,10 @@ export type ProfileFields = {
   vocab: Record<string, string>;
 };
 
-const ROLES = ["admin", "member", "partner"] as const;
+// 'partner' is not offered: since 028 the data policies check membership
+// only, so a partner would silently get full member access. Existing partner
+// rows still display and can be moved to a real role here.
+const ROLES = ["admin", "member"] as const;
 type Role = (typeof ROLES)[number];
 
 const VOCAB_FIELDS: { key: string; label: string; hint: string }[] = [

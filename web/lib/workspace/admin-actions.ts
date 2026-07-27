@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { currentWorkspace, currentWorkspaceId } from "./context";
-import { DEFAULT_PROFILE, type WorkspaceVocab, type DraftCopy } from "./identity";
+import { DEFAULT_PROFILE, type WorkspaceVocab } from "./identity";
 import { workspaceProfile } from "./profile";
 import {
   buildExamples,
@@ -73,10 +73,15 @@ export async function renameWorkspace(name: string): Promise<void> {
 
 export async function inviteMember(
   email: string,
-  role: "admin" | "member" | "partner",
+  // 'partner' is deliberately not offered: 028 replaced the old role-checking
+  // policies with membership-only checks, which silently promoted partner from
+  // no-access to full member access. Until partner-specific policies exist,
+  // inviting one would grant full read/write under a label that promises less.
+  role: "admin" | "member",
 ): Promise<void> {
   const workspaceId = await assertAdmin();
   const user = await requireUser();
+  if (role !== "admin" && role !== "member") throw new Error("Unknown role.");
   const clean = email.trim().toLowerCase();
   // Deliberately loose: the address is a claim key, and the real check is that
   // someone signs in with it. Rejecting valid-but-unusual addresses would be
@@ -108,7 +113,8 @@ export async function withdrawInvite(inviteId: string): Promise<void> {
 
 export async function changeMemberRole(
   userId: string,
-  role: "admin" | "member" | "partner",
+  // Same rule as inviteMember: no new partners until the role has policies.
+  role: "admin" | "member",
 ): Promise<void> {
   const workspaceId = await assertAdmin();
   const supabase = await createClient();
@@ -166,7 +172,6 @@ export type ProfileInput = {
   senderIntro?: string;
   approach?: string;
   vocab?: Partial<WorkspaceVocab>;
-  copy?: Partial<DraftCopy>;
 };
 
 /**
@@ -218,7 +223,11 @@ export async function saveWorkspaceProfile(input: ProfileInput): Promise<void> {
     approach:
       blankToNull(input.approach) === DEFAULT_PROFILE.approach ? null : blankToNull(input.approach),
     vocab: prune(input.vocab, DEFAULT_PROFILE.vocab),
-    copy: prune(input.copy, DEFAULT_PROFILE.copy as unknown as Record<string, string>),
+    // `copy` (the worked examples) is deliberately ABSENT: it belongs to
+    // saveWorkedExamples alone. An upsert only writes the columns it names, so
+    // omitting it preserves whatever is stored — the identity form used to
+    // carry it as undefined, which nulled a workspace's curated examples
+    // (including Cohesium's migration-039 seed) on every firm-name save.
     updated_at: new Date().toISOString(),
     updated_by: user.email ?? user.id,
   };
