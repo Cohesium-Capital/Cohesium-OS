@@ -186,6 +186,12 @@ export default async function RunDetailPage({
             <span className="text-xs text-muted-foreground">{s.label}</span>
           </div>
         ))}
+        {run.awaiting_redraft > 0 && (
+          <div className="flex min-w-24 flex-col rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+            <span className="text-2xl font-semibold tabular-nums">{run.awaiting_redraft}</span>
+            <span className="text-xs text-muted-foreground">Sent back to drafting</span>
+          </div>
+        )}
         {run.discarded > 0 && (
           <div className="flex min-w-24 flex-col rounded-lg border px-4 py-3">
             <span className="text-2xl font-semibold tabular-nums">{run.discarded}</span>

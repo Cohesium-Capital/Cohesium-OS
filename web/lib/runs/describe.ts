@@ -34,6 +34,10 @@ export type FlowRun = {
   sent: number;
   replied: number;
   drafts_created: number;
+  /** Contacts of this run /draft would offer right now. */
+  draftable: number;
+  /** …of which these were explicitly sent back from the send queue. */
+  awaiting_redraft: number;
   run_seq: number | null;
   run_mode_code: string | null;
   run_code: string | null;
@@ -152,9 +156,21 @@ export function nextAction(run: FlowRun): { label: string; href: string } | null
   if (run.sourced > run.reviewed)
     return { label: "Review the contacts", href: scoped("/review") };
   if (run.reviewed > run.enriched) return { label: "Enrich via Clay", href: scoped("/review") };
+  // A rejected draft outranks the pipeline's default order: the operator has
+  // already looked at these and asked for them again, which is a more specific
+  // instruction than "this stage usually comes next". Without this, a run whose
+  // contacts carry no hooks sits on Personalize while rejected drafts wait.
+  if (run.awaiting_redraft > 0)
+    return {
+      label: `Redraft ${run.awaiting_redraft}`,
+      href: scoped("/draft"),
+    };
   if (run.enriched > run.personalized)
     return { label: "Personalize", href: scoped("/personalize") };
   if (run.personalized > run.drafted) return { label: "Draft", href: scoped("/draft") };
+  // Personalization may legitimately find no hook, so a run can be ready to
+  // draft with personalized still at zero. Offer it rather than stalling.
+  if (run.draftable > 0) return { label: "Draft", href: scoped("/draft") };
   if (run.drafted > run.sent) return { label: "Send", href: scoped("/draft/queue") };
   return null;
 }

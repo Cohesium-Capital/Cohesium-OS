@@ -239,6 +239,11 @@ function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
             </span>
           )}
           {run.discarded > 0 && <span>{run.discarded} discarded in review</span>}
+          {run.awaiting_redraft > 0 && (
+            <span className="text-amber-600">
+              {run.awaiting_redraft} sent back to drafting
+            </span>
+          )}
           {furthest && <span>furthest stage: {furthest.label}</span>}
           {run.replied > 0 && <span>{run.replied} replied</span>}
           <span className="ml-auto flex gap-2">
