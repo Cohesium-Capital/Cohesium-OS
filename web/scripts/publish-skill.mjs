@@ -45,25 +45,34 @@ function resolveToken() {
   }
 }
 
-async function currentRemote(token) {
+async function readRemote(token) {
   // Deliberately the API and not raw.githubusercontent.com: raw is served
   // through a CDN that lags a write by minutes, so verifying against it reports
   // drift that has already been fixed — a spurious CI failure, and worse, one
   // that trains you to ignore this check. The API reflects a push immediately.
-  //
-  // Reads of a public repo need no credential; a token is passed only when one
-  // happens to be around, for the higher rate limit.
   const url = `https://api.github.com/repos/${REPO}/contents/${PATH_IN_REPO}?ref=${BRANCH}`;
-  const res = await fetch(url, {
+  return fetch(url, {
     headers: {
       // Returns the file body itself rather than base64-in-JSON.
       accept: "application/vnd.github.raw",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   });
+}
+
+async function currentRemote(token) {
+  // The repo is public, so this read needs no credential at all; a token buys
+  // only a higher rate limit. That makes an invalid one strictly worse than
+  // none — it turns a working anonymous read into a 401 — so a rejected
+  // credential falls back to anonymous rather than failing the run. The write
+  // path below is where a bad token must be reported, because there it matters.
+  let res = await readRemote(token);
+  if (token && (res.status === 401 || res.status === 403)) {
+    res = await readRemote(null);
+  }
   if (res.status === 404) return null;
   if (res.status === 403 || res.status === 429) {
-    throw new Error("GitHub API rate limit reached while verifying — retry, or set GH_TOKEN");
+    throw new Error("GitHub API rate limit reached while verifying — retry in a few minutes");
   }
   if (!res.ok) throw new Error(`could not read the public copy: HTTP ${res.status}`);
   return res.text();
@@ -95,14 +104,27 @@ async function push(token) {
       ...(sha ? { sha } : {}),
     }),
   });
+  if (res.status === 401) {
+    throw new Error(
+      "publish failed: GitHub rejected the token (401). It is expired, revoked, or " +
+        "carries stray whitespace from being pasted. Regenerate a fine-grained PAT with " +
+        `Contents: Read and write on ${REPO} and set it again.`,
+    );
+  }
+  if (res.status === 403 || res.status === 404) {
+    throw new Error(
+      `publish failed: HTTP ${res.status}. The token is valid but lacks Contents: write on ${REPO}.`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`publish failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
   }
 }
 
-// Read token is separate from the write token: verification only needs the
-// higher rate limit, so any available credential will do, including none.
-const readToken = process.env.GITHUB_TOKEN || process.env.RUNNER_REPO_TOKEN || process.env.GH_TOKEN || null;
+// GITHUB_TOKEN only — it is always valid inside Actions and can read a public
+// repo. Deliberately NOT the write token: reads do not need it, and reaching for
+// it is what turned a bad credential into a failed verification.
+const readToken = process.env.GITHUB_TOKEN?.trim() || null;
 const remote = await currentRemote(readToken);
 
 if (remote === canonical) {
