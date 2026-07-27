@@ -42,6 +42,9 @@ export async function submitRunOutput(input: {
     rawText: input.rawText,
     createdBy: user.id,
     requireEvidence: input.requireEvidence,
+    // A member of two workspaces pasting into a stale tab must not land rows
+    // in the workspace that ISN'T on screen.
+    expectedWorkspaceId: await currentWorkspaceId(),
   });
   revalidatePath("/runs");
   revalidatePath("/review");

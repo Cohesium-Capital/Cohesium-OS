@@ -38,6 +38,10 @@ export type SourcingConfig = PromptParams & {
 async function loadKnownOrgs(
   supabase: SupabaseClient,
   config: SourcingConfig,
+  // The run's workspace. RLS alone spans every workspace the caller belongs
+  // to, and this list is EMBEDDED IN THE RENDERED PROMPT persisted on the run
+  // — another workspace's company names must never ride along.
+  workspaceId: string,
 ): Promise<{ known: KnownOrg[]; omitted: number }> {
   const empty = { known: [], omitted: 0 };
 
@@ -52,6 +56,7 @@ async function loadKnownOrgs(
     const { data, count } = await supabase
       .from("organizations")
       .select("name, domain, current_msp_id", { count: "exact" })
+      .eq("workspace_id", workspaceId)
       .eq("kind", "customer")
       .in("current_msp_id", mspIds)
       .order("name")
@@ -68,6 +73,7 @@ async function loadKnownOrgs(
   const { data, count } = await supabase
     .from("organizations")
     .select("name, domain", { count: "exact" })
+    .eq("workspace_id", workspaceId)
     .eq("kind", kind)
     .order("name")
     .range(0, KNOWN_LIMIT - 1);
@@ -117,7 +123,7 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
         ],
       };
     }
-    const { known, omitted } = await loadKnownOrgs(supabase, config);
+    const { known, omitted } = await loadKnownOrgs(supabase, config, ctx.workspaceId);
     if (!known.length) return { config: withRules, notes: learnedNote };
     const label =
       config.mode === "research_msps"

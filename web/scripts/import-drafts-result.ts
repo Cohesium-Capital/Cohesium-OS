@@ -25,10 +25,39 @@ async function main() {
   const raw = JSON.parse(readFileSync(file, "utf8"));
   const drafts = (raw?.result?.drafts ?? raw?.drafts ?? []) as Draft[];
   const supabase = createClient(url, key, { auth: { persistSession: false } });
-  const promptVersionId = await activeDraftPromptVersion(supabase);
-  const report = await storeDrafts(supabase, drafts, { promptVersionId });
-  console.log(JSON.stringify(report, null, 2));
-  if (!report.ok) process.exit(1);
+
+  // Service-role client: nothing scopes these reads, so group the drafts by
+  // the workspace that owns each contact and store per workspace — the active
+  // prompt version stamped as provenance is per workspace too (028).
+  const ids = [...new Set(drafts.map((d) => d.contact_id))];
+  const { data: contacts, error } = await supabase
+    .from("contacts")
+    .select("id, workspace_id")
+    .in("id", ids);
+  if (error) {
+    console.error(`Could not resolve contact workspaces: ${error.message}`);
+    process.exit(1);
+  }
+  const wsByContact = new Map((contacts ?? []).map((c) => [c.id, c.workspace_id as string]));
+  const byWorkspace = new Map<string, Draft[]>();
+  for (const d of drafts) {
+    const ws = wsByContact.get(d.contact_id);
+    if (!ws) continue; // unknown contact — storeDrafts reports it as skipped
+    byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), d]);
+  }
+  if (!byWorkspace.size && drafts.length) {
+    console.error("None of the drafts' contact_ids exist.");
+    process.exit(1);
+  }
+
+  let failed = false;
+  for (const [workspaceId, group] of byWorkspace) {
+    const promptVersionId = await activeDraftPromptVersion(supabase, workspaceId);
+    const report = await storeDrafts(supabase, group, { promptVersionId }, {}, workspaceId);
+    console.log(JSON.stringify({ workspaceId, ...report }, null, 2));
+    if (!report.ok) failed = true;
+  }
+  if (failed) process.exit(1);
 }
 
 main();
