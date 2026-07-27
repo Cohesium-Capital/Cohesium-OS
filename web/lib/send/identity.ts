@@ -41,30 +41,43 @@ export {
 // credentials either. The merge rules live in identity-merge.ts, where they
 // are tested.
 
+const IDENTITY_COLUMNS =
+  "id, user_id, from_name, from_email, smtp_host, smtp_port, smtp_user, imap_host, imap_port, imap_user, heyreach_account_id, heyreach_campaign_id";
+
 async function identitySources(
   supabase: SupabaseClient,
   workspaceId: string,
   channel: "email" | "linkedin",
   userId?: string | null,
 ): Promise<{ personal: IdentitySource | null; shared: IdentitySource | null }> {
-  let query = supabase
-    .from("sending_identity")
-    .select(
-      "id, user_id, from_name, from_email, smtp_host, smtp_port, smtp_user, imap_host, imap_port, imap_user, heyreach_account_id, heyreach_campaign_id",
-    )
-    .eq("workspace_id", workspaceId)
-    .eq("channel", channel);
-  query = userId ? query.or(`user_id.eq.${userId},user_id.is.null`) : query.is("user_id", null);
-
-  const { data } = await query;
-  const rows = (data ?? []) as unknown as IdentityRowLike[];
+  // A PERSONAL identity follows its owner across workspaces (migration 043:
+  // user_id set, workspace_id null); the SHARED identity belongs to the
+  // workspace. Two point lookups, each against a unique index.
+  const [{ data: personalRows }, { data: sharedRows }] = await Promise.all([
+    userId
+      ? supabase
+          .from("sending_identity")
+          .select(IDENTITY_COLUMNS)
+          .eq("channel", channel)
+          .eq("user_id", userId)
+          .is("workspace_id", null)
+          .limit(1)
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("sending_identity")
+      .select(IDENTITY_COLUMNS)
+      .eq("channel", channel)
+      .eq("workspace_id", workspaceId)
+      .is("user_id", null)
+      .limit(1),
+  ]);
 
   const withSecrets = async (row: IdentityRowLike | undefined): Promise<IdentitySource | null> =>
     row ? { row, secrets: await secretsFor(supabase, row.id) } : null;
 
   return {
-    personal: await withSecrets(userId ? rows.find((r) => r.user_id === userId) : undefined),
-    shared: await withSecrets(rows.find((r) => r.user_id === null)),
+    personal: await withSecrets((personalRows as unknown as IdentityRowLike[] | null)?.[0]),
+    shared: await withSecrets((sharedRows as unknown as IdentityRowLike[] | null)?.[0]),
   };
 }
 

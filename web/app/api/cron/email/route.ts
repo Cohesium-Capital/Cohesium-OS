@@ -145,28 +145,21 @@ export async function GET(req: Request) {
   }
 
   const mailboxes = await collectMailboxes(supabase, envWorkspaceId, result.errors);
-  const captureConfigured = new Set<string>();
-  const captureFailed = new Set<string>();
+  // Keyed by INBOX (host|user), not by workspace: since 043 a personal
+  // mailbox follows its owner across workspaces, so "was this workspace's
+  // inbox captured?" is no longer a well-formed question. What the send loop
+  // asks instead is "was the inbox THE RESOLVED IDENTITY sends from captured
+  // this run?" — the capture set and the send path key on the same thing.
+  const capturedOk = new Set<string>();
   for (const mb of mailboxes) {
-    captureConfigured.add(mb.workspaceId);
     const ok = await captureMailbox(supabase, mb, result);
-    if (!ok) captureFailed.add(mb.workspaceId);
+    if (ok) capturedOk.add(inboxKey(mb.imap));
   }
-  const sendHeldReason = (workspaceId: string): string | null => {
-    if (!captureConfigured.has(workspaceId)) {
-      return "no inbox is configured for reply capture (set IMAP on a sending identity in Settings) — sends held";
-    }
-    if (captureFailed.has(workspaceId)) {
-      return "reply capture failed for this workspace's inbox this run — sends held";
-    }
-    return null;
-  };
 
   // ---- 2. Send window ------------------------------------------------------
-  // Capture-before-send is enforced per workspace via sendHeldReason: a
-  // workspace whose inbox was not captured this run may be missing
-  // yesterday's "unsubscribe", so ITS touches stay queued while everyone
-  // else's proceed.
+  // Capture-before-send is enforced per inbox: a touch sends only when the
+  // mailbox its identity replies land in was captured successfully this run,
+  // so a missing "unsubscribe" can never sit unseen behind a send.
 
   // Weekday guard. The cron fires daily (see the schedule note above) because
   // an opt-out sitting uncaptured over a weekend is the risk worth paying for;
@@ -258,19 +251,11 @@ export async function GET(req: Request) {
     return resolved;
   };
 
-  // Held workspaces are reported once, not once per touch.
+  // Held inboxes are reported once, not once per touch.
   const heldReported = new Set<string>();
   let sentThisRun = 0;
   for (const t of sendable) {
     if (sentThisRun >= batch) break; // per-run instance bound (EMAIL_BATCH)
-    const held = sendHeldReason(t.workspace_id);
-    if (held) {
-      if (!heldReported.has(t.workspace_id)) {
-        heldReported.add(t.workspace_id);
-        result.errors.push(`workspace ${t.workspace_id}: ${held}`);
-      }
-      continue;
-    }
     if (remainingFor(t.workspace_id) <= 0) continue; // this workspace's daily cap
     const identity = await identityFor(t);
     const missing = emailIdentityReady(identity);
@@ -281,6 +266,24 @@ export async function GET(req: Request) {
       result.errors.push(
         `${t.contacts!.email}: no usable sending identity for this workspace (${missing}) — left queued.`,
       );
+      continue;
+    }
+    // Capture-before-send: the identity's own inbox must have been captured
+    // this run. No IMAP on the identity, or a failed fetch, both hold.
+    const key = inboxKey({
+      host: identity.imapHost,
+      port: identity.imapPort,
+      user: identity.imapUser,
+      pass: identity.imapPass,
+    });
+    if (!capturedOk.has(key)) {
+      if (!heldReported.has(key)) {
+        heldReported.add(key);
+        result.errors.push(
+          `${identity.fromEmail ?? identity.smtpUser ?? "identity"}: its reply inbox was not captured this run ` +
+            "(no IMAP configured on the identity, or the fetch failed) — sends held.",
+        );
+      }
       continue;
     }
     const r = await sendMail({
@@ -329,8 +332,22 @@ export async function GET(req: Request) {
   return NextResponse.json({ ...result, learning });
 }
 
+function inboxKey(imap: ImapConfig): string {
+  return `${imap.host ?? ""}|${imap.user ?? ""}`.toLowerCase();
+}
+
 type Mailbox = {
-  workspaceId: string;
+  /**
+   * The workspaces this inbox captures FOR. One entry for a workspace-shared
+   * mailbox; every workspace the owner belongs to for a personal mailbox,
+   * which since 043 follows its owner — a reply landing in their inbox can
+   * concern a contact in any of their workspaces.
+   */
+  workspaceIds: string[];
+  /** Where an unresolvable DSN files: interactions.workspace_id is NOT NULL
+   *  and a strayed bounce with no matchable contact still needs a home. The
+   *  shared mailbox uses its workspace; a personal one its owner's default. */
+  fallbackWorkspaceId: string;
   /** For error messages: which identity this inbox came from. */
   label: string;
   imap: ImapConfig;
@@ -341,9 +358,8 @@ type Mailbox = {
 // Every distinct inbox to poll: each email identity that resolves to IMAP
 // config (per the same fallback rules sending uses), plus the env mailbox for
 // the operator workspace when no identity row already reaches it. Deduped on
-// host|user so one inbox is never captured twice — if two workspaces somehow
-// name the same mailbox, the first keeps it and the collision is reported
-// rather than silently double-filing.
+// host|user so one inbox is never captured twice; a duplicate merges its
+// workspace list into the first rather than double-filing.
 async function collectMailboxes(
   supabase: SupabaseClient,
   envWorkspaceId: string | null,
@@ -352,13 +368,11 @@ async function collectMailboxes(
   const out: Mailbox[] = [];
   const byInbox = new Map<string, Mailbox>();
   const push = (mb: Mailbox) => {
-    const key = `${mb.imap.host}|${mb.imap.user}`.toLowerCase();
+    const key = inboxKey(mb.imap);
     const existing = byInbox.get(key);
     if (existing) {
-      if (existing.workspaceId !== mb.workspaceId) {
-        errors.push(
-          `mailbox ${mb.imap.user} is configured by two workspaces; capturing for ${existing.workspaceId} only`,
-        );
+      for (const ws of mb.workspaceIds) {
+        if (!existing.workspaceIds.includes(ws)) existing.workspaceIds.push(ws);
       }
       return;
     }
@@ -376,21 +390,69 @@ async function collectMailboxes(
     errors.push(`could not list sending identities: ${error.message}`);
     return out;
   }
-  for (const r of (data ?? []) as { workspace_id: string; user_id: string | null }[]) {
-    const identity = await emailIdentityFor(supabase, r.workspace_id, r.user_id, envWorkspaceId);
-    const imap: ImapConfig = {
-      host: identity.imapHost,
-      port: identity.imapPort,
-      user: identity.imapUser,
-      pass: identity.imapPass,
-    };
-    if (!imapConfigured(imap)) continue;
-    push({
-      workspaceId: r.workspace_id,
-      label: r.user_id ? "personal identity" : "shared identity",
-      imap,
-      selfAddress: identity.fromEmail?.toLowerCase() ?? null,
-    });
+
+  // Membership map for personal identities: which workspaces does each owner
+  // belong to, and which is their default (the DSN fallback home)?
+  const rows = (data ?? []) as { workspace_id: string | null; user_id: string | null }[];
+  const ownerIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))] as string[];
+  const membership = new Map<string, { workspaceIds: string[]; defaultWs: string | null }>();
+  if (ownerIds.length) {
+    const { data: members } = await supabase
+      .from("workspace_members")
+      .select("user_id, workspace_id, is_default")
+      .in("user_id", ownerIds);
+    for (const m of (members ?? []) as {
+      user_id: string;
+      workspace_id: string;
+      is_default: boolean;
+    }[]) {
+      const entry = membership.get(m.user_id) ?? { workspaceIds: [], defaultWs: null };
+      entry.workspaceIds.push(m.workspace_id);
+      if (m.is_default) entry.defaultWs = m.workspace_id;
+      membership.set(m.user_id, entry);
+    }
+  }
+
+  for (const r of rows) {
+    if (r.user_id) {
+      // Personal identity: global since 043. Resolve against the owner's
+      // default workspace (the workspace only affects the shared-row and env
+      // fallbacks); capture spans every workspace they belong to.
+      const m = membership.get(r.user_id);
+      if (!m || !m.workspaceIds.length) continue; // owner belongs nowhere — nothing to capture for
+      const resolveWs = m.defaultWs ?? m.workspaceIds[0];
+      const identity = await emailIdentityFor(supabase, resolveWs, r.user_id, envWorkspaceId);
+      const imap: ImapConfig = {
+        host: identity.imapHost,
+        port: identity.imapPort,
+        user: identity.imapUser,
+        pass: identity.imapPass,
+      };
+      if (!imapConfigured(imap)) continue;
+      push({
+        workspaceIds: m.workspaceIds,
+        fallbackWorkspaceId: resolveWs,
+        label: "personal identity",
+        imap,
+        selfAddress: identity.fromEmail?.toLowerCase() ?? null,
+      });
+    } else if (r.workspace_id) {
+      const identity = await emailIdentityFor(supabase, r.workspace_id, null, envWorkspaceId);
+      const imap: ImapConfig = {
+        host: identity.imapHost,
+        port: identity.imapPort,
+        user: identity.imapUser,
+        pass: identity.imapPass,
+      };
+      if (!imapConfigured(imap)) continue;
+      push({
+        workspaceIds: [r.workspace_id],
+        fallbackWorkspaceId: r.workspace_id,
+        label: "shared identity",
+        imap,
+        selfAddress: identity.fromEmail?.toLowerCase() ?? null,
+      });
+    }
   }
 
   if (envWorkspaceId) {
@@ -403,7 +465,8 @@ async function collectMailboxes(
     };
     if (imapConfigured(imap)) {
       push({
-        workspaceId: envWorkspaceId,
+        workspaceIds: [envWorkspaceId],
+        fallbackWorkspaceId: envWorkspaceId,
         label: "env mailbox",
         imap,
         selfAddress: env.fromEmail?.toLowerCase() ?? null,
@@ -413,10 +476,10 @@ async function collectMailboxes(
   return out;
 }
 
-// Capture one mailbox into its workspace. Returns false when the run cannot
-// vouch for this inbox (fetch or dedupe failure) — the caller then holds the
-// workspace's sends. A failed fetch still yields any partially-fetched
-// messages, which are captured before reporting the failure.
+// Capture one inbox into every workspace it serves. Returns false when the
+// run cannot vouch for it (fetch or dedupe failure) — the caller then holds
+// every send that resolves to this inbox. A failed fetch still yields any
+// partially-fetched messages, which are captured before reporting the failure.
 async function captureMailbox(
   supabase: SupabaseClient,
   mb: Mailbox,
@@ -433,212 +496,248 @@ async function captureMailbox(
   }
 
   // Dedupe against interactions captured by earlier polls of the same window —
-  // scoped to this workspace, because the same Message-ID can legitimately be
-  // captured by two workspaces (one prospect replying to two firms) and the
-  // unique key is (workspace_id, message_id) (migration 031).
+  // per (workspace, Message-ID): the same message can legitimately file into
+  // two workspaces (one prospect known to two of this inbox owner's firms)
+  // and the unique key is (workspace_id, message_id) (migration 031).
+  const allWs = [...new Set([...mb.workspaceIds, mb.fallbackWorkspaceId])];
   const withIds = inbox.messages.filter((m) => m.messageId);
-  const seen = new Set<string>();
+  const seen = new Set<string>(); // `${workspace_id}|${message_id}`
   if (withIds.length) {
     const { data: existing, error: de } = await supabase
       .from("interactions")
-      .select("message_id")
-      .eq("workspace_id", mb.workspaceId)
+      .select("message_id, workspace_id")
+      .in("workspace_id", allWs)
       .in("message_id", withIds.map((m) => m.messageId!));
     if (de) {
       // A failed dedupe read must not make the whole window look "fresh" —
       // that would re-run flips and stack suppressions every poll. Fail
-      // closed for this workspace: skip its capture, hold its sends.
+      // closed for this inbox: skip its capture, hold its sends.
       result.errors.push(`${mb.label}: message-id dedupe check failed: ${de.message}`);
       return false;
     }
-    existing?.forEach((r) => r.message_id && seen.add(r.message_id));
+    existing?.forEach((r) => r.message_id && seen.add(`${r.workspace_id}|${r.message_id}`));
   }
-  const fresh = withIds.filter((m) => !seen.has(m.messageId!));
 
-  // Resolve non-DSN senders to contacts IN THIS WORKSPACE in one query: the
-  // mailbox belongs to the workspace, so what lands in it can only concern
-  // that workspace's contacts. Senders arrive lowercased from the IMAP layer
-  // but stored contact emails may carry any casing, so match
-  // case-insensitively (ilike, wildcards escaped). Addresses with characters
-  // that would break the or() grammar are dropped.
-  const senders = [...new Set(fresh.filter((m) => !isDsn(m)).map((m) => m.fromAddress))].filter(
+  // Resolve non-DSN senders to contacts in EVERY workspace this inbox
+  // captures for: a personal mailbox follows its owner (043), so a reply
+  // landing in it can concern a contact in any of their workspaces — and the
+  // same prospect can be held by more than one. Senders arrive lowercased
+  // from the IMAP layer but stored contact emails may carry any casing, so
+  // match case-insensitively (ilike, wildcards escaped). Addresses with
+  // characters that would break the or() grammar are dropped.
+  const senders = [...new Set(withIds.filter((m) => !isDsn(m)).map((m) => m.fromAddress))].filter(
     (s) => !/[,()"]/.test(s),
   );
-  const contactByEmail = new Map<string, string>();
+  const contactsByEmail = new Map<string, { id: string; workspaceId: string }[]>();
   if (senders.length) {
     const { data: matched } = await supabase
       .from("contacts")
-      .select("id, email")
-      .eq("workspace_id", mb.workspaceId)
+      .select("id, email, workspace_id")
+      .in("workspace_id", mb.workspaceIds)
       .or(senders.map((s) => `email.ilike.${likeEscape(s)}`).join(","))
       .is("deleted_at", null);
-    matched?.forEach((c) => c.email && contactByEmail.set(c.email.toLowerCase(), c.id));
+    matched?.forEach((c) => {
+      if (!c.email) return;
+      const key = c.email.toLowerCase();
+      contactsByEmail.set(key, [
+        ...(contactsByEmail.get(key) ?? []),
+        { id: c.id as string, workspaceId: c.workspace_id as string },
+      ]);
+    });
   }
 
-  for (const m of fresh) {
+  for (const m of withIds) {
     const now = new Date().toISOString();
     if (isDsn(m)) {
-      // Resolve the bounced recipient to a contact + its most recent live
-      // outbound email touch; unresolvable DSNs are still stored verbatim.
-      // Only a hard failure flips the touch and creates an ACTIVE suppression;
-      // soft/indeterminate DSNs (delays, warnings) get a PENDING 'auto_pending'
-      // suppression for triage and leave the touch and disposition alone.
+      // Resolve the bounced recipient to contacts (one per workspace, the
+      // newest) + each one's most recent live outbound email touch;
+      // unresolvable DSNs are still stored verbatim under the fallback
+      // workspace. Only a hard failure flips the touch and creates an ACTIVE
+      // suppression; soft/indeterminate DSNs (delays, warnings) get a PENDING
+      // 'auto_pending' suppression for triage.
       const hard = isHardDsn(m);
-      let contactId: string | null = null;
-      let touchId: string | null = null;
       const recipient = bouncedRecipient(m.text, mb.selfAddress);
+      let matches: { id: string; workspaceId: string }[] = [];
       if (recipient) {
-        // limit(1) rather than maybeSingle: two contacts sharing an address
-        // within one workspace is unusual but allowed by the schema, and a
-        // multi-row error here would silently drop the bounce.
         const { data: contacts } = await supabase
           .from("contacts")
-          .select("id")
-          .eq("workspace_id", mb.workspaceId)
+          .select("id, workspace_id")
+          .in("workspace_id", mb.workspaceIds)
           .ilike("email", likeEscape(recipient))
           .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        const contact = contacts?.[0];
-        if (contact) {
-          contactId = contact.id;
-          const { data: touch } = await supabase
-            .from("touches")
-            .select("id")
-            .eq("contact_id", contact.id)
-            .eq("channel", "email")
-            .eq("direction", "outbound")
-            .in("status", ["sent", "delivered"])
-            .is("deleted_at", null)
-            .order("sent_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (touch) {
-            touchId = touch.id;
-            if (hard) {
-              await supabase
-                .from("touches")
-                .update({ status: "bounced", bounced_at: now })
-                .eq("id", touch.id);
-            }
-          }
-          // Idempotent across polls: skip when a non-revoked suppression with
-          // the same contact + reason already exists.
-          const reason = hard ? "hard_bounce" : "auto_pending";
-          const { data: dupSup } = await supabase
-            .from("suppressions")
-            .select("id")
-            .eq("contact_id", contact.id)
-            .eq("reason", reason)
-            .neq("status", "revoked")
-            .limit(1)
-            .maybeSingle();
-          if (!dupSup) {
-            await supabase.from("suppressions").insert({
-              contact_id: contact.id,
-              reason,
-              status: hard ? "active" : "pending",
-              source: `dsn:${m.messageId}`,
-            });
+          .order("created_at", { ascending: false });
+        const perWs = new Map<string, string>();
+        for (const c of (contacts ?? []) as { id: string; workspace_id: string }[]) {
+          if (!perWs.has(c.workspace_id)) perWs.set(c.workspace_id, c.id);
+        }
+        matches = [...perWs].map(([workspaceId, id]) => ({ id, workspaceId }));
+      }
+
+      if (!matches.length) {
+        if (seen.has(`${mb.fallbackWorkspaceId}|${m.messageId}`)) continue;
+        const { error: ie } = await supabase.from("interactions").insert({
+          // No contact to inherit a workspace from — file under the mailbox's
+          // fallback home so it still surfaces in triage.
+          workspace_id: mb.fallbackWorkspaceId,
+          contact_id: null,
+          touch_id: null,
+          channel: "email",
+          source: "imap",
+          disposition: hard ? "bounce" : null,
+          raw_content: m.text,
+          headers: m.headers,
+          message_id: m.messageId,
+          occurred_at: m.date,
+        });
+        if (ie) result.errors.push(`bounce ${m.messageId}: ${ie.message}`);
+        else result.bouncesCaptured++;
+        continue;
+      }
+
+      for (const contact of matches) {
+        // Already captured for this workspace on an earlier poll — the flips
+        // happened then too.
+        if (seen.has(`${contact.workspaceId}|${m.messageId}`)) continue;
+        let touchId: string | null = null;
+        const { data: touch } = await supabase
+          .from("touches")
+          .select("id")
+          .eq("contact_id", contact.id)
+          .eq("channel", "email")
+          .eq("direction", "outbound")
+          .in("status", ["sent", "delivered"])
+          .is("deleted_at", null)
+          .order("sent_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (touch) {
+          touchId = touch.id;
+          if (hard) {
+            await supabase
+              .from("touches")
+              .update({ status: "bounced", bounced_at: now })
+              .eq("id", touch.id);
           }
         }
+        // Idempotent across polls: skip when a non-revoked suppression with
+        // the same contact + reason already exists.
+        const reason = hard ? "hard_bounce" : "auto_pending";
+        const { data: dupSup } = await supabase
+          .from("suppressions")
+          .select("id")
+          .eq("contact_id", contact.id)
+          .eq("reason", reason)
+          .neq("status", "revoked")
+          .limit(1)
+          .maybeSingle();
+        if (!dupSup) {
+          await supabase.from("suppressions").insert({
+            contact_id: contact.id,
+            reason,
+            status: hard ? "active" : "pending",
+            source: `dsn:${m.messageId}`,
+          });
+        }
+        const { error: ie } = await supabase.from("interactions").insert({
+          workspace_id: contact.workspaceId,
+          contact_id: contact.id,
+          touch_id: touchId,
+          channel: "email",
+          source: "imap",
+          // Soft/indeterminate DSNs stay unclassified so they surface in triage.
+          disposition: hard ? "bounce" : null,
+          raw_content: m.text,
+          headers: m.headers,
+          message_id: m.messageId,
+          occurred_at: m.date,
+        });
+        if (ie) result.errors.push(`bounce ${m.messageId}: ${ie.message}`);
+        else result.bouncesCaptured++;
       }
-      const { error: ie } = await supabase.from("interactions").insert({
-        // An unresolvable DSN has no contact to inherit from; it files under
-        // the workspace whose mailbox received it.
-        workspace_id: mb.workspaceId,
-        contact_id: contactId,
-        touch_id: touchId,
-        channel: "email",
-        source: "imap",
-        // Soft/indeterminate DSNs stay unclassified so they surface in triage.
-        disposition: hard ? "bounce" : null,
-        raw_content: m.text,
-        headers: m.headers,
-        message_id: m.messageId,
-        occurred_at: m.date,
-      });
-      if (ie) result.errors.push(`bounce ${m.messageId}: ${ie.message}`);
-      else result.bouncesCaptured++;
       continue;
     }
 
-    const contactId = contactByEmail.get(m.fromAddress);
-    if (!contactId) continue; // stranger mail is not ours to store
+    const replyMatches = contactsByEmail.get(m.fromAddress) ?? [];
+    if (!replyMatches.length) continue; // stranger mail is not ours to store
 
-    // Touch match: In-Reply-To/References against the Message-IDs we stamped
-    // into provider_ref at send time; fallback = most recent live outbound.
-    // Only sent/delivered may flip to replied — never planned/queued drafts.
-    const { data: candidates } = await supabase
-      .from("touches")
-      .select("id, provider_ref")
-      .eq("contact_id", contactId)
-      .eq("channel", "email")
-      .eq("direction", "outbound")
-      .in("status", ["sent", "delivered"])
-      .is("deleted_at", null)
-      .order("sent_at", { ascending: false });
-    const refs = new Set(
-      [m.inReplyTo, ...m.references].filter((r): r is string => !!r).map(normalizeMid),
-    );
-    const touch =
-      (candidates ?? []).find(
-        (t) => t.provider_ref && refs.has(normalizeMid(t.provider_ref)),
-      ) ??
-      candidates?.[0] ??
-      null;
     // Auto-generated mail (OOO/vacation) is stored for triage but never
     // counts as a human response: no replied flip, no responded stop-flag.
     const autoReply = isAutoReply(m.headers);
-    if (touch && !autoReply) {
-      await supabase
+    const refs = new Set(
+      [m.inReplyTo, ...m.references].filter((r): r is string => !!r).map(normalizeMid),
+    );
+
+    for (const contact of replyMatches) {
+      if (seen.has(`${contact.workspaceId}|${m.messageId}`)) continue;
+
+      // Touch match: In-Reply-To/References against the Message-IDs we stamped
+      // into provider_ref at send time; fallback = most recent live outbound.
+      // Only sent/delivered may flip to replied — never planned/queued drafts.
+      const { data: candidates } = await supabase
         .from("touches")
-        .update({ status: "replied", replied_at: now })
-        .eq("id", touch.id);
-    }
-    if (!autoReply) {
-      await supabase
-        .from("contacts")
-        .update({ responded: true, responded_at: now, stage: "responded" })
-        .eq("id", contactId)
-        .eq("responded", false);
-    }
-    if (OPT_OUT_RE.test(m.text)) {
-      // Idempotent across polls: skip when a non-revoked opt_out suppression
-      // already exists for this contact.
-      const { data: dupSup } = await supabase
-        .from("suppressions")
-        .select("id")
-        .eq("contact_id", contactId)
-        .eq("reason", "opt_out")
-        .neq("status", "revoked")
-        .limit(1)
-        .maybeSingle();
-      if (!dupSup) {
-        await supabase.from("suppressions").insert({
-          contact_id: contactId,
-          reason: "opt_out",
-          status: "pending",
-          source: `reply:${m.messageId}`,
-        });
-        result.optOutsPending++;
+        .select("id, provider_ref")
+        .eq("contact_id", contact.id)
+        .eq("channel", "email")
+        .eq("direction", "outbound")
+        .in("status", ["sent", "delivered"])
+        .is("deleted_at", null)
+        .order("sent_at", { ascending: false });
+      const touch =
+        (candidates ?? []).find(
+          (t) => t.provider_ref && refs.has(normalizeMid(t.provider_ref)),
+        ) ??
+        candidates?.[0] ??
+        null;
+      if (touch && !autoReply) {
+        await supabase
+          .from("touches")
+          .update({ status: "replied", replied_at: now })
+          .eq("id", touch.id);
       }
+      if (!autoReply) {
+        await supabase
+          .from("contacts")
+          .update({ responded: true, responded_at: now, stage: "responded" })
+          .eq("id", contact.id)
+          .eq("responded", false);
+      }
+      if (OPT_OUT_RE.test(m.text)) {
+        // Idempotent across polls: skip when a non-revoked opt_out suppression
+        // already exists for this contact.
+        const { data: dupSup } = await supabase
+          .from("suppressions")
+          .select("id")
+          .eq("contact_id", contact.id)
+          .eq("reason", "opt_out")
+          .neq("status", "revoked")
+          .limit(1)
+          .maybeSingle();
+        if (!dupSup) {
+          await supabase.from("suppressions").insert({
+            contact_id: contact.id,
+            reason: "opt_out",
+            status: "pending",
+            source: `reply:${m.messageId}`,
+          });
+          result.optOutsPending++;
+        }
+      }
+      const { error: ie } = await supabase.from("interactions").insert({
+        workspace_id: contact.workspaceId,
+        contact_id: contact.id,
+        touch_id: touch?.id ?? null,
+        channel: "email",
+        source: "imap",
+        raw_content: m.text,
+        headers: autoReply
+          ? { ...m.headers, "x-capture-note": "auto-reply detected; responded/replied flips skipped" }
+          : m.headers,
+        message_id: m.messageId,
+        occurred_at: m.date,
+      });
+      if (ie) result.errors.push(`reply ${m.messageId}: ${ie.message}`);
+      else result.repliesCaptured++;
     }
-    const { error: ie } = await supabase.from("interactions").insert({
-      workspace_id: mb.workspaceId,
-      contact_id: contactId,
-      touch_id: touch?.id ?? null,
-      channel: "email",
-      source: "imap",
-      raw_content: m.text,
-      headers: autoReply
-        ? { ...m.headers, "x-capture-note": "auto-reply detected; responded/replied flips skipped" }
-        : m.headers,
-      message_id: m.messageId,
-      occurred_at: m.date,
-    });
-    if (ie) result.errors.push(`reply ${m.messageId}: ${ie.message}`);
-    else result.repliesCaptured++;
   }
   return inbox.ok;
 }

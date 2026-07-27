@@ -53,11 +53,13 @@ export function SendingPanel({
   identities,
   members,
   isAdmin,
+  currentUserId,
   envConfigured,
 }: {
   identities: SendingIdentityRow[];
   members: MemberOption[];
   isAdmin: boolean;
+  currentUserId: string;
   envConfigured: boolean;
 }) {
   const router = useRouter();
@@ -82,14 +84,20 @@ export function SendingPanel({
   const emailFor = (userId: string | null) =>
     userId ? members.find((m) => m.userId === userId)?.email ?? "a member" : "everyone";
 
+  // A personal identity is managed by its owner alone (it follows them across
+  // workspaces); the shared identity by workspace admins.
+  const canManage = (i: SendingIdentityRow) =>
+    i.userId ? i.userId === currentUserId : isAdmin;
+
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Sending</CardTitle>
         <CardDescription>
-          Which mailbox and LinkedIn account this workspace sends from. Add one per person to
-          have each member send as themselves; the shared identity covers anyone without their
-          own.
+          Which mailbox and LinkedIn account outreach goes out from. Your personal identity is
+          yours — it follows you into every workspace you belong to, and only you can edit it.
+          The shared identity is this workspace&rsquo;s own and covers anyone without their own;
+          campaign and API key are set there, since those belong to the firm.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -130,7 +138,7 @@ export function SendingPanel({
                 {i.hasHeyreachKey ? "key set" : "using env key"}
               </Badge>
             )}
-            {isAdmin && (
+            {canManage(i) && (
               <div className="ml-auto flex gap-1">
                 <Button
                   size="sm"
@@ -170,9 +178,17 @@ export function SendingPanel({
           </div>
         ))}
 
-        {isAdmin && !form && (
+        {!form && (
           <div>
-            <Button size="sm" variant="outline" onClick={() => setForm({ ...EMPTY })}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                // Non-admins can only add their own personal identity, so the
+                // form opens pre-scoped to them.
+                setForm({ ...EMPTY, userId: isAdmin ? null : currentUserId })
+              }
+            >
               <Plus className="size-3.5" /> Add a sending identity
             </Button>
           </div>
@@ -194,14 +210,12 @@ export function SendingPanel({
                 className="h-9 rounded-md border bg-transparent px-2 text-sm"
                 value={form.userId ?? ""}
                 onChange={(e) => set("userId", e.target.value || null)}
-                disabled={pending}
+                disabled={pending || !!form.id || !isAdmin}
               >
-                <option value="">Shared — anyone without their own</option>
-                {members.map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.email ?? m.userId.slice(0, 8)}
-                  </option>
-                ))}
+                {isAdmin && <option value="">Shared — anyone without their own</option>}
+                <option value={currentUserId}>
+                  You — follows you across your workspaces
+                </option>
               </select>
             </div>
 
@@ -237,19 +251,29 @@ export function SendingPanel({
                   onChange={(v) => set("heyreachAccountId", v)}
                   placeholder="the LinkedIn account to send from"
                 />
-                <Field
-                  label="Campaign id"
-                  value={form.heyreachCampaignId}
-                  onChange={(v) => set("heyreachCampaignId", v)}
-                  placeholder="blank uses the shared campaign"
-                />
-                <Field
-                  label="API key"
-                  value={form.heyreachApiKey}
-                  onChange={(v) => set("heyreachApiKey", v)}
-                  placeholder={form.id ? "unchanged" : "blank uses the env key"}
-                  type="password"
-                />
+                {form.userId ? (
+                  <p className="self-end text-xs text-muted-foreground">
+                    Campaign and API key belong to the firm, so they come from the
+                    workspace&rsquo;s shared identity — your account rides whichever
+                    workspace you send from.
+                  </p>
+                ) : (
+                  <>
+                    <Field
+                      label="Campaign id"
+                      value={form.heyreachCampaignId}
+                      onChange={(v) => set("heyreachCampaignId", v)}
+                      placeholder="this workspace's campaign"
+                    />
+                    <Field
+                      label="API key"
+                      value={form.heyreachApiKey}
+                      onChange={(v) => set("heyreachApiKey", v)}
+                      placeholder={form.id ? "unchanged" : "blank uses the env key"}
+                      type="password"
+                    />
+                  </>
+                )}
               </div>
             )}
 

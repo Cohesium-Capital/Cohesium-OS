@@ -334,7 +334,9 @@ export type SendingIdentityRow = {
 };
 
 /**
- * Sending identities for this workspace.
+ * Sending identities to show in Settings: the current workspace's SHARED rows
+ * plus every PERSONAL row the caller can see (their own, and co-members' —
+ * personal rows are global since 043 and follow their owner).
  *
  * Credentials themselves are never read here — sending_secret is unreadable to
  * any browser session. `sending_secret_status` answers only whether each one is
@@ -345,14 +347,22 @@ export async function sendingIdentities(): Promise<SendingIdentityRow[]> {
   const workspaceId = await currentWorkspaceId();
   const supabase = await createClient();
 
-  const { data } = await supabase
-    .from("sending_identity")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .order("channel")
-    .order("user_id", { nullsFirst: true });
+  const [{ data: shared }, { data: personal }] = await Promise.all([
+    supabase
+      .from("sending_identity")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .is("user_id", null)
+      .order("channel"),
+    supabase
+      .from("sending_identity")
+      .select("*")
+      .is("workspace_id", null)
+      .not("user_id", "is", null)
+      .order("channel"),
+  ]);
 
-  const rows = (data ?? []) as unknown as Record<string, unknown>[];
+  const rows = [...(shared ?? []), ...(personal ?? [])] as unknown as Record<string, unknown>[];
   return Promise.all(
     rows.map(async (r) => {
       const { data: status } = await supabase.rpc("sending_secret_status", {
@@ -406,9 +416,23 @@ export type SendingIdentityInput = {
   heyreachApiKey?: string;
 };
 
+/**
+ * Save a sending identity.
+ *
+ * Two ownership modes since migration 043:
+ * - PERSONAL (input.userId === the caller): the caller's own row, global — it
+ *   follows them across workspaces. Any member may manage their own; nobody
+ *   may manage someone else's (their mailbox, their credentials).
+ * - SHARED (input.userId null): the current workspace's firm identity,
+ *   admin-only, as before.
+ */
 export async function saveSendingIdentity(input: SendingIdentityInput): Promise<string> {
-  const workspaceId = await assertAdmin();
   const user = await requireUser();
+  const personal = input.userId != null;
+  if (personal && input.userId !== user.id) {
+    throw new Error("A personal sending identity can only be managed by its owner.");
+  }
+  const workspaceId = personal ? null : await assertAdmin();
   const supabase = await createClient();
 
   const nn = (v?: string | null) => {
@@ -426,7 +450,10 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
     imap_port: input.imapPort ?? null,
     imap_user: nn(input.imapUser),
     heyreach_account_id: nn(input.heyreachAccountId),
-    heyreach_campaign_id: nn(input.heyreachCampaignId),
+    // The campaign is firm-level and resolution ignores it on personal rows
+    // (a traveling personal row must not carry one firm's campaign into
+    // another) — don't store dead values there either.
+    heyreach_campaign_id: personal ? null : nn(input.heyreachCampaignId),
     // Only set when the form actually carried it — the edit form has no label
     // field, and an unconditional write would null a label on every edit.
     ...(input.label !== undefined ? { label: nn(input.label) } : {}),
@@ -437,27 +464,30 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
   let identityId = input.id;
   if (identityId) {
     // The update names neither workspace_id nor user_id/channel: identity
-    // rows never migrate between workspaces or owners. The workspace filter
-    // (not just RLS, which spans every workspace this admin belongs to)
-    // guarantees a stale tab that switched workspaces cannot re-home another
-    // workspace's identity — and its secrets — to the one now on screen.
-    const { data: updated, error } = await supabase
-      .from("sending_identity")
-      .update(row)
-      .eq("id", identityId)
-      .eq("workspace_id", workspaceId)
-      .select("id");
+    // rows never migrate between workspaces or owners. The ownership filter
+    // (not just RLS, which spans everything the caller can see) guarantees a
+    // stale tab cannot re-home a row — and its secrets — to whatever is now
+    // on screen.
+    let update = supabase.from("sending_identity").update(row).eq("id", identityId);
+    update = personal ? update.eq("user_id", user.id) : update.eq("workspace_id", workspaceId!);
+    const { data: updated, error } = await update.select("id");
     if (error) throw new Error(error.message);
     if (!updated?.length) {
-      throw new Error("That identity does not belong to the current workspace.");
+      throw new Error(
+        personal
+          ? "That identity is not yours to edit."
+          : "That identity does not belong to the current workspace.",
+      );
     }
   } else {
     const { data, error } = await supabase
       .from("sending_identity")
       .insert({
         ...row,
-        workspace_id: workspaceId,
-        user_id: input.userId ?? null,
+        // Exactly one owner (043): a personal row carries no workspace, a
+        // shared row no user.
+        workspace_id: personal ? null : workspaceId,
+        user_id: personal ? user.id : null,
         channel: input.channel,
         label: nn(input.label),
       })
@@ -465,7 +495,11 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
       .single();
     if (error) {
       if (error.code === "23505") {
-        throw new Error("An identity for that channel and person already exists.");
+        throw new Error(
+          personal
+            ? "You already have an identity for that channel — edit it instead."
+            : "This workspace already has a shared identity for that channel.",
+        );
       }
       throw new Error(error.message);
     }
@@ -474,10 +508,11 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
 
   // Credentials go through the definer function, and only when actually
   // supplied: a blank field means "leave it alone", so saving the From address
-  // does not wipe a password the form never displayed.
+  // does not wipe a password the form never displayed. The HeyReach org key is
+  // firm-level like the campaign — never stored on a personal row.
   const smtpPass = nn(input.smtpPass);
   const imapPass = nn(input.imapPass);
-  const heyreachKey = nn(input.heyreachApiKey);
+  const heyreachKey = personal ? null : nn(input.heyreachApiKey);
   if (smtpPass || imapPass || heyreachKey) {
     const { error } = await supabase.rpc("set_sending_secret", {
       p_identity_id: identityId,
@@ -493,10 +528,30 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
 }
 
 export async function deleteSendingIdentity(id: string): Promise<void> {
-  await assertAdmin();
+  const user = await requireUser();
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("sending_identity")
+    .select("id, user_id, workspace_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!existing) throw new Error("No such sending identity.");
+
+  // Owner deletes their own personal identity; admins delete the workspace's
+  // shared one. The filters mirror the RLS policies so a failure is a clear
+  // error instead of a silent zero-row delete.
+  let del = supabase.from("sending_identity").delete().eq("id", id);
+  if (existing.user_id) {
+    if (existing.user_id !== user.id) {
+      throw new Error("A personal sending identity can only be removed by its owner.");
+    }
+    del = del.eq("user_id", user.id);
+  } else {
+    const workspaceId = await assertAdmin();
+    del = del.eq("workspace_id", workspaceId);
+  }
   // The secret cascades with the identity.
-  const { error } = await supabase.from("sending_identity").delete().eq("id", id);
+  const { error } = await del;
   if (error) throw new Error(error.message);
   refresh();
 }

@@ -193,6 +193,37 @@ test("linkedin: the account never falls back, even within the workspace", () => 
   assert.equal(got.accountId, null);
 });
 
+test("linkedin: a personal row's campaign and key are IGNORED — firm-level only", () => {
+  // A personal identity follows its owner across workspaces (043). If its
+  // campaign or org API key resolved, one firm's leads would be pushed into
+  // another firm's HeyReach campaign the moment the owner switched workspaces.
+  const got = mergeLinkedinIdentity({
+    personal: src(
+      { id: "p", user_id: "u1", heyreach_account_id: "my-seat", heyreach_campaign_id: "stale-campaign" },
+      { heyreach_api_key: "stale-key" },
+    ),
+    shared: src({ id: "s", heyreach_campaign_id: "firm-campaign" }, { heyreach_api_key: "firm-key" }),
+    env: envLinkedin,
+  });
+  assert.equal(got.accountId, "my-seat"); // the seat IS personal and travels
+  assert.equal(got.campaignId, "firm-campaign"); // never stale-campaign
+  assert.equal(got.apiKey, "firm-key"); // never stale-key
+});
+
+test("linkedin: personal row with no shared row and env forbidden gets no campaign or key", () => {
+  const got = mergeLinkedinIdentity({
+    personal: src(
+      { id: "p", user_id: "u1", heyreach_account_id: "my-seat", heyreach_campaign_id: "x" },
+      { heyreach_api_key: "y" },
+    ),
+    shared: null,
+    env: null,
+  });
+  assert.equal(got.accountId, "my-seat");
+  assert.equal(got.campaignId, null);
+  assert.equal(got.apiKey, null);
+});
+
 test("operator linkedin row, env allowed: env fills campaign and key (pre-036 behavior)", () => {
   const got = mergeLinkedinIdentity({
     personal: null,
