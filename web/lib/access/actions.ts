@@ -231,7 +231,10 @@ async function notifyApproved(email: string, fullName: string | null): Promise<v
 export async function denyAccessRequest(requestId: string, reason: string): Promise<void> {
   const user = await requireUser();
   const supabase = await createClient();
-  const { error } = await supabase
+  // Only a PENDING request can be denied. Without the guard, declining a
+  // request another operator had already approved recorded "denied" while the
+  // tenant the approval created lived on — the record and reality disagreed.
+  const { data: updated, error } = await supabase
     .from("access_requests")
     .update({
       status: "denied",
@@ -239,8 +242,13 @@ export async function denyAccessRequest(requestId: string, reason: string): Prom
       decided_by: user.id,
       decision_note: reason.trim() || null,
     })
-    .eq("id", requestId);
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .select("id");
   if (error) throw new Error(error.message);
+  if (!updated?.length) {
+    throw new Error("This request was already decided (possibly by another operator). Refresh to see its current state.");
+  }
   revalidatePath("/settings");
 }
 

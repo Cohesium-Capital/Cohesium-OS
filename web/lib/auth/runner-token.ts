@@ -85,6 +85,12 @@ export async function authenticateRunner(
     .eq("id", token.id)
     .then(() => undefined);
 
+  // A token without a workspace pin cannot say where its writes land — refuse
+  // it rather than cast null onward (the column predates NOT NULL; migration
+  // 042 tightens it, this guards any stragglers).
+  if (!token.workspace_id) {
+    return { error: "token has no workspace — mint a new one in Settings", status: 401 };
+  }
   return {
     ownerId: token.owner_id as string,
     tokenId: token.id as string,
