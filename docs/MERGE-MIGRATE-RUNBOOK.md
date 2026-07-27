@@ -163,12 +163,42 @@ review and only showed up when probed:
 - `workspace_profile` shipped member-writable while the app assumed admin-only.
   The application is never the boundary; the database is.
 
+## Phase 4 — sending identities (migration 036)
+
+`sending_identity` holds who a workspace sends as, per workspace and optionally
+per user. **The environment variables remain the last resort**, which is what
+makes this invisible to Cohesium: it has configured nothing, so every lookup
+falls through to the same `SMTP_*` / `MAIL_FROM` / `HEYREACH_*` values as before.
+
+**Credentials live in `sending_secret`, which has RLS enabled and no policy for
+`authenticated` at all.** That is the mechanism, not an oversight: with RLS on
+and no policy, PostgreSQL denies everything, so no browser session can read an
+SMTP password — verified against production with an *admin* session, which sees
+zero rows there while the identity itself stays visible. The cron reads it as
+`service_role`. Writes go through `set_sending_secret()`, which checks admin,
+treats a null argument as "leave that one alone", and never returns a value.
+
+Consequence worth knowing: any server-side code that needs a credential must use
+the **service-role** client, not the user's. `sendApproved` learned this the hard
+way — with the user's client the API key comes back null and a workspace that
+configured its own key looks permanently unconfigured. It is a server action, so
+the key is read and used on the server and never reaches the client.
+
+HeyReach takes a `linkedInAccountId` **per lead pair**, so two people in one
+workspace can send from their own accounts in a single call. The campaign falls
+back to the workspace's; the account never does.
+
+An incomplete identity leaves touches **queued**, not failed — a missing
+password is fixable config, and burning a firm's drafts over it is the wrong
+trade.
+
 ## Still to come
 
-- **Phase 4** — per-user outbound sending (HeyReach account, SMTP identity).
-  Until this lands, the email cron is single-workspace by construction and says
-  so out loud: `soleWorkspaceId()` throws the moment a second workspace exists,
-  rather than filing one tenant's replies under another.
+- **Reply capture is still single-mailbox.** It polls the one env mailbox, so it
+  cannot tell two tenants' replies apart. It no longer stops the cron: it skips,
+  records why, and sending continues per workspace. Only an *unmatched* reply is
+  at risk — one that resolves to a contact takes that contact's workspace.
+  Finishing this means looping capture over the configured IMAP identities.
 - The `copy` blocks (gold examples, persona angles) have no UI yet.
 - `034` promoted the four `ripley@*` accounts to workspace admin because nothing
   in the data said who should administer the firm. Worth reviewing.
