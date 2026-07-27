@@ -23,6 +23,10 @@ const WORKSPACE_A = "a0000000-0000-0000-0000-00000000000a";
 const WORKSPACE_B = "b0000000-0000-0000-0000-00000000000b";
 const USER_A = "aaaaaaaa-0000-0000-0000-00000000000a";
 const USER_B = "bbbbbbbb-0000-0000-0000-00000000000b";
+// A plain member of workspace A. Distinct from USER_B on purpose: B must stay
+// a stranger to A so the isolation tests keep testing isolation, while the
+// admin tests need someone who IS a member and still gets refused.
+const USER_C = "cccccccc-0000-0000-0000-00000000000c";
 
 let available = false;
 
@@ -51,15 +55,27 @@ before(async () => {
     await c.connect();
     try {
       await c.query(schema);
-      await c.query(`insert into auth.users (id) values ($1), ($2)`, [USER_A, USER_B]);
-      await c.query(`insert into public.profiles (id, role) values ($1,'member'), ($2,'member')`, [
+      await c.query(`insert into auth.users (id) values ($1), ($2), ($3)`, [
         USER_A,
         USER_B,
+        USER_C,
       ]);
+      await c.query(
+        `insert into public.profiles (id, role) values ($1,'member'), ($2,'member'), ($3,'member')`,
+        [USER_A, USER_B, USER_C],
+      );
       await c.query(
         `insert into public.workspace_members (workspace_id, user_id, role, is_default)
          values ($1,$2,'admin',true), ($3,$4,'admin',true)`,
         [WORKSPACE_A, USER_A, WORKSPACE_B, USER_B],
+      );
+      // C is a plain MEMBER of A. That is what makes the admin tests below
+      // meaningful: C can read A's rows, so anything C is refused there is
+      // refused for lack of ADMIN, not for lack of membership.
+      await c.query(
+        `insert into public.workspace_members (workspace_id, user_id, role, is_default)
+         values ($1,$2,'member',true)`,
+        [WORKSPACE_A, USER_C],
       );
       // Every seeded row names its workspace: migration 031 removed the
       // defaults, so an omission here is a NOT NULL violation exactly as it
@@ -204,6 +220,95 @@ describe("workspace isolation", () => {
       /row-level security|violates/i,
       "WITH CHECK must refuse a cross-workspace insert",
     );
+  });
+
+  test("a plain member cannot rename the workspace", async (t) => {
+    if (unavailable(t)) return;
+
+    // This is the bug migration 035 fixed. A policy named "admins update their
+    // workspaces" tested is_workspace_member, so every member could rename the
+    // firm — and adding a correct admin-only policy alongside it changed
+    // nothing, because permissive policies OR together. Reading the new policy
+    // suggested it worked; only running it showed otherwise.
+    const renamed = await withRls(USER_C, async (db) => {
+      const { data } = await asSupabase(db)
+        .from("workspaces")
+        .update({ name: "Renamed By A Member" })
+        .eq("id", WORKSPACE_A)
+        .select("id");
+      return data ?? [];
+    });
+    assert.equal(renamed.length, 0, "a member must not be able to rename the workspace");
+
+    const stillNamed = await withRls(USER_A, async (db) => {
+      const { data } = await asSupabase(db)
+        .from("workspaces")
+        .select("name")
+        .eq("id", WORKSPACE_A)
+        .single();
+      return (data as { name: string } | null)?.name;
+    });
+    assert.notEqual(stillNamed, "Renamed By A Member");
+  });
+
+  test("an admin can rename their own workspace but not another's", async (t) => {
+    if (unavailable(t)) return;
+
+    const own = await withRls(USER_A, async (db) => {
+      const { data } = await asSupabase(db)
+        .from("workspaces")
+        .update({ name: "Workspace A, renamed" })
+        .eq("id", WORKSPACE_A)
+        .select("id");
+      return data ?? [];
+    });
+    assert.equal(own.length, 1, "an admin can rename their own workspace");
+
+    // A is an admin — but of A, not of B.
+    const other = await withRls(USER_A, async (db) => {
+      const { data } = await asSupabase(db)
+        .from("workspaces")
+        .update({ name: "Hijacked" })
+        .eq("id", WORKSPACE_B)
+        .select("id");
+      return data ?? [];
+    });
+    assert.equal(other.length, 0, "admin of one workspace is not admin of another");
+  });
+
+  test("the prompt profile is member-readable but admin-only to write", async (t) => {
+    if (unavailable(t)) return;
+
+    // What this table holds is rendered verbatim into messages sent under the
+    // firm's name, so "any member can edit it" is the wrong default even though
+    // it is the right one for ordinary data.
+    await assert.rejects(
+      () =>
+        withRls(USER_C, async (db) => {
+          const { error } = await asSupabase(db)
+            .from("workspace_profile")
+            .insert({ workspace_id: WORKSPACE_A, firm_name: "Not Their Firm" });
+          if (error) throw new Error(error.message);
+        }),
+      /row-level security|violates/i,
+      "a member must not be able to rewrite the firm's identity",
+    );
+
+    await withRls(USER_A, async (db) => {
+      const { error } = await asSupabase(db)
+        .from("workspace_profile")
+        .insert({ workspace_id: WORKSPACE_A, firm_name: "Their Firm" });
+      assert.equal(error, null, "an admin can set their own workspace's profile");
+    });
+
+    const seen = await withRls(USER_C, async (db) => {
+      const { data } = await asSupabase(db)
+        .from("workspace_profile")
+        .select("firm_name")
+        .eq("workspace_id", WORKSPACE_A);
+      return (data ?? []) as { firm_name: string }[];
+    });
+    assert.equal(seen[0]?.firm_name, "Their Firm", "members can still read it");
   });
 
   test("a write that names no workspace fails instead of landing somewhere", async (t) => {

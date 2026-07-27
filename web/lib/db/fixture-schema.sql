@@ -38,6 +38,43 @@ returns boolean language sql stable security definer set search_path = public as
                   where m.workspace_id = w and m.user_id = auth.uid())
 $$;
 
+create or replace function public.is_workspace_admin(w uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.workspace_members m
+                  where m.workspace_id = w and m.user_id = auth.uid() and m.role = 'admin')
+$$;
+
+-- Administration is admin-only, and it is the DATABASE that has to say so.
+-- Mirrors migrations 033 and 035. The 035 correction exists because a policy
+-- NAMED for admins actually tested membership, and adding a stricter policy
+-- alongside it changed nothing — permissive policies OR together.
+alter table public.workspaces enable row level security;
+create policy "members read their workspaces" on public.workspaces
+  for select to authenticated using (public.is_workspace_member(id));
+create policy "admins update their workspace" on public.workspaces
+  for update to authenticated
+  using (public.is_workspace_admin(id)) with check (public.is_workspace_admin(id));
+
+-- The prompt identity: readable by members, writable only by admins, because
+-- its contents go verbatim into messages sent under the firm's name.
+create table public.workspace_profile (
+    workspace_id uuid primary key references public.workspaces(id) on delete cascade,
+    firm_name text,
+    sender_name text,
+    sender_intro text,
+    approach text,
+    vocab jsonb,
+    copy jsonb
+);
+alter table public.workspace_profile enable row level security;
+create policy "members read the profile" on public.workspace_profile
+  for select to authenticated using (public.is_workspace_member(workspace_id));
+create policy "admins write the profile" on public.workspace_profile
+  for insert to authenticated with check (public.is_workspace_admin(workspace_id));
+create policy "admins update the profile" on public.workspace_profile
+  for update to authenticated
+  using (public.is_workspace_admin(workspace_id)) with check (public.is_workspace_admin(workspace_id));
+
 create table public.profiles (
     id   uuid primary key references auth.users(id) on delete cascade,
     role text not null default 'member'

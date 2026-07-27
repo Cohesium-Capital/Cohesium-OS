@@ -1,6 +1,10 @@
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { currentWorkspaceId } from "@/lib/workspace/context";
+import { currentWorkspace, currentWorkspaceId } from "@/lib/workspace/context";
+import { WorkspacePanel, type MemberRow, type InviteRow } from "./workspace-panel";
+import { workspaceRoster, claimInvites } from "@/lib/workspace/admin-actions";
+import { workspaceProfile } from "@/lib/workspace/profile";
+import { DEFAULT_PROFILE } from "@/lib/workspace/identity";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
 import { ApiTokens, type ApiTokenRow } from "./api-tokens";
 import {
@@ -23,6 +27,30 @@ export default async function SettingsPage() {
   // Settings, prompts and learned rules are all per workspace: this page shows
   // the one on screen, not the union of every workspace the user belongs to.
   const workspaceId = await currentWorkspaceId();
+
+  // Landing here is a natural moment to pick up any invite waiting for this
+  // address — it matches on the caller's own JWT email, so it can only ever
+  // claim invites addressed to them, and it is a no-op when there are none.
+  await claimInvites();
+
+  const workspace = await currentWorkspace();
+  const [roster, profile] = await Promise.all([
+    workspaceRoster(),
+    workspaceProfile(supabase, workspaceId),
+  ]);
+  // Show only what this workspace has actually overridden: a field equal to the
+  // default renders blank, so the placeholder tells the truth about where the
+  // value comes from.
+  const overrideOf = (value: string, fallback: string) => (value === fallback ? "" : value);
+  const vocabOverrides = Object.fromEntries(
+    Object.entries(profile.vocab).map(([k, v]) => [
+      k,
+      overrideOf(v, DEFAULT_PROFILE.vocab[k as keyof typeof DEFAULT_PROFILE.vocab]),
+    ]),
+  );
+  const hasOverrides =
+    JSON.stringify({ ...profile, copy: null }) !==
+    JSON.stringify({ ...DEFAULT_PROFILE, copy: null });
 
   // Build the runner's .env from the host actually serving this page, so the
   // value handed to a collaborator is already right for prod, preview or local
@@ -83,6 +111,27 @@ export default async function SettingsPage() {
           Eval-gate thresholds, grading sample rates, and prompt versions per module.
         </p>
       </div>
+      <WorkspacePanel
+        workspaceName={workspace?.name ?? "Workspace"}
+        isAdmin={workspace?.role === "admin"}
+        members={roster.members as MemberRow[]}
+        invites={roster.invites as InviteRow[]}
+        profile={{
+          firmName: overrideOf(profile.firmName, DEFAULT_PROFILE.firmName),
+          senderName: overrideOf(profile.senderName, DEFAULT_PROFILE.senderName),
+          senderIntro: overrideOf(profile.senderIntro, DEFAULT_PROFILE.senderIntro),
+          approach: overrideOf(profile.approach, DEFAULT_PROFILE.approach),
+          vocab: vocabOverrides,
+        }}
+        defaults={{
+          firmName: DEFAULT_PROFILE.firmName,
+          senderName: DEFAULT_PROFILE.senderName,
+          senderIntro: DEFAULT_PROFILE.senderIntro,
+          approach: DEFAULT_PROFILE.approach,
+          vocab: { ...DEFAULT_PROFILE.vocab },
+        }}
+        hasOverrides={hasOverrides}
+      />
       <SettingsPanel
         settings={(settings ?? []) as ModuleSettings[]}
         prompts={(prompts ?? []) as PromptVersion[]}

@@ -86,7 +86,6 @@ const gold = (kind: TrackKind, p: WorkspaceProfile): string =>
   renderCopy(kind === "customer" ? p.copy.goldCustomer : p.copy.goldMsp, p);
 
 function rules(kind: TrackKind, p: WorkspaceProfile, learned = ""): string {
-  const v = p.vocab;
   const pick = (c: string, m: string) => renderCopy(kind === "customer" ? c : m, p);
   const personaAngles = pick(p.copy.personaAnglesCustomer, p.copy.personaAnglesMsp);
   const perspective = pick(p.copy.perspectiveCustomer, p.copy.perspectiveMsp);
