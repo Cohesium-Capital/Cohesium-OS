@@ -61,6 +61,10 @@ export function WorkedExamplesPanel({
     start(async () => {
       try {
         await fn();
+        // Saved text is no longer unsaved: without this the Save button stays
+        // lit and "Discard changes" keeps offering to undo work already stored.
+        setDirty(false);
+        setNotes([]);
         toast.success(ok);
         router.refresh();
       } catch (e) {
@@ -131,7 +135,7 @@ export function WorkedExamplesPanel({
                   <Input
                     value={recipients}
                     onChange={(e) => setRecipients(e.target.value)}
-                    placeholder="growing pediatric practices"
+                    placeholder="independent pharmacies with two or three sites"
                     disabled={pending}
                   />
                 </label>
@@ -142,7 +146,7 @@ export function WorkedExamplesPanel({
                   <Input
                     value={curiosity}
                     onChange={(e) => setCuriosity(e.target.value)}
-                    placeholder="where it helps and where it just adds overhead"
+                    placeholder="what they wish their supplier did differently"
                     disabled={pending}
                   />
                 </label>
@@ -153,7 +157,7 @@ export function WorkedExamplesPanel({
                   <Input
                     value={operatorTopics}
                     onChange={(e) => setOperatorTopics(e.target.value)}
-                    placeholder="where the market is heading, what's getting harder"
+                    placeholder="how consolidation is changing what customers expect"
                     disabled={pending}
                   />
                 </label>
@@ -162,7 +166,7 @@ export function WorkedExamplesPanel({
                   <Input
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
-                    placeholder="the mid-Atlantic"
+                    placeholder="the Pacific Northwest"
                     disabled={pending}
                   />
                 </label>

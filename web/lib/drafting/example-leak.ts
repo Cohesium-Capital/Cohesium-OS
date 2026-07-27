@@ -53,22 +53,17 @@ export type LeakFinding = {
 };
 
 /**
- * Phrases the draft shares with the workspace's worked examples that the
- * contact's own data cannot account for.
+ * Precompute the phrases worth watching for, once per batch.
  *
- * `contactContext` is everything legitimately known about the recipient — their
- * company, title, city, hook. That is what makes this usable rather than noisy:
- * a draft to an actual pediatric practice SHOULD say "pediatric practice", and
- * that is not a leak because the contact's own record says so.
+ * The example and the baseline are the same for every draft in a run, so
+ * deriving them per draft was pure repeated work — four renders and four
+ * n-gram passes over ~700 characters, multiplied by the batch size. Hoisting
+ * them out makes a fifty-draft ingest do that work once.
  */
-export function findExampleLeaks(
-  draftBody: string,
+export function exampleLeakDetector(
   profile: WorkspaceProfile,
-  contactContext: string,
   track: "customer" | "msp" = "customer",
-): LeakFinding[] {
-  const draft = normalise(draftBody);
-  const context = normalise(contactContext);
+): (draftBody: string, contactContext: string) => LeakFinding[] {
   const customer = track === "customer";
 
   // The subtlety this whole function turns on: MOST of a worked example is
@@ -107,19 +102,33 @@ export function findExampleLeaks(
     ],
   ];
 
-  const findings: LeakFinding[] = [];
+  // Phrases unique to THIS workspace's examples, deduped across both sources.
+  const watch: LeakFinding[] = [];
   const seen = new Set<string>();
   for (const [source, text] of sources) {
     for (const phrase of distinctivePhrases(text)) {
       if (seen.has(phrase) || baseline.has(phrase)) continue;
-      // In the draft, and NOT explained by anything true about this contact.
-      if (draft.includes(phrase) && !context.includes(phrase)) {
-        seen.add(phrase);
-        findings.push({ phrase, source });
-      }
+      seen.add(phrase);
+      watch.push({ phrase, source });
     }
   }
-  return findings;
+
+  return (draftBody: string, contactContext: string) => {
+    const draft = normalise(draftBody);
+    const context = normalise(contactContext);
+    // In the draft, and NOT explained by anything true about this contact.
+    return watch.filter((w) => draft.includes(w.phrase) && !context.includes(w.phrase));
+  };
+}
+
+/** One-off convenience wrapper; prefer the detector when checking a batch. */
+export function findExampleLeaks(
+  draftBody: string,
+  profile: WorkspaceProfile,
+  contactContext: string,
+  track: "customer" | "msp" = "customer",
+): LeakFinding[] {
+  return exampleLeakDetector(profile, track)(draftBody, contactContext);
 }
 
 /** One operator-facing line, or null when there is nothing to say. */
