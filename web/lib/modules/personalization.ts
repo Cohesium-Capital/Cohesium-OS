@@ -254,6 +254,7 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
       if (sampled) sampledCount++;
       rows.push({
         contact_id: h.contact_id,
+      workspace_id: ctx.workspaceId,
         text: isNone ? null : h.hook,
         source_url: h.source_url?.trim() || null,
         source_published_at: h.published_at ?? null,

@@ -107,6 +107,7 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
         track: trackOf(config),
       },
       hookIdsOf(config),
+      ctx.workspaceId,
     );
     return {
       ok: report.ok,

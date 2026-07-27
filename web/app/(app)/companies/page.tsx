@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { ContactKindBadge } from "@/components/contact-kind-badge";
 import { RunBadge } from "@/components/run-badge";
 import {
@@ -63,7 +64,13 @@ export default async function CompaniesPage({
   const from = (page - 1) * PAGE_SIZE;
 
   const supabase = await createClient();
-  let query = supabase.from("company_list").select("*", { count: "exact" });
+  // Scope reads to the workspace on screen; RLS already bounds them to the
+  // workspaces this user belongs to at all.
+  const workspaceId = await currentWorkspaceId();
+  let query = supabase
+    .from("company_list")
+    .select("*", { count: "exact" })
+    .eq("workspace_id", workspaceId);
   if (kind !== "all") query = query.eq("kind", kind);
   if (q) query = query.ilike("name", `%${q}%`);
   const order = SORT[sort];
