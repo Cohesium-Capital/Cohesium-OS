@@ -8,6 +8,8 @@ import {
   sendingIdentities,
 } from "@/lib/workspace/admin-actions";
 import { SendingPanel } from "./sending-panel";
+import { WorkedExamplesPanel } from "./worked-examples-panel";
+import { currentWorkedExamples } from "@/lib/workspace/admin-actions";
 import { AccessRequestsPanel } from "./access-requests-panel";
 import { pendingAccessRequests, isInstanceOperator } from "@/lib/access/actions";
 import { envEmailIdentity, emailIdentityReady } from "@/lib/send/identity-env";
@@ -42,11 +44,12 @@ export default async function SettingsPage() {
   await claimInvites();
 
   const workspace = await currentWorkspace();
-  const [roster, profile, identities, operator] = await Promise.all([
+  const [roster, profile, identities, operator, examples] = await Promise.all([
     workspaceRoster(),
     workspaceProfile(supabase, workspaceId),
     sendingIdentities(),
     isInstanceOperator(),
+    currentWorkedExamples(),
   ]);
   // Only whoever runs this deployment sees other firms' requests to join it.
   const accessRequests = operator ? await pendingAccessRequests() : [];
@@ -144,6 +147,12 @@ export default async function SettingsPage() {
           vocab: { ...DEFAULT_PROFILE.vocab },
         }}
         hasOverrides={hasOverrides}
+      />
+      <WorkedExamplesPanel
+        goldCustomer={examples.goldCustomer}
+        goldMsp={examples.goldMsp}
+        isDefault={examples.isDefault}
+        isAdmin={workspace?.role === "admin"}
       />
       <SendingPanel
         identities={identities}
