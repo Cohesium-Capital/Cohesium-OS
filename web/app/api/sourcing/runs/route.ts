@@ -53,9 +53,13 @@ export async function POST(req: Request) {
 
       let msps: MspRow[] = [];
       if (body.mspIds?.length) {
+        // The token's workspace, not just RLS: a token pinned to workspace A
+        // whose owner also belongs to B must not resolve B's MSPs into a run
+        // config that every member of A can read.
         const { data, error } = await supabase
           .from("organizations")
           .select("id, name, domain")
+          .eq("workspace_id", auth.workspaceId)
           .eq("kind", "msp")
           .in("id", body.mspIds);
         if (error) throw new Error(`could not load MSPs: ${error.message}`);

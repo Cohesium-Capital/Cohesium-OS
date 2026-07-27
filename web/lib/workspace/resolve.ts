@@ -35,6 +35,24 @@ export async function soleWorkspaceId(supabase: SupabaseClient): Promise<string>
   return rows[0].id as string;
 }
 
+/**
+ * The workspace entitled to the ENVIRONMENT credentials: the oldest one, i.e.
+ * the operator's own — the same "first workspace" rule migrations 028/034/039
+ * use to identify it. Every other workspace must configure its identities as
+ * rows; falling back to the env for them would send their mail as the operator.
+ */
+export async function operatorWorkspaceId(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("workspaces")
+    .select("id")
+    .order("created_at", { ascending: true })
+    // created_at is not unique; the id tiebreaker keeps the answer stable.
+    .order("id", { ascending: true })
+    .limit(1);
+  if (error) throw new Error(`Could not resolve the operator workspace: ${error.message}`);
+  return (data?.[0]?.id as string | undefined) ?? null;
+}
+
 /** The workspace owning a contact — the natural source for anything derived from one. */
 export async function workspaceOfContact(
   supabase: SupabaseClient,

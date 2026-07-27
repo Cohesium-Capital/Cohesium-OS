@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DraftBuilder } from "./draft-builder";
 import { loadRunScope } from "@/lib/runs/scope";
 import { RunScopeBanner } from "@/components/run-scope-banner";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 type Row = {
   id: string;
@@ -30,6 +31,9 @@ export default async function DraftPage({
   searchParams: Promise<{ run?: string }>;
 }) {
   const supabase = await createClient();
+  // Every read on this page is scoped to the workspace on screen — RLS alone
+  // spans all of a member's workspaces (028's contract: the app filters).
+  const workspaceId = await currentWorkspaceId();
   // ?run=<id> from a run's timeline entry narrows drafting to that run's records.
   const scope = await loadRunScope(supabase, (await searchParams).run ?? null);
 
@@ -37,7 +41,7 @@ export default async function DraftPage({
   // address, sourcing gate passed, not suppressed, no live planned touch. The
   // home hero, the tiles, and this page all read the same set, so they can
   // never drift apart.
-  const eligible = await draftEligibleContactIds(supabase);
+  const eligible = await draftEligibleContactIds(supabase, workspaceId);
   const inScope = scope ? new Set(scope.contactIds) : null;
   const ids = inScope ? [...eligible].filter((id) => inScope.has(id)) : [...eligible];
 
@@ -69,7 +73,7 @@ export default async function DraftPage({
   // carries the verified claim (or the honest fallback angle) and the import
   // can stamp touches.hook_id. Contacts without one still draft — the no-hook
   // arm is the rent check's control group, not an error.
-  const hooks = await usableHooksByContact(supabase);
+  const hooks = await usableHooksByContact(supabase, workspaceId);
 
   const contacts: DraftContact[] = rows
     .map((r) => {
@@ -111,10 +115,12 @@ export default async function DraftPage({
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .is("deleted_at", null),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .is("deleted_at", null)
         .or("email.not.is.null,linkedin_url.not.is.null"),
       // Join live contacts so an orphaned touch of a soft-deleted contact
@@ -122,6 +128,7 @@ export default async function DraftPage({
       supabase
         .from("touches")
         .select("id, contacts!inner(id)", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .eq("status", "planned")
         .eq("direction", "outbound")
         .is("deleted_at", null)
@@ -129,6 +136,7 @@ export default async function DraftPage({
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .is("deleted_at", null)
         .eq("enrichment_status", "pending"),
     ]);

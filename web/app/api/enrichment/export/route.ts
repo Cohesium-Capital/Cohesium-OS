@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import {
   fetchEligibleContacts,
   markPushedToClay,
@@ -57,8 +58,14 @@ export async function GET(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  // The workspace on screen, not the union of the user's memberships: an
+  // export from workspace A must never carry workspace B's contacts into A's
+  // Clay table (or mark them spent).
+  const workspaceId = await currentWorkspaceId();
   const resend = new URL(req.url).searchParams.get("resend") === "1";
-  const rows = await fetchEligibleContacts(supabase, undefined, { includePushed: resend });
+  const rows = await fetchEligibleContacts(supabase, workspaceId, undefined, {
+    includePushed: resend,
+  });
 
   const lines = [HEADER.join(",")];
   for (const r of rows) {
@@ -77,12 +84,28 @@ export async function GET(req: Request) {
       payload: exportPayload(r),
     }));
     for (let i = 0; i < events.length; i += 500) {
-      await supabase.from("enrichment_events").insert(events.slice(i, i + 500));
+      const { error } = await supabase.from("enrichment_events").insert(events.slice(i, i + 500));
+      if (error) {
+        return NextResponse.json(
+          { error: `Could not record the export provenance — no CSV produced: ${error.message}` },
+          { status: 500 },
+        );
+      }
     }
-    await markPushedToClay(
+    // The double-spend guard IS the product here: if the mark cannot be
+    // written, handing over the CSV would guarantee these rows are re-exported
+    // and re-billed later. Refuse instead.
+    const markError = await markPushedToClay(
       supabase,
+      workspaceId,
       rows.map((r) => r.id),
     );
+    if (markError) {
+      return NextResponse.json(
+        { error: `Could not mark rows as sent to Clay — no CSV produced: ${markError}` },
+        { status: 500 },
+      );
+    }
   }
 
   return new NextResponse(lines.join("\n"), {

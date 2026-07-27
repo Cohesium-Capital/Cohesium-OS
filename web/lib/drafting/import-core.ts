@@ -14,13 +14,17 @@ export type DraftProvenance = {
 };
 
 // Resolve the active drafting prompt version, for callers that store drafts
-// outside a run (the headless workflow script).
+// outside a run (the headless workflow script). Prompt versions are per
+// workspace (migration 028): under the service role an unscoped read would
+// stamp an arbitrary tenant's version as provenance.
 export async function activeDraftPromptVersion(
   supabase: SupabaseClient,
+  workspaceId: string,
 ): Promise<string | null> {
   const { data } = await supabase
     .from("prompt_versions")
     .select("id")
+    .eq("workspace_id", workspaceId)
     .eq("module", "drafting")
     .eq("active", true)
     .order("version", { ascending: false })
@@ -46,7 +50,11 @@ export async function storeDrafts(
   drafts: Draft[],
   provenance: DraftProvenance = {},
   hookIds: Record<string, string> = {},
-  // The workspace these touches belong to, from the run that produced them.
+  // The workspace the caller is writing for (the run's, or the one on
+  // screen). Contacts OUTSIDE it are skipped rather than drafted: a run must
+  // not store touches into a workspace it doesn't belong to. Each touch's
+  // workspace_id is stamped from its contact — the row that owns it — so a
+  // service-role caller cannot file a touch under the wrong tenant either.
   workspaceId?: string,
 ): Promise<DraftReport> {
   const report: DraftReport = { ...EMPTY_DRAFT_REPORT, messages: [] };
@@ -56,11 +64,13 @@ export async function storeDrafts(
     return report;
   }
 
-  const { data: contacts } = await supabase
+  let contactQuery = supabase
     .from("contacts")
-    .select("id, email, linkedin_url")
+    .select("id, email, linkedin_url, workspace_id")
     .in("id", ids)
     .is("deleted_at", null);
+  if (workspaceId) contactQuery = contactQuery.eq("workspace_id", workspaceId);
+  const { data: contacts } = await contactQuery;
   const byId = new Map((contacts ?? []).map((c) => [c.id, c]));
 
   // Dedupe against live PLANNED drafts only. A touch that is already queued,
@@ -141,7 +151,9 @@ export async function storeDrafts(
     } else {
       inserts.push({
         contact_id: d.contact_id,
-        workspace_id: workspaceId,
+        // The contact's workspace, by definition — touches.workspace_id is
+        // NOT NULL and must agree with the parent row.
+        workspace_id: c.workspace_id,
         channel: d.channel,
         direction: "outbound",
         sequence_step: 1,

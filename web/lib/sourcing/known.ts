@@ -43,10 +43,21 @@ export type OrgIndex = {
   byNameAndMsp: Map<string, OrgIndexRow>;
 };
 
-/** Load every organization of a kind, paged, and index it for matching. */
+/**
+ * Load every organization of a kind IN ONE WORKSPACE, paged, and index it for
+ * matching.
+ *
+ * The workspace filter is not optional. RLS scopes to every workspace the
+ * caller belongs to, so without it a multi-workspace user's index would span
+ * tenants — the ingest would then "merge" a new company into another
+ * workspace's row (mutating data the current workspace shouldn't touch, and
+ * never giving this workspace its own copy), and the /known check would
+ * suppress researching companies only some OTHER workspace holds.
+ */
 export async function loadOrgIndex(
   supabase: SupabaseClient,
   kind: ImportKind,
+  workspaceId: string,
 ): Promise<OrgIndex> {
   const rows: OrgIndexRow[] = [];
   let from = 0;
@@ -54,6 +65,7 @@ export async function loadOrgIndex(
     const { data, error } = await supabase
       .from("organizations")
       .select(SELECT)
+      .eq("workspace_id", workspaceId)
       .eq("kind", kind)
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);

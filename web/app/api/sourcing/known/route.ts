@@ -14,8 +14,10 @@ import { loadOrgIndex, partitionCandidates } from "@/lib/sourcing/known";
 // truncation. The prompt then carries an inclusion list bounded by the number
 // of results requested rather than by the size of the database.
 //
-// Runs under the token owner's RLS: the index is built from the rows that user
-// can see, so this stays correct when tenancy lands without any change here.
+// Runs under the token owner's RLS, and scoped to the TOKEN'S workspace on top
+// of it: RLS alone spans every workspace the owner belongs to, which would
+// both leak another workspace's org names through `matched` and wrongly
+// suppress researching companies only that other workspace holds.
 
 const BodySchema = z.object({
   kind: z.enum(["msp", "customer"]),
@@ -47,7 +49,9 @@ export async function POST(req: Request) {
 
   let index;
   try {
-    index = await withRls(auth.ownerId, (db) => loadOrgIndex(asSupabase(db), body.kind));
+    index = await withRls(auth.ownerId, (db) =>
+      loadOrgIndex(asSupabase(db), body.kind, auth.workspaceId),
+    );
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "could not load organizations" },

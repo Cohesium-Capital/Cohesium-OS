@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -77,15 +78,21 @@ function hookKindLabel(kind: string): string {
 
 export default async function OutcomesPage() {
   const supabase = await createClient();
+  // Scoreboard numbers are per workspace. The views expose workspace_id since
+  // migration 040 precisely so this filter is possible — before that they
+  // aggregated across every workspace the user belonged to.
+  const workspaceId = await currentWorkspaceId();
 
   const [{ data }, { data: hookData }] = await Promise.all([
     supabase
       .from("draft_outcomes")
       .select("*")
+      .eq("workspace_id", workspaceId)
       .order("last_sent_at", { ascending: false, nullsFirst: false }),
     supabase
       .from("hook_outcomes")
       .select("*")
+      .eq("workspace_id", workspaceId)
       .order("track", { ascending: true })
       .order("hook_kind", { ascending: true }),
   ]);

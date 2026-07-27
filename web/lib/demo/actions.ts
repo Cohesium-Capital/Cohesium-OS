@@ -733,9 +733,13 @@ async function wipeCore(supabase: SupabaseClient, workspaceId: string) {
   // 4. orgs — customers first (current_msp_id points at the demo MSP), then
   //    the MSP marker itself.
   if (orgIds.length > 0) {
+    // Workspace-scoped like the resolution above: without the filter, wiping
+    // one workspace's demo deleted every demo-domain org the user could see —
+    // including another workspace's live demo.
     const { error: custError } = await supabase
       .from("organizations")
       .delete()
+      .eq("workspace_id", workspaceId)
       .like("domain", `%${DEMO_DOMAIN_SUFFIX}`)
       .not("current_msp_id", "is", null);
     if (custError) throw new Error(custError.message);
@@ -743,15 +747,20 @@ async function wipeCore(supabase: SupabaseClient, workspaceId: string) {
     const { error: mspError } = await supabase
       .from("organizations")
       .delete()
+      .eq("workspace_id", workspaceId)
       .like("domain", `%${DEMO_DOMAIN_SUFFIX}`);
     if (mspError) throw new Error(mspError.message);
   }
 
   // 5. demo batches + their gate decisions and runs (contacts/grades/hooks that
   //    referenced the runs are already gone).
+  // Scoped: run labels are user-supplied, so a real batch named
+  // "demo-tour…" in ANOTHER workspace must not lose its runs and gate history
+  // because someone here wiped a demo.
   const { data: batches, error: batchesError } = await supabase
     .from("batches")
     .select("id")
+    .eq("workspace_id", workspaceId)
     .like("label", `${LABEL_PREFIX}%`);
   if (batchesError) throw new Error(batchesError.message);
   const batchIds = (batches ?? []).map((b) => b.id);

@@ -9,6 +9,8 @@ import { currentWorkedExamples } from "@/lib/workspace/admin-actions";
 import { AccessRequestsPanel } from "./access-requests-panel";
 import { pendingAccessRequests, isInstanceOperator } from "@/lib/access/actions";
 import { envEmailIdentity, emailIdentityReady } from "@/lib/send/identity-env";
+import { operatorWorkspaceId } from "@/lib/workspace/resolve";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { workspaceProfile } from "@/lib/workspace/profile";
 import { DEFAULT_PROFILE } from "@/lib/workspace/identity";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
@@ -154,7 +156,15 @@ export default async function SettingsPage() {
         identities={identities}
         members={roster.members.map((m) => ({ userId: m.userId, email: m.email }))}
         isAdmin={workspace?.role === "admin"}
-        envConfigured={!emailIdentityReady(envEmailIdentity())}
+        // The env mailbox belongs to the operator workspace alone; any other
+        // workspace with no identities has NOTHING configured, and the panel
+        // must say so rather than imply the env will cover it. Resolved with
+        // the admin client: a user client would report the caller's own oldest
+        // workspace, not the instance's.
+        envConfigured={
+          workspaceId === (await operatorWorkspaceId(createAdminClient())) &&
+          !emailIdentityReady(envEmailIdentity())
+        }
       />
       <SettingsPanel
         key={`gate-${workspaceId}`}
