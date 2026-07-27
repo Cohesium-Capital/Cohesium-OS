@@ -1,0 +1,61 @@
+name: Runner skill sync
+
+# The sourcing runner skill exists in three places: the canonical file here, the
+# JSON the app serves from Settings, and the public cohesium-runner repo that a
+# collaborator selects in Claude Code. A test pins the first two together; this
+# watches the third, whose drift is otherwise silent — someone would run stale
+# instructions with nothing anywhere saying so.
+#
+# On a pull request it VERIFIES (no credential needed, so it is useful today).
+# On a push to main it PUBLISHES if RUNNER_REPO_TOKEN is set, and otherwise
+# fails the same way a PR would, telling you how to fix it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".claude/skills/source-companies/SKILL.md"
+      - "web/lib/runner/skill.json"
+      - "web/scripts/publish-skill.mjs"
+      - ".github/workflows/skill-sync.yml"
+  pull_request:
+    paths:
+      - ".claude/skills/source-companies/SKILL.md"
+      - "web/lib/runner/skill.json"
+      - "web/scripts/publish-skill.mjs"
+      - ".github/workflows/skill-sync.yml"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The copy the app hands out is generated from the canonical file. If they
+      # disagree, Settings would serve something nobody wrote — catch that here
+      # too, since a PR touching one and not the other is the likely mistake.
+      - name: Check the app's bundled copy matches the canonical file
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            const canonical = fs.readFileSync('.claude/skills/source-companies/SKILL.md', 'utf8');
+            const bundled = JSON.parse(fs.readFileSync('web/lib/runner/skill.json', 'utf8')).content;
+            if (canonical !== bundled) {
+              console.error('✗ web/lib/runner/skill.json is stale — run: cd web && npm run sync:skill');
+              process.exit(1);
+            }
+            console.log('✓ skill.json matches the canonical file');
+          "
+
+      - name: Publish to the public runner repo (or verify on a PR)
+        working-directory: web
+        env:
+          # Absent on pull requests from forks and until the secret is created;
+          # the script falls back to verify-only rather than failing to run.
+          RUNNER_REPO_TOKEN: ${{ github.event_name == 'push' && secrets.RUNNER_REPO_TOKEN || '' }}
+        run: node scripts/publish-skill.mjs ${{ github.event_name == 'pull_request' && '--verify' || '' }}
