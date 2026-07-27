@@ -2,7 +2,13 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { currentWorkspace, currentWorkspaceId } from "@/lib/workspace/context";
 import { WorkspacePanel, type MemberRow, type InviteRow } from "./workspace-panel";
-import { workspaceRoster, claimInvites } from "@/lib/workspace/admin-actions";
+import {
+  workspaceRoster,
+  claimInvites,
+  sendingIdentities,
+} from "@/lib/workspace/admin-actions";
+import { SendingPanel } from "./sending-panel";
+import { envEmailIdentity, emailIdentityReady } from "@/lib/send/identity-env";
 import { workspaceProfile } from "@/lib/workspace/profile";
 import { DEFAULT_PROFILE } from "@/lib/workspace/identity";
 import { SettingsPanel, type ModuleSettings, type PromptVersion } from "./settings-panel";
@@ -34,9 +40,10 @@ export default async function SettingsPage() {
   await claimInvites();
 
   const workspace = await currentWorkspace();
-  const [roster, profile] = await Promise.all([
+  const [roster, profile, identities] = await Promise.all([
     workspaceRoster(),
     workspaceProfile(supabase, workspaceId),
+    sendingIdentities(),
   ]);
   // Show only what this workspace has actually overridden: a field equal to the
   // default renders blank, so the placeholder tells the truth about where the
@@ -131,6 +138,12 @@ export default async function SettingsPage() {
           vocab: { ...DEFAULT_PROFILE.vocab },
         }}
         hasOverrides={hasOverrides}
+      />
+      <SendingPanel
+        identities={identities}
+        members={roster.members.map((m) => ({ userId: m.userId, email: m.email }))}
+        isAdmin={workspace?.role === "admin"}
+        envConfigured={!emailIdentityReady(envEmailIdentity())}
       />
       <SettingsPanel
         settings={(settings ?? []) as ModuleSettings[]}

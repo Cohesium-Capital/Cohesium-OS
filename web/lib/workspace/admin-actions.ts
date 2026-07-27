@@ -292,3 +292,177 @@ export async function workspaceRoster(): Promise<{
     })),
   };
 }
+
+// ---------------------------------------------------------------------------
+// sending identities (migration 036)
+// ---------------------------------------------------------------------------
+
+export type SendingIdentityRow = {
+  id: string;
+  userId: string | null;
+  channel: "email" | "linkedin";
+  label: string | null;
+  fromName: string | null;
+  fromEmail: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  imapHost: string | null;
+  imapPort: number | null;
+  imapUser: string | null;
+  heyreachAccountId: string | null;
+  heyreachCampaignId: string | null;
+  hasSmtpPass: boolean;
+  hasImapPass: boolean;
+  hasHeyreachKey: boolean;
+};
+
+/**
+ * Sending identities for this workspace.
+ *
+ * Credentials themselves are never read here — sending_secret is unreadable to
+ * any browser session. `sending_secret_status` answers only whether each one is
+ * set, which is what the UI needs and all it should get.
+ */
+export async function sendingIdentities(): Promise<SendingIdentityRow[]> {
+  await requireUser();
+  const workspaceId = await currentWorkspaceId();
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("sending_identity")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("channel")
+    .order("user_id", { nullsFirst: true });
+
+  const rows = (data ?? []) as unknown as Record<string, unknown>[];
+  return Promise.all(
+    rows.map(async (r) => {
+      const { data: status } = await supabase.rpc("sending_secret_status", {
+        p_identity_id: r.id as string,
+      });
+      const s = (status ?? [])[0] as
+        | { has_smtp_pass: boolean; has_imap_pass: boolean; has_heyreach_key: boolean }
+        | undefined;
+      return {
+        id: r.id as string,
+        userId: (r.user_id as string | null) ?? null,
+        channel: r.channel as "email" | "linkedin",
+        label: (r.label as string | null) ?? null,
+        fromName: (r.from_name as string | null) ?? null,
+        fromEmail: (r.from_email as string | null) ?? null,
+        smtpHost: (r.smtp_host as string | null) ?? null,
+        smtpPort: (r.smtp_port as number | null) ?? null,
+        smtpUser: (r.smtp_user as string | null) ?? null,
+        imapHost: (r.imap_host as string | null) ?? null,
+        imapPort: (r.imap_port as number | null) ?? null,
+        imapUser: (r.imap_user as string | null) ?? null,
+        heyreachAccountId: (r.heyreach_account_id as string | null) ?? null,
+        heyreachCampaignId: (r.heyreach_campaign_id as string | null) ?? null,
+        hasSmtpPass: s?.has_smtp_pass ?? false,
+        hasImapPass: s?.has_imap_pass ?? false,
+        hasHeyreachKey: s?.has_heyreach_key ?? false,
+      };
+    }),
+  );
+}
+
+export type SendingIdentityInput = {
+  id?: string;
+  channel: "email" | "linkedin";
+  /** null = the workspace's shared identity; a user id = that person's own. */
+  userId?: string | null;
+  label?: string | null;
+  fromName?: string | null;
+  fromEmail?: string | null;
+  smtpHost?: string | null;
+  smtpPort?: number | null;
+  smtpUser?: string | null;
+  imapHost?: string | null;
+  imapPort?: number | null;
+  imapUser?: string | null;
+  heyreachAccountId?: string | null;
+  heyreachCampaignId?: string | null;
+  /** Write-only. Omitted or blank leaves whatever is stored untouched. */
+  smtpPass?: string;
+  imapPass?: string;
+  heyreachApiKey?: string;
+};
+
+export async function saveSendingIdentity(input: SendingIdentityInput): Promise<string> {
+  const workspaceId = await assertAdmin();
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  const nn = (v?: string | null) => {
+    const t = (v ?? "").toString().trim();
+    return t ? t : null;
+  };
+
+  const row = {
+    workspace_id: workspaceId,
+    user_id: input.userId ?? null,
+    channel: input.channel,
+    label: nn(input.label),
+    from_name: nn(input.fromName),
+    from_email: nn(input.fromEmail),
+    smtp_host: nn(input.smtpHost),
+    smtp_port: input.smtpPort ?? null,
+    smtp_user: nn(input.smtpUser),
+    imap_host: nn(input.imapHost),
+    imap_port: input.imapPort ?? null,
+    imap_user: nn(input.imapUser),
+    heyreach_account_id: nn(input.heyreachAccountId),
+    heyreach_campaign_id: nn(input.heyreachCampaignId),
+    updated_at: new Date().toISOString(),
+    updated_by: user.email ?? user.id,
+  };
+
+  let identityId = input.id;
+  if (identityId) {
+    const { error } = await supabase.from("sending_identity").update(row).eq("id", identityId);
+    if (error) throw new Error(error.message);
+  } else {
+    const { data, error } = await supabase
+      .from("sending_identity")
+      .insert(row)
+      .select("id")
+      .single();
+    if (error) {
+      if (error.code === "23505") {
+        throw new Error("An identity for that channel and person already exists.");
+      }
+      throw new Error(error.message);
+    }
+    identityId = data.id as string;
+  }
+
+  // Credentials go through the definer function, and only when actually
+  // supplied: a blank field means "leave it alone", so saving the From address
+  // does not wipe a password the form never displayed.
+  const smtpPass = nn(input.smtpPass);
+  const imapPass = nn(input.imapPass);
+  const heyreachKey = nn(input.heyreachApiKey);
+  if (smtpPass || imapPass || heyreachKey) {
+    const { error } = await supabase.rpc("set_sending_secret", {
+      p_identity_id: identityId,
+      p_smtp_pass: smtpPass,
+      p_imap_pass: imapPass,
+      p_heyreach_api_key: heyreachKey,
+    });
+    if (error) throw new Error(`Saved the identity but not the credentials: ${error.message}`);
+  }
+
+  refresh();
+  return identityId!;
+}
+
+export async function deleteSendingIdentity(id: string): Promise<void> {
+  await assertAdmin();
+  const supabase = await createClient();
+  // The secret cascades with the identity.
+  const { error } = await supabase.from("sending_identity").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  refresh();
+}
