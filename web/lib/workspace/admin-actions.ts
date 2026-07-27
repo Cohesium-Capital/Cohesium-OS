@@ -140,14 +140,17 @@ function friendlyAdminError(message: string): string {
  * Safe to call on every request: it matches on the email in the caller's own
  * JWT, so it can only ever claim invites addressed to them, and it is a no-op
  * when there are none.
+ *
+ * Deliberately does NOT revalidate. This is called during the Settings page
+ * render, and revalidatePath is documented for Server Functions and Route
+ * Handlers — not render. It needs no revalidation anyway: the render that
+ * follows reads the membership it just created.
  */
 export async function claimInvites(): Promise<number> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("claim_workspace_invites");
   if (error) return 0;
-  const claimed = (data as number) ?? 0;
-  if (claimed > 0) refresh();
-  return claimed;
+  return (data as number) ?? 0;
 }
 
 export type ProfileInput = {
