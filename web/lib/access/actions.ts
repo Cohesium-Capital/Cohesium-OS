@@ -101,7 +101,16 @@ async function notifyOperator(req: {
   const smtpMissing = emailIdentityReady(envEmailIdentity());
   if (!address || smtpMissing) return;
 
-  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? "";
+  // Vercel supplies the production domain, so this needs no configuration.
+  // SITE_URL overrides it for a custom domain or a non-Vercel deployment.
+  // Not NEXT_PUBLIC_: it is read here, in a server action, and never needed in
+  // the browser.
+  const configured = process.env.SITE_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "";
+  const origin = configured
+    ? configured.startsWith("http")
+      ? configured
+      : `https://${configured}`
+    : "";
   const lines = [
     `${req.full_name ?? req.email} asked for access to Cohesium Intel.`,
     "",
