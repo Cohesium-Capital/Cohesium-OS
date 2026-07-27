@@ -149,10 +149,23 @@ export function nextAction(run: FlowRun): { label: string; href: string } | null
   if (run.status === "failed") return { label: "Run failed — start a new run", href: "/source" };
   if (run.status === "awaiting_input")
     return { label: "Paste the model's output", href: "/source" };
+  // Grading is the step people forget, because nothing in the funnel counts it
+  // and its absence looks like a stall rather than a queue. Say what it unlocks.
   if (run.pending > 0)
-    return { label: `Grade ${run.pending}`, href: `/review/grade?batch=${run.batch_id}` };
+    return {
+      label: `Grade ${run.pending} to unlock enrichment`,
+      href: `/review/grade?batch=${run.batch_id}`,
+    };
   if (run.gate_status === "failed")
     return { label: "Gate failed — revise the prompt", href: "/settings" };
+  // A batch with records but nothing sampled can never pass: there is nothing
+  // to grade. Sampling now keeps a floor of one, so this is old data or an
+  // edge case — either way, say so rather than stalling silently.
+  if (run.gate_status === "open" && run.sampled === 0 && run.sourced > 0)
+    return {
+      label: "Nothing sampled — gate cannot pass",
+      href: `/review/grade?batch=${run.batch_id}`,
+    };
   if (run.sourced > run.reviewed)
     return { label: "Review the contacts", href: scoped("/review") };
   if (run.reviewed > run.enriched) return { label: "Enrich via Clay", href: scoped("/review") };

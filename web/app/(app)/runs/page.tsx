@@ -231,6 +231,26 @@ function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
           <FlowBar run={run} stages={stages} />
         )}
 
+        {/* Grading blocks enrichment and drafting, but it is not one of the
+            funnel stages, so a run waiting on it just looks stopped. */}
+        {(run.pending > 0 || (run.gate_status === "open" && run.sampled === 0 && run.sourced > 0)) && (
+          <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+            {run.pending > 0 ? (
+              <>
+                <span className="font-medium text-amber-600">Waiting on grading.</span> Nothing
+                from this run can be enriched or drafted until its sample is graded and the gate
+                passes — {run.pending} record{run.pending === 1 ? "" : "s"} to go.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-amber-600">Gate cannot pass.</span> This batch
+                has records but nothing sampled, so there is nothing to grade. Sample a record to
+                unblock it.
+              </>
+            )}
+          </p>
+        )}
+
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
           {run.sampled > 0 && (
             <span>
