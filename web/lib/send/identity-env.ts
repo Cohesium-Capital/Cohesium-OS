@@ -18,7 +18,7 @@ export type EmailIdentity = {
   imapUser: string | null;
   imapPass: string | null;
   /** Where this came from, for diagnostics that would otherwise be guesswork. */
-  source: "user" | "workspace" | "env";
+  source: "user" | "workspace" | "env" | "none";
 };
 
 export type LinkedinIdentity = {
@@ -26,7 +26,7 @@ export type LinkedinIdentity = {
   accountId: string | null;
   campaignId: string | null;
   apiKey: string | null;
-  source: "user" | "workspace" | "env";
+  source: "user" | "workspace" | "env" | "none";
 };
 
 /** The environment-variable identity — what every send used before 036. */
@@ -58,6 +58,32 @@ export function envLinkedinIdentity(): LinkedinIdentity {
     apiKey: process.env.HEYREACH_API_KEY ?? null,
     source: "env",
   };
+}
+
+// "Nothing configured" identities: what a workspace that is not the operator's
+// resolves to when it has no identity rows. Deliberately incomplete — the
+// readiness checks then hold its sends rather than borrowing the operator's
+// credentials from the environment.
+
+export function emptyEmailIdentity(): EmailIdentity {
+  return {
+    identityId: null,
+    fromName: null,
+    fromEmail: null,
+    smtpHost: null,
+    smtpPort: 465,
+    smtpUser: null,
+    smtpPass: null,
+    imapHost: null,
+    imapPort: 993,
+    imapUser: null,
+    imapPass: null,
+    source: "none",
+  };
+}
+
+export function emptyLinkedinIdentity(): LinkedinIdentity {
+  return { identityId: null, accountId: null, campaignId: null, apiKey: null, source: "none" };
 }
 
 /** Rebuild the "Name <address>" header a transport wants. */
