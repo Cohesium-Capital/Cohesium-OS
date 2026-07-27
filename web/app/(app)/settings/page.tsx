@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth";
 import { currentWorkspace, currentWorkspaceId } from "@/lib/workspace/context";
 import { WorkspacePanel, type MemberRow, type InviteRow } from "./workspace-panel";
 import { workspaceRoster, sendingIdentities } from "@/lib/workspace/admin-actions";
@@ -32,6 +33,7 @@ import { RUNNER_SKILL, RUNNER_REPO_URL, runnerEnvTemplate } from "@/lib/runner/s
 
 export default async function SettingsPage() {
   const supabase = await createClient();
+  const user = await requireUser();
   // Settings, prompts and learned rules are all per workspace: this page shows
   // the one on screen, not the union of every workspace the user belongs to.
   const workspaceId = await currentWorkspaceId();
@@ -156,6 +158,7 @@ export default async function SettingsPage() {
         identities={identities}
         members={roster.members.map((m) => ({ userId: m.userId, email: m.email }))}
         isAdmin={workspace?.role === "admin"}
+        currentUserId={user.id}
         // The env mailbox belongs to the operator workspace alone; any other
         // workspace with no identities has NOTHING configured, and the panel
         // must say so rather than imply the env will cover it. Resolved with

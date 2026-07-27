@@ -112,24 +112,19 @@ export function mergeLinkedinIdentity(args: {
   if (!primary) return args.env ?? emptyLinkedinIdentity();
 
   const env = args.env ?? emptyLinkedinIdentity();
-  const chain = [personal, shared].filter((s): s is IdentitySource => s !== null);
-  const pick = <T>(get: (s: IdentitySource) => T | null): T | null => {
-    for (const s of chain) {
-      const v = get(s);
-      if (v !== null && v !== undefined) return v;
-    }
-    return null;
-  };
 
   return {
     identityId: primary.row.id,
     // The ACCOUNT never falls back past the primary row — pushing leads out of
     // someone else's LinkedIn account is the exact mistake this table prevents.
     accountId: primary.row.heyreach_account_id,
-    // The campaign is usually per firm rather than per person: personal row →
-    // the workspace's shared row → env (operator only).
-    campaignId: pick((s) => s.row.heyreach_campaign_id) ?? env.campaignId,
-    apiKey: pick((s) => s.secrets.heyreach_api_key) ?? env.apiKey,
+    // The campaign and the API key are FIRM-level (a HeyReach org and its
+    // campaigns belong to the workspace), so they resolve from the shared row
+    // then env only — never from the personal row. A personal identity follows
+    // its owner across workspaces (043), and letting it carry a campaign would
+    // push one firm's leads into another firm's campaign.
+    campaignId: shared?.row.heyreach_campaign_id ?? env.campaignId,
+    apiKey: shared?.secrets.heyreach_api_key ?? env.apiKey,
     source: primary.row.user_id ? "user" : "workspace",
   };
 }
