@@ -5,6 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { currentWorkspace, currentWorkspaceId } from "./context";
 import { DEFAULT_PROFILE, type WorkspaceVocab, type DraftCopy } from "./identity";
+import { workspaceProfile } from "./profile";
+import {
+  buildExamples,
+  permittedSource,
+  type ExampleAnswers,
+} from "@/lib/drafting/example-builder";
+import { smoothExample } from "@/lib/drafting/example-smooth";
 
 // Administering a workspace: name, members, invites, and the prompt profile.
 //
@@ -465,4 +472,110 @@ export async function deleteSendingIdentity(id: string): Promise<void> {
   const { error } = await supabase.from("sending_identity").delete().eq("id", id);
   if (error) throw new Error(error.message);
   refresh();
+}
+
+// ---------------------------------------------------------------------------
+// worked examples (the drafting prompt's gold block)
+// ---------------------------------------------------------------------------
+
+/**
+ * Turn interview answers into a pair of worked examples.
+ *
+ * Two steps with a hard line between them. buildExamples is deterministic and
+ * offline — it slots the operator's own words into the skeleton, and it alone
+ * decides the substance. The model afterwards may only tighten the prose, and
+ * whatever it returns is checked for smuggled-in specifics before being
+ * accepted; a rewrite that adds anything is discarded in favour of the plain
+ * version. Nothing here saves: the operator sees the result and chooses.
+ */
+export async function draftExamplesFromInterview(answers: ExampleAnswers): Promise<{
+  goldCustomer: string;
+  goldMsp: string;
+  notes: string[];
+}> {
+  await assertAdmin();
+  const workspaceId = await currentWorkspaceId();
+  const supabase = await createClient();
+  const profile = await workspaceProfile(supabase, workspaceId);
+
+  const built = buildExamples(answers);
+  const permitted = permittedSource(answers, profile);
+
+  const [customer, msp] = await Promise.all([
+    smoothExample(built.goldCustomer, permitted),
+    smoothExample(built.goldMsp, permitted),
+  ]);
+
+  const notes: string[] = [];
+  for (const [label, r] of [["Customer", customer], ["Operator", msp]] as const) {
+    if (r.note) notes.push(`${label}: ${r.note}`);
+  }
+  if (customer.smoothed && msp.smoothed) {
+    notes.push("Prose tightened by the model; every specific is still yours.");
+  }
+
+  return { goldCustomer: customer.text, goldMsp: msp.text, notes };
+}
+
+/** Save the examples exactly as shown, after any hand-editing. */
+export async function saveWorkedExamples(input: {
+  goldCustomer: string;
+  goldMsp: string;
+}): Promise<void> {
+  const workspaceId = await assertAdmin();
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  const customer = input.goldCustomer.trim();
+  const msp = input.goldMsp.trim();
+  if (!customer || !msp) throw new Error("Both examples need text.");
+
+  // Merge into whatever copy already exists rather than replacing it: persona
+  // angles and subject shapes live in the same column and are not edited here.
+  const { data: existing } = await supabase
+    .from("workspace_profile")
+    .select("copy")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+
+  const copy = {
+    ...((existing?.copy as Record<string, string> | null) ?? {}),
+    goldCustomer: customer,
+    goldMsp: msp,
+  };
+
+  const { error } = await supabase.from("workspace_profile").upsert(
+    {
+      workspace_id: workspaceId,
+      copy,
+      updated_at: new Date().toISOString(),
+      updated_by: user.email ?? user.id,
+    },
+    { onConflict: "workspace_id" },
+  );
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
+/** The examples currently in force, defaults included, for the editor. */
+export async function currentWorkedExamples(): Promise<{
+  goldCustomer: string;
+  goldMsp: string;
+  isDefault: boolean;
+}> {
+  await requireUser();
+  const workspaceId = await currentWorkspaceId();
+  const supabase = await createClient();
+  const profile = await workspaceProfile(supabase, workspaceId);
+  const { data } = await supabase
+    .from("workspace_profile")
+    .select("copy")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  const stored = (data?.copy as Record<string, string> | null) ?? null;
+  return {
+    goldCustomer: profile.copy.goldCustomer,
+    goldMsp: profile.copy.goldMsp,
+    isDefault: !stored?.goldCustomer,
+  };
 }
