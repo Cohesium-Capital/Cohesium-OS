@@ -25,30 +25,37 @@ export async function importSourced(input: {
 
   const label = `${input.kind === "msp" ? "MSPs" : "Customers"} import · ${new Date().toISOString().slice(0, 10)}`;
 
-  const { data: batch } = await supabase
+  // A failed batch or run insert is a failed import, not a degraded one:
+  // contacts landing with batch_id null are treated as ALREADY GATED by
+  // batchPassed(), so proceeding would let this import's rows skip the eval
+  // gate entirely and flow straight to enrichment.
+  const { data: batch, error: batchError } = await supabase
     .from("batches")
     .insert({ workspace_id: workspaceId, module: "sourcing", label })
     .select("id")
     .single();
-  const batchId = (batch?.id as string | null) ?? null;
-
-  let runId: string | null = null;
-  if (batchId) {
-    const { data: run } = await supabase
-      .from("runs")
-      .insert({
-        workspace_id: workspaceId,
-        module: "sourcing",
-        batch_id: batchId,
-        executor: "copy_paste",
-        provider_label: "copy-paste",
-        config: { kind: input.kind, targetMspId: input.targetMspId ?? null },
-        status: "ingesting",
-      })
-      .select("id")
-      .single();
-    runId = (run?.id as string | null) ?? null;
+  if (batchError || !batch) {
+    throw new Error(`Could not open a batch for this import: ${batchError?.message ?? "no row"}`);
   }
+  const batchId = batch.id as string;
+
+  const { data: run, error: runError } = await supabase
+    .from("runs")
+    .insert({
+      workspace_id: workspaceId,
+      module: "sourcing",
+      batch_id: batchId,
+      executor: "copy_paste",
+      provider_label: "copy-paste",
+      config: { kind: input.kind, targetMspId: input.targetMspId ?? null },
+      status: "ingesting",
+    })
+    .select("id")
+    .single();
+  if (runError || !run) {
+    throw new Error(`Could not record a run for this import: ${runError?.message ?? "no row"}`);
+  }
+  const runId = run.id as string;
 
   const { data: s } = await supabase
     .from("settings")
@@ -68,12 +75,10 @@ export async function importSourced(input: {
     requireEvidence: false,
   });
 
-  if (runId) {
-    await supabase
-      .from("runs")
-      .update({ status: report.ok ? "review_ready" : "failed", error: report.ok ? null : report.error ?? null, finished_at: new Date().toISOString() })
-      .eq("id", runId);
-  }
+  await supabase
+    .from("runs")
+    .update({ status: report.ok ? "review_ready" : "failed", error: report.ok ? null : report.error ?? null, finished_at: new Date().toISOString() })
+    .eq("id", runId);
 
   revalidatePath("/runs");
   revalidatePath("/review");

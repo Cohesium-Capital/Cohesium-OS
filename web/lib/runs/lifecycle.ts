@@ -226,6 +226,14 @@ export async function ingestRun(
     // Override the module default (e.g. the inline sourcing flow ingests
     // leniently so low-confidence rows are kept-and-flagged, not dropped).
     requireEvidence?: boolean;
+    /**
+     * The workspace the caller is entitled to write into — the runner token's
+     * pin, or the workspace on screen. Ingest writes land in the RUN'S
+     * workspace, so without this check a caller could name any run id visible
+     * under its owner's membership-wide RLS and land rows in a workspace its
+     * token was never scoped to.
+     */
+    expectedWorkspaceId?: string;
   },
 ): Promise<IngestOutcome & { batchId?: string | null }> {
   const { data: run, error: rerr } = await supabase
@@ -235,6 +243,16 @@ export async function ingestRun(
     .single();
   if (rerr || !run) {
     return { ok: false, error: `Run not found: ${rerr?.message ?? opts.runId}`, inserted: 0, rejected: 0, sampledCount: 0, messages: [] };
+  }
+  if (opts.expectedWorkspaceId && run.workspace_id !== opts.expectedWorkspaceId) {
+    return {
+      ok: false,
+      error: "This run belongs to a different workspace than this credential is scoped to.",
+      inserted: 0,
+      rejected: 0,
+      sampledCount: 0,
+      messages: [],
+    };
   }
 
   // Atomically claim the run before parsing: exactly one ingest wins the flip
