@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { soleWorkspaceId } from "@/lib/workspace/resolve";
+import { emailIdentityFor, emailIdentityReady, envEmailIdentity } from "@/lib/send/identity";
 import { sendMail } from "@/lib/send/smtp";
 import { fetchRecentMessages, type InboxMessage } from "@/lib/send/imap";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -28,6 +29,8 @@ type QueuedTouch = {
   id: string;
   subject: string | null;
   body: string;
+  workspace_id: string;
+  created_by: string | null;
   contacts: { id: string; email: string | null; responded: boolean } | null;
 };
 
@@ -126,15 +129,28 @@ export async function GET(req: Request) {
   // them below, then the guard before the send window fails closed.
   const inbox = await fetchRecentMessages(7);
 
-  // The workspace this mailbox files into. Resolved once per run, and loudly:
-  // the cron polls one shared inbox and sends from one identity, so it has no
-  // way to tell two tenants apart yet. Making that explicit here means a second
-  // workspace stops the job instead of quietly filing one tenant's replies
-  // under another (see soleWorkspaceId; per-workspace sending is phase 4).
-  const mailboxWorkspaceId = await soleWorkspaceId(supabase);
+  // The workspace this mailbox files into.
+  //
+  // SENDING is per workspace now (migration 036), but CAPTURE still polls the
+  // single mailbox configured in the environment, so it has no way to tell two
+  // tenants' replies apart. Rather than stop the whole job — which would also
+  // stop sending, which does work correctly — capture is skipped and the
+  // reason recorded, and the run continues to the send window.
+  //
+  // An unmatched reply is the only thing actually at risk: one that resolves to
+  // a contact already takes that contact's workspace.
+  let mailboxWorkspaceId: string | null = null;
+  try {
+    mailboxWorkspaceId = await soleWorkspaceId(supabase);
+  } catch (e) {
+    result.errors.push(
+      `Reply capture skipped: ${e instanceof Error ? e.message : "no workspace"}. ` +
+        "Sending is unaffected. Per-mailbox capture is the remaining half of phase 4.",
+    );
+  }
 
   // Dedupe against interactions captured by earlier polls of the same window.
-  const withIds = inbox.messages.filter((m) => m.messageId);
+  const withIds = mailboxWorkspaceId ? inbox.messages.filter((m) => m.messageId) : [];
   const seen = new Set<string>();
   if (withIds.length) {
     const { data: existing, error: de } = await supabase
@@ -247,7 +263,7 @@ export async function GET(req: Request) {
         // An unresolvable DSN has no contact to inherit from, so it files under
         // the mailbox's own workspace — see soleWorkspaceId for why that is
         // safe today and how it stops being silent later.
-        workspace_id: contactWorkspaceId ?? mailboxWorkspaceId,
+        workspace_id: contactWorkspaceId ?? mailboxWorkspaceId!,
         contact_id: contactId,
         touch_id: touchId,
         channel: "email",
@@ -327,7 +343,7 @@ export async function GET(req: Request) {
       }
     }
     const { error: ie } = await supabase.from("interactions").insert({
-      workspace_id: matchedContact?.workspaceId ?? mailboxWorkspaceId,
+      workspace_id: matchedContact?.workspaceId ?? mailboxWorkspaceId!,
       contact_id: contactId,
       touch_id: touch?.id ?? null,
       channel: "email",
@@ -360,11 +376,21 @@ export async function GET(req: Request) {
     return NextResponse.json({ ...result, note: "weekend — captured only, no sends" });
   }
 
-  // Config problems must never consume touches: verify SMTP env once up
-  // front (same check sendMail does) and leave everything queued if missing.
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.MAIL_FROM) {
+  // Config problems must never consume touches. Each workspace may send as
+  // itself now (migration 036), so the check moved to per-touch resolution
+  // below; this only rules out the case where NOTHING is configured anywhere,
+  // where every send would fail identically and there is no point starting.
+  const anyIdentityConfigured =
+    !emailIdentityReady(envEmailIdentity()) ||
+    ((
+      await supabase
+        .from("sending_identity")
+        .select("id", { count: "exact", head: true })
+        .eq("channel", "email")
+    ).count ?? 0) > 0;
+  if (!anyIdentityConfigured) {
     result.errors.push(
-      "SMTP not configured (SMTP_HOST / SMTP_USER / MAIL_FROM) — send skipped, touches left queued.",
+      "No sending identity configured anywhere (env SMTP_* or a workspace identity in Settings) — send skipped, touches left queued.",
     );
     return NextResponse.json(result);
   }
@@ -402,7 +428,7 @@ export async function GET(req: Request) {
   // touches sitting past the limit.
   const { data: queued } = await supabase
     .from("touches")
-    .select("id, subject, body, contacts!inner(id, email, responded)")
+    .select("id, subject, body, workspace_id, created_by, contacts!inner(id, email, responded)")
     .eq("status", "queued")
     .eq("channel", "email")
     .eq("direction", "outbound")
@@ -418,11 +444,35 @@ export async function GET(req: Request) {
     .filter((t) => !t.contacts!.responded && t.contacts!.email)
     .slice(0, take);
 
+  // One identity lookup per (workspace, author) rather than per message: a
+  // batch is usually one workspace, and the secret read is not free.
+  const identityCache = new Map<string, Awaited<ReturnType<typeof emailIdentityFor>>>();
+  const identityFor = async (t: QueuedTouch) => {
+    const key = `${t.workspace_id}|${t.created_by ?? ""}`;
+    const hit = identityCache.get(key);
+    if (hit) return hit;
+    const resolved = await emailIdentityFor(supabase, t.workspace_id, t.created_by);
+    identityCache.set(key, resolved);
+    return resolved;
+  };
+
   for (const t of sendable) {
+    const identity = await identityFor(t);
+    const missing = emailIdentityReady(identity);
+    if (missing) {
+      // Leave it QUEUED, not failed. A misconfigured workspace is a fixable
+      // config problem, and burning its drafts as permanent failures because
+      // nobody filled in a password would be the wrong trade.
+      result.errors.push(
+        `${t.contacts!.email}: no usable sending identity for this workspace (${missing}) — left queued.`,
+      );
+      continue;
+    }
     const r = await sendMail({
       to: t.contacts!.email!,
       subject: t.subject ?? "",
       text: t.body,
+      identity,
     });
     if (r.ok) {
       await supabase
@@ -451,7 +501,13 @@ export async function GET(req: Request) {
   // Hobby plan allows one scheduled run per day, and this is the run. It goes
   // last and swallows its own errors — a failure to learn must never stop the
   // send loop from reporting what it sent.
-  const learning = await runLearningPass(supabase, mailboxWorkspaceId);
+  // Learning is per workspace and does not depend on the mailbox, so it runs
+  // for every workspace rather than only the one the inbox belongs to.
+  const { data: allWorkspaces } = await supabase.from("workspaces").select("id");
+  const learning = [];
+  for (const w of (allWorkspaces ?? []) as { id: string }[]) {
+    learning.push({ workspace: w.id, ...(await runLearningPass(supabase, w.id)) });
+  }
 
   return NextResponse.json({ ...result, learning });
 }
