@@ -19,6 +19,8 @@ const ADMIN = process.env.TEST_PG_ADMIN_URL ?? "postgres://localhost:5432/postgr
 const DB = "cohesium_rls_test";
 const TEST_URL = ADMIN.replace(/\/[^/]*$/, `/${DB}`);
 
+const WORKSPACE_A = "a0000000-0000-0000-0000-00000000000a";
+const WORKSPACE_B = "b0000000-0000-0000-0000-00000000000b";
 const USER_A = "aaaaaaaa-0000-0000-0000-00000000000a";
 const USER_B = "bbbbbbbb-0000-0000-0000-00000000000b";
 
@@ -58,6 +60,11 @@ before(async () => {
         `insert into public.api_tokens (name, token_hash, prefix, owner_id)
          values ('a','hash-a','cin_aaaa',$1), ('b','hash-b','cin_bbbb',$2)`,
         [USER_A, USER_B],
+      );
+      await c.query(
+        `insert into public.workspace_members (workspace_id, user_id, role, is_default)
+         values ($1,$2,'admin',true), ($3,$4,'admin',true)`,
+        [WORKSPACE_A, USER_A, WORKSPACE_B, USER_B],
       );
     } finally {
       await c.end();
@@ -128,7 +135,7 @@ describe("withRls", () => {
       withRls(USER_A, async (db) => {
         const { error } = await asSupabase(db)
           .from("organizations")
-          .insert([{ name: "Rollback Co", kind: "customer" }])
+          .insert([{ name: "Rollback Co", kind: "customer", workspace_id: WORKSPACE_A }])
           .select("id");
         // Assert the write actually succeeded first — otherwise the "no rows
         // afterwards" check below would pass even if inserts were broken.
@@ -147,6 +154,56 @@ describe("withRls", () => {
   });
 });
 
+describe("workspace isolation", () => {
+  // The guarantee migration 028 exists to provide: membership decides
+  // visibility, so a member of one workspace can neither read nor write
+  // another's rows — whatever the application layer does.
+  test("a member of one workspace cannot see another's rows", async (t) => {
+    if (unavailable(t)) return;
+
+    await withRls(USER_A, async (db) => {
+      await asSupabase(db)
+        .from("organizations")
+        .insert({ name: "A CO", kind: "customer", workspace_id: WORKSPACE_A });
+    });
+    await withRls(USER_B, async (db) => {
+      await asSupabase(db)
+        .from("organizations")
+        .insert({ name: "B CO", kind: "customer", workspace_id: WORKSPACE_B });
+    });
+
+    const names = async (user: string) =>
+      withRls(user, async (db) => {
+        const { data } = await asSupabase(db).from("organizations").select("name");
+        return ((data ?? []) as { name: string }[]).map((r) => r.name);
+      });
+    const aSees = await names(USER_A);
+    const bSees = await names(USER_B);
+
+    assert.ok(aSees.includes("A CO"), "A should see its own row");
+    assert.ok(!aSees.includes("B CO"), "A must not see B's row");
+    assert.ok(bSees.includes("B CO"), "B should see its own row");
+    assert.ok(!bSees.includes("A CO"), "B must not see A's row");
+  });
+
+  test("a member cannot write into another workspace", async (t) => {
+    if (unavailable(t)) return;
+
+    await assert.rejects(
+      () =>
+        withRls(USER_B, async (db) => {
+          // B knows A's id and tries to plant a row in it anyway.
+          const { error } = await asSupabase(db)
+            .from("organizations")
+            .insert({ name: "SMUGGLED", kind: "customer", workspace_id: WORKSPACE_A });
+          if (error) throw new Error(error.message);
+        }),
+      /row-level security|violates/i,
+      "WITH CHECK must refuse a cross-workspace insert",
+    );
+  });
+});
+
 describe("statement isolation", () => {
   // The pipeline tolerates certain statement failures and carries on — a failed
   // contacts insert is logged, and resolvePromptVersion provokes a unique
@@ -161,14 +218,14 @@ describe("statement isolation", () => {
 
       const bad = await supabase
         .from("organizations")
-        .insert([{ name: "Bad Row", kind: "customer", id: "not-a-uuid" }])
+        .insert([{ name: "Bad Row", kind: "customer", id: "not-a-uuid", workspace_id: WORKSPACE_A }])
         .select("id");
       assert.ok(bad.error, "the invalid insert should report an error");
 
       // Same transaction, after the failure: must still work.
       const good = await supabase
         .from("organizations")
-        .insert([{ name: "Survivor Co", domain: "survivor.test", kind: "customer" }])
+        .insert([{ name: "Survivor Co", domain: "survivor.test", kind: "customer", workspace_id: WORKSPACE_A }])
         .select("id");
       assert.equal(good.error, null, good.error?.message);
     });
@@ -193,6 +250,7 @@ describe("the shared pipeline over the adapter", () => {
     const created = await withRls(USER_A, (db) =>
       createRun(asSupabase(db), {
         module: "sourcing",
+        workspaceId: WORKSPACE_A,
         executor: "runner",
         createdBy: USER_A,
         label: "adapter test",
@@ -305,6 +363,7 @@ describe("the shared pipeline over the adapter", () => {
     const created = await withRls(USER_A, (db) =>
       createRun(asSupabase(db), {
         module: "sourcing",
+        workspaceId: WORKSPACE_A,
         executor: "runner",
         createdBy: USER_A,
         label: "double ingest",

@@ -36,6 +36,10 @@ async function resolvePromptVersion(
   supabase: SupabaseClient,
   module: ModuleKey,
   template: string,
+  // Prompt versions are per workspace: two workspaces render different prompts
+  // from the same module (different firm, vocabulary, learned rules), so their
+  // version lineages are separate and must not share a numbering sequence.
+  workspaceId: string,
 ): Promise<{ id: string | null; hash: string }> {
   const hash = templateHash(template);
 
@@ -44,6 +48,7 @@ async function resolvePromptVersion(
     .from("prompt_versions")
     .select("id")
     .eq("module", module)
+    .eq("workspace_id", workspaceId)
     .eq("template_hash", hash)
     .maybeSingle();
   if (existing) return { id: existing.id, hash };
@@ -52,6 +57,7 @@ async function resolvePromptVersion(
     .from("prompt_versions")
     .select("version")
     .eq("module", module)
+    .eq("workspace_id", workspaceId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -65,6 +71,7 @@ async function resolvePromptVersion(
     .from("prompt_versions")
     .insert({
       module,
+      workspace_id: workspaceId,
       version: nextVersion,
       prompt: template,
       template_hash: hash,
@@ -84,6 +91,7 @@ async function resolvePromptVersion(
         .from("prompt_versions")
         .update({ active: false })
         .eq("module", module)
+        .eq("workspace_id", workspaceId)
         .neq("id", created.id);
     }
     return { id: created.id, hash };
@@ -98,6 +106,7 @@ async function resolvePromptVersion(
       .from("prompt_versions")
       .select("id")
       .eq("module", module)
+      .eq("workspace_id", workspaceId)
       .eq("template_hash", hash)
       .maybeSingle();
     if (raced) return { id: raced.id, hash };
@@ -116,6 +125,10 @@ export async function createRun(
     executor?: Executor;
     /** the runner token that drove this run, for traceability */
     apiTokenId?: string | null;
+    /** Workspace this run and its batch belong to. Explicit rather than left to
+     *  a database default: a run that cannot name its workspace should fail
+     *  here, not land somewhere plausible. */
+    workspaceId: string;
   },
 ): Promise<CreatedRun> {
   const mod = getModule(opts.module);
@@ -139,7 +152,7 @@ export async function createRun(
   let hash: string | null = null;
   let renderTemplate: string | null = null;
   if (template !== undefined) {
-    const resolved = await resolvePromptVersion(supabase, opts.module, template);
+    const resolved = await resolvePromptVersion(supabase, opts.module, template, opts.workspaceId);
     promptVersionId = resolved.id;
     hash = resolved.hash;
     renderTemplate = template;
@@ -149,6 +162,7 @@ export async function createRun(
       .from("prompt_versions")
       .select("id, prompt")
       .eq("module", opts.module)
+      .eq("workspace_id", opts.workspaceId)
       .eq("active", true)
       .order("version", { ascending: false })
       .limit(1)
@@ -168,6 +182,7 @@ export async function createRun(
     .insert({
       module: opts.module,
       label: opts.label,
+      workspace_id: opts.workspaceId,
       ...(opts.module === "drafting" ? { gate_status: "passed" } : {}),
     })
     .select("id")
@@ -178,6 +193,7 @@ export async function createRun(
     .from("runs")
     .insert({
       module: opts.module,
+      workspace_id: opts.workspaceId,
       prompt_version_id: promptVersionId,
       batch_id: batch.id,
       executor,
@@ -211,7 +227,7 @@ export async function ingestRun(
 ): Promise<IngestOutcome & { batchId?: string | null }> {
   const { data: run, error: rerr } = await supabase
     .from("runs")
-    .select("id, module, batch_id, prompt_version_id, config")
+    .select("id, module, batch_id, prompt_version_id, config, workspace_id")
     .eq("id", opts.runId)
     .single();
   if (rerr || !run) {
@@ -271,6 +287,7 @@ export async function ingestRun(
   const outcome = await mod.ingest(supabase, parsed.data, {
     runId: run.id,
     batchId: run.batch_id,
+    workspaceId: run.workspace_id as string,
     promptVersionId: run.prompt_version_id ?? null,
     config: (run.config as Record<string, unknown>) ?? {},
     sampleRate,

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { createRun, ingestRun, type CreatedRun } from "./lifecycle";
 import { learningTick } from "@/lib/learning/tick";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import type { IngestOutcome, ModuleKey } from "@/lib/modules/types";
 import type { LearningModule } from "@/lib/learning/signals";
 
@@ -23,6 +24,7 @@ export async function startRun(input: {
     config: input.config,
     label: input.label,
     createdBy: user.id,
+    workspaceId: await currentWorkspaceId(),
   });
   revalidatePath("/runs");
   return created;

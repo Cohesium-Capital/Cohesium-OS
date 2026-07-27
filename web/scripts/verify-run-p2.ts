@@ -28,6 +28,7 @@ async function main() {
 
   // 1. createRun
   const { runId, batchId, prompt } = await createRun(supabase, {
+    workspaceId: (await supabase.from("workspaces").select("id").order("created_at").limit(1).single()).data!.id,
     module: "sourcing",
     config: { mode: "research_customers", kind: "customer", region: "Virginia", count: 3 },
     label: `${PREFIX} batch`,

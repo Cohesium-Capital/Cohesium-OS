@@ -38,12 +38,15 @@ export async function importPayload(
     runId?: string | null;
     sampleRate?: number; // fraction of inserted contacts flagged for grading
     requireEvidence?: boolean; // reject orgs lacking a source_url to rejected_ingest
+    /** Workspace that owns every row this import writes. */
+    workspaceId: string;
   },
 ): Promise<ImportReport> {
   const batchId = input.batchId ?? null;
   const runId = input.runId ?? null;
   const sampleRate = input.sampleRate ?? 1;
   const requireEvidence = input.requireEvidence ?? false;
+  const workspaceId = input.workspaceId;
   const report: ImportReport = {
     ...EMPTY_REPORT,
     inserted: { organizations: 0, contacts: 0 },
@@ -95,7 +98,9 @@ export async function importPayload(
     if (rejects.length) {
       await supabase
         .from("rejected_ingest")
-        .insert(rejects.map((r) => ({ run_id: runId, payload: r.payload, reason: r.reason })));
+        .insert(rejects.map((r) => ({
+          run_id: runId, workspace_id: workspaceId, payload: r.payload, reason: r.reason,
+        })));
       report.rejected += rejects.length;
       report.messages.push(
         `${rejects.length} organization(s) dropped for missing evidence (logged to rejected_ingest).`,
@@ -126,6 +131,7 @@ export async function importPayload(
       if (missing.length) {
         const stubRows = missing.map((n) => ({
           name: n,
+          workspace_id: workspaceId,
           kind: "msp",
           is_acq_target: true,
           confidence: "low",
@@ -159,6 +165,7 @@ export async function importPayload(
     c: (typeof orgs)[number]["contacts"][number],
   ) => ({
     organization_id: organizationId,
+    workspace_id: workspaceId,
     full_name: c.full_name ?? null,
     persona: c.persona,
     title: c.title ?? null,
@@ -242,6 +249,7 @@ export async function importPayload(
   if (toInsert.length) {
     const orgRows = toInsert.map((o) => ({
       name: o.name,
+      workspace_id: workspaceId,
       domain: o.domain,
       kind: input.kind,
       is_acq_target: input.kind === "msp",
@@ -373,6 +381,7 @@ export async function importPayload(
     : null;
   await supabase.from("sourcing_runs").insert({
     kind: input.kind,
+    workspace_id: workspaceId,
     // Ties the yield-log row to the run that produced it. Null on the direct
     // import path, which is how the Runs timeline tells a tracked run from a
     // legacy import that predates run tracking.

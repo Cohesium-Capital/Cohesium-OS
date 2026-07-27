@@ -71,6 +71,7 @@ export async function POST(req: Request) {
         module: "sourcing",
         executor: "runner",
         apiTokenId: auth.tokenId,
+        workspaceId: auth.workspaceId,
         createdBy: auth.ownerId,
         label:
           body.label ??

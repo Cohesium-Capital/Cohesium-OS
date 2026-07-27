@@ -27,7 +27,17 @@ async function main() {
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
   for (const r of results) {
+  // Headless script: resolve the workspace explicitly and refuse to guess when
+  // there is more than one.
+  const { data: wsRows } = await supabase.from("workspaces").select("id").order("created_at");
+  if (!wsRows?.length) throw new Error("no workspaces exist");
+  if (wsRows.length > 1 && !process.env.WORKSPACE_ID) {
+    throw new Error("multiple workspaces — set WORKSPACE_ID to choose one");
+  }
+  const workspaceId = process.env.WORKSPACE_ID ?? wsRows[0].id;
+
     const report = await importPayload(supabase, {
+    workspaceId,
       rawText: JSON.stringify(r.payload),
       kind: "customer",
       targetMspId: r.mspId ?? null,

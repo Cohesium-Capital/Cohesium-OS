@@ -15,6 +15,29 @@ create or replace function auth.uid() returns uuid language sql stable as $$
   )::uuid
 $$;
 
+-- Tenancy (mirrors migration 028). The fixture has to carry it or the RLS
+-- tests would prove isolation for a schema production no longer runs.
+create table public.workspaces (
+    id uuid primary key default gen_random_uuid(),
+    name text not null,
+    created_at timestamptz not null default now()
+);
+
+create table public.workspace_members (
+    workspace_id uuid not null references public.workspaces(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    role text not null default 'member',
+    is_default boolean not null default false,
+    created_at timestamptz not null default now(),
+    primary key (workspace_id, user_id)
+);
+
+create or replace function public.is_workspace_member(w uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.workspace_members m
+                  where m.workspace_id = w and m.user_id = auth.uid())
+$$;
+
 create table public.profiles (
     id   uuid primary key references auth.users(id) on delete cascade,
     role text not null default 'member'
@@ -26,6 +49,7 @@ create or replace function public.user_role() returns text
 $$;
 
 create table public.organizations (
+    workspace_id uuid references public.workspaces(id),
     id              uuid primary key default gen_random_uuid(),
     name            text not null,
     domain          text unique,
@@ -42,6 +66,7 @@ create table public.organizations (
 );
 
 create table public.batches (
+    workspace_id uuid references public.workspaces(id),
     id          uuid primary key default gen_random_uuid(),
     module      text not null,
     label       text,
@@ -50,6 +75,7 @@ create table public.batches (
 );
 
 create table public.prompt_versions (
+    workspace_id uuid references public.workspaces(id),
     id            uuid primary key default gen_random_uuid(),
     module        text not null,
     version       int not null,
@@ -64,6 +90,7 @@ create table public.prompt_versions (
 );
 
 create table public.api_tokens (
+    workspace_id uuid references public.workspaces(id),
     id         uuid primary key default gen_random_uuid(),
     name       text not null,
     token_hash text not null unique,
@@ -75,6 +102,7 @@ create table public.api_tokens (
 );
 
 create table public.runs (
+    workspace_id uuid references public.workspaces(id),
     id                uuid primary key default gen_random_uuid(),
     module            text not null,
     prompt_version_id uuid references public.prompt_versions(id),
@@ -97,6 +125,7 @@ create table public.runs (
 );
 
 create table public.contacts (
+    workspace_id uuid references public.workspaces(id),
     id                uuid primary key default gen_random_uuid(),
     organization_id   uuid not null references public.organizations(id) on delete cascade,
     full_name         text,
@@ -122,6 +151,7 @@ create table public.contacts (
 );
 
 create table public.settings (
+    workspace_id uuid references public.workspaces(id),
     module          text primary key,
     gate_threshold  numeric,
     sample_rate     numeric not null default 1,
@@ -129,6 +159,7 @@ create table public.settings (
 );
 
 create table public.rejected_ingest (
+    workspace_id uuid references public.workspaces(id),
     id         uuid primary key default gen_random_uuid(),
     run_id     uuid references public.runs(id),
     payload    jsonb not null,
@@ -137,6 +168,7 @@ create table public.rejected_ingest (
 );
 
 create table public.sourcing_runs (
+    workspace_id uuid references public.workspaces(id),
     id                 uuid primary key default gen_random_uuid(),
     kind               text not null,
     target_msp_id      uuid,
@@ -160,9 +192,9 @@ begin
                            'settings','rejected_ingest','sourcing_runs'] loop
     execute format('alter table public.%I enable row level security;', t);
     execute format(
-      'create policy "members full access" on public.%I for all to authenticated '
-      || 'using (public.user_role() in (''admin'',''member'')) '
-      || 'with check (public.user_role() in (''admin'',''member''));', t);
+      'create policy "workspace members" on public.%I for all to authenticated '
+      || 'using (public.is_workspace_member(workspace_id)) '
+      || 'with check (public.is_workspace_member(workspace_id));', t);
   end loop;
 end $$;
 
@@ -175,4 +207,10 @@ do $$ begin create role authenticated; exception when duplicate_object then null
 grant usage on schema public, auth to authenticated;
 grant all on all tables in schema public to authenticated;
 
-insert into public.settings (module, sample_rate) values ('sourcing', 1);
+-- Two workspaces so the tests can prove one cannot see the other.
+insert into public.workspaces (id, name) values
+  ('a0000000-0000-0000-0000-00000000000a', 'Workspace A'),
+  ('b0000000-0000-0000-0000-00000000000b', 'Workspace B');
+
+insert into public.settings (workspace_id, module, sample_rate)
+values ('a0000000-0000-0000-0000-00000000000a', 'sourcing', 1);

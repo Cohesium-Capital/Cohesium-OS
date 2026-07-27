@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SideNav } from "./side-nav";
+import { currentWorkspace, myWorkspaces } from "@/lib/workspace/context";
 import { TourProvider } from "@/components/tour/tour-provider";
 
 // Protected shell for all signed-in pages. The gate is the user (requireUser),
@@ -50,13 +51,20 @@ export default async function AppLayout({
 
   const profile = await getProfile();
   const email = profile?.email ?? user.email;
+  // Scoping context for the whole shell. RLS already limits what this user can
+  // reach; this decides which of their workspaces is on screen.
+  const [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);
 
   return (
     // TourProvider wraps the whole shell so the Demonstrate walkthrough can
     // overlay any page and survive navigation (state in localStorage).
     <TourProvider>
       <div className="min-h-full">
-        <SideNav email={email} />
+        <SideNav
+          email={email}
+          workspaces={workspaces}
+          currentWorkspace={workspace}
+        />
         <div className="flex min-h-full flex-col lg:pl-60">
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 lg:px-10">
             {children}

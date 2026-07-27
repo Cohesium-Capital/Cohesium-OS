@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { importPayload } from "./import-core";
 import type { ImportKind, ImportReport } from "./types";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 
 // Server action: import as the signed-in user (RLS applies). Each import now
 // opens a tracked batch + run so the records are visible in Runs and gradeable
@@ -55,6 +56,7 @@ export async function importSourced(input: {
   const sampleRate = s?.sample_rate ?? 1;
 
   const report = await importPayload(supabase, {
+    workspaceId: await currentWorkspaceId(),
     ...input,
     createdBy: user.id,
     batchId,

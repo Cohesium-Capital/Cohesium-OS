@@ -45,7 +45,16 @@ async function main() {
   const rawText = readFileSync(payloadFile, "utf8");
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  const run = await createRun(supabase, { module: moduleKey, config, label });
+    // Scripts run headless with no session, so the workspace is resolved
+  // explicitly rather than inferred: refuse to guess when there is more than one.
+  const { data: ws } = await supabase.from("workspaces").select("id").order("created_at");
+  if (!ws?.length) throw new Error("no workspaces exist");
+  if (ws.length > 1 && !process.env.WORKSPACE_ID) {
+    throw new Error("multiple workspaces — set WORKSPACE_ID to choose one");
+  }
+  const workspaceId = process.env.WORKSPACE_ID ?? ws[0].id;
+
+  const run = await createRun(supabase, { module: moduleKey, config, label, workspaceId });
   console.log(`run ${run.runId}\nbatch ${run.batchId}\nprompt_version ${run.promptVersionId ?? "(none)"}`);
 
   const outcome = await ingestRun(supabase, { runId: run.runId, rawText });

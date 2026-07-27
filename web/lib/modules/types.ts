@@ -20,6 +20,10 @@ export type Executor = "copy_paste" | "runner";
 export interface IngestContext {
   runId: string | null;
   batchId: string | null;
+  /** Workspace every row this ingest writes belongs to. Derived from the run,
+   *  so it is a fact about the data rather than a guess about the caller —
+   *  which is what makes it correct for cron and runner paths too. */
+  workspaceId: string;
   /** the run's prompt version — stamped on produced records (touches) so
    *  outcomes can be attributed back to the prompt */
   promptVersionId?: string | null;

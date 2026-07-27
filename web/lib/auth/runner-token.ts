@@ -23,6 +23,9 @@ import { hashToken, TOKEN_PREFIX } from "./token-hash";
 export type RunnerAuth = {
   ownerId: string;
   tokenId: string;
+  /** The workspace this token acts in. A token writes rows, and owner alone no
+   *  longer says where they land once a user belongs to more than one. */
+  workspaceId: string;
   scopes: string[];
 };
 
@@ -59,7 +62,7 @@ export async function authenticateRunner(
   const admin = createAdminClient();
   const { data: token, error } = await admin
     .from("api_tokens")
-    .select("id, owner_id, scopes, expires_at, revoked_at")
+    .select("id, owner_id, workspace_id, scopes, expires_at, revoked_at")
     .eq("token_hash", await hashToken(raw))
     .maybeSingle();
   if (error) return { error: `token lookup failed: ${error.message}`, status: 500 };
@@ -85,6 +88,7 @@ export async function authenticateRunner(
   return {
     ownerId: token.owner_id as string,
     tokenId: token.id as string,
+    workspaceId: token.workspace_id as string,
     scopes,
   };
 }

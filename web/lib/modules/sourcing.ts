@@ -165,6 +165,7 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
       createdBy: ctx.createdBy ?? null,
       batchId: ctx.batchId,
       runId: ctx.runId,
+      workspaceId: ctx.workspaceId,
       sampleRate: ctx.sampleRate,
       requireEvidence: ctx.requireEvidence,
     });

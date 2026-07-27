@@ -19,6 +19,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { signOut } from "@/lib/auth-actions";
+import { WorkspaceSwitcher } from "./workspace-switcher";
+import type { Workspace } from "@/lib/workspace/context";
 import { cn } from "@/lib/utils";
 
 // Primary navigation. Grouped to mirror the mental model: the PIPELINE group is
@@ -108,7 +110,15 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function SideNav({ email }: { email?: string | null }) {
+export function SideNav({
+  email,
+  workspaces = [],
+  currentWorkspace = null,
+}: {
+  email?: string | null;
+  workspaces?: Workspace[];
+  currentWorkspace?: Workspace | null;
+}) {
   const pathname = usePathname();
 
   const groups = (
@@ -137,6 +147,7 @@ export function SideNav({ email }: { email?: string | null }) {
             Cohesium Intel
           </span>
         </Link>
+        <WorkspaceSwitcher workspaces={workspaces} current={currentWorkspace} />
         <nav className="flex-1 overflow-y-auto px-3 pb-4">{groups}</nav>
         <div className="border-t border-border/60 p-3">
           <NavLink item={SETTINGS} pathname={pathname} />
