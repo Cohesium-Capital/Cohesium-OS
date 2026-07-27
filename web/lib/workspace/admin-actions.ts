@@ -408,10 +408,6 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
   };
 
   const row = {
-    workspace_id: workspaceId,
-    user_id: input.userId ?? null,
-    channel: input.channel,
-    label: nn(input.label),
     from_name: nn(input.fromName),
     from_email: nn(input.fromEmail),
     smtp_host: nn(input.smtpHost),
@@ -422,18 +418,40 @@ export async function saveSendingIdentity(input: SendingIdentityInput): Promise<
     imap_user: nn(input.imapUser),
     heyreach_account_id: nn(input.heyreachAccountId),
     heyreach_campaign_id: nn(input.heyreachCampaignId),
+    // Only set when the form actually carried it — the edit form has no label
+    // field, and an unconditional write would null a label on every edit.
+    ...(input.label !== undefined ? { label: nn(input.label) } : {}),
     updated_at: new Date().toISOString(),
     updated_by: user.email ?? user.id,
   };
 
   let identityId = input.id;
   if (identityId) {
-    const { error } = await supabase.from("sending_identity").update(row).eq("id", identityId);
+    // The update names neither workspace_id nor user_id/channel: identity
+    // rows never migrate between workspaces or owners. The workspace filter
+    // (not just RLS, which spans every workspace this admin belongs to)
+    // guarantees a stale tab that switched workspaces cannot re-home another
+    // workspace's identity — and its secrets — to the one now on screen.
+    const { data: updated, error } = await supabase
+      .from("sending_identity")
+      .update(row)
+      .eq("id", identityId)
+      .eq("workspace_id", workspaceId)
+      .select("id");
     if (error) throw new Error(error.message);
+    if (!updated?.length) {
+      throw new Error("That identity does not belong to the current workspace.");
+    }
   } else {
     const { data, error } = await supabase
       .from("sending_identity")
-      .insert(row)
+      .insert({
+        ...row,
+        workspace_id: workspaceId,
+        user_id: input.userId ?? null,
+        channel: input.channel,
+        label: nn(input.label),
+      })
       .select("id")
       .single();
     if (error) {

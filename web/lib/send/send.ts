@@ -7,6 +7,7 @@ import { heyreachAddLeads, type HeyreachLead } from "./providers";
 import { type SendReport, EMPTY_SEND_REPORT } from "./types";
 import { linkedinIdentityFor } from "./identity";
 import { currentWorkspaceId } from "@/lib/workspace/context";
+import { operatorWorkspaceId } from "@/lib/workspace/resolve";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type TouchRow = {
@@ -40,11 +41,15 @@ export async function sendApproved(): Promise<SendReport> {
   const workspaceId = await currentWorkspaceId();
   const report: SendReport = { ...EMPTY_SEND_REPORT, errors: [] };
 
+  // Scoped to the workspace on screen. RLS alone would return every workspace
+  // this user belongs to — clicking Send in one must never dispatch another's
+  // approved drafts, let alone through this workspace's provider identity.
   const { data, error } = await supabase
     .from("touches")
     .select(
       "id, channel, subject, body, contacts!inner(id, full_name, email, linkedin_url, responded, organization_id)",
     )
+    .eq("workspace_id", workspaceId)
     .eq("status", "planned")
     .eq("direction", "outbound")
     .eq("approved", true)
@@ -98,7 +103,8 @@ export async function sendApproved(): Promise<SendReport> {
   const liAll = active.filter((t) => t.channel === "linkedin" && t.contacts!.linkedin_url);
   if (liAll.length) {
     // The sender's own LinkedIn account when they have one, else the
-    // workspace's, else the environment (migration 036).
+    // workspace's; the environment only for the OPERATOR workspace (migration
+    // 036 + the operator-only env rule).
     //
     // Resolved with the SERVICE-ROLE client, because sending_secret is
     // unreadable under RLS by design and the user's client would come back
@@ -108,7 +114,13 @@ export async function sendApproved(): Promise<SendReport> {
     // serialized to the client. The workspace is not attacker-controlled
     // either — currentWorkspaceId() has already validated membership against
     // the user's own session, and the admin client is scoped to that id.
-    const identity = await linkedinIdentityFor(createAdminClient(), workspaceId, user.id);
+    const admin = createAdminClient();
+    const identity = await linkedinIdentityFor(
+      admin,
+      workspaceId,
+      user.id,
+      await operatorWorkspaceId(admin),
+    );
     const key = identity.apiKey;
     const campaign = identity.campaignId;
     const account = identity.accountId;
@@ -116,22 +128,27 @@ export async function sendApproved(): Promise<SendReport> {
       report.errors.push(
         identity.source === "env"
           ? "HeyReach not configured (HEYREACH_API_KEY / HEYREACH_CAMPAIGN_ID / HEYREACH_ACCOUNT_ID), or set a LinkedIn identity in Settings."
-          : `The LinkedIn identity for this workspace is incomplete (${[
-              !account && "no account",
-              !campaign && "no campaign",
-              !key && "no API key",
-            ]
-              .filter(Boolean)
-              .join(", ")}).`,
+          : identity.source === "none"
+            ? "No LinkedIn identity configured for this workspace — set one in Settings."
+            : `The LinkedIn identity for this workspace is incomplete (${[
+                !account && "no account",
+                !campaign && "no campaign",
+                !key && "no API key",
+              ]
+                .filter(Boolean)
+                .join(", ")}).`,
       );
     } else {
       // Rolling-24h cap (mirrors EMAIL_DAILY_CAP): scheduled_at marks when we
       // handed the lead to HeyReach, so it is the counter for the window.
       const cap = Number(process.env.LINKEDIN_DAILY_CAP ?? 20);
       const since24 = new Date(Date.now() - 86_400_000).toISOString();
+      // Per workspace, like the touches query above: the cap protects this
+      // workspace's LinkedIn account, not a shared instance budget.
       const { count: pushed24 } = await supabase
         .from("touches")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .eq("provider", "heyreach")
         .gte("scheduled_at", since24);
       const room = Math.max(0, cap - (pushed24 ?? 0));
