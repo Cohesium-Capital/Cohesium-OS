@@ -2,11 +2,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { currentWorkspace, currentWorkspaceId } from "@/lib/workspace/context";
 import { WorkspacePanel, type MemberRow, type InviteRow } from "./workspace-panel";
-import {
-  workspaceRoster,
-  claimInvites,
-  sendingIdentities,
-} from "@/lib/workspace/admin-actions";
+import { workspaceRoster, sendingIdentities } from "@/lib/workspace/admin-actions";
 import { SendingPanel } from "./sending-panel";
 import { WorkedExamplesPanel } from "./worked-examples-panel";
 import { currentWorkedExamples } from "@/lib/workspace/admin-actions";
@@ -38,11 +34,8 @@ export default async function SettingsPage() {
   // the one on screen, not the union of every workspace the user belongs to.
   const workspaceId = await currentWorkspaceId();
 
-  // Landing here is a natural moment to pick up any invite waiting for this
-  // address — it matches on the caller's own JWT email, so it can only ever
-  // claim invites addressed to them, and it is a no-op when there are none.
-  await claimInvites();
-
+  // (Invites are claimed in the app layout, before the membership gate — a
+  // workspace-less invitee never reaches this page.)
   const workspace = await currentWorkspace();
   const [roster, profile, identities, operator, examples] = await Promise.all([
     workspaceRoster(),
@@ -128,6 +121,7 @@ export default async function SettingsPage() {
       </div>
       <AccessRequestsPanel requests={accessRequests} />
       <WorkspacePanel
+        key={`ws-${workspaceId}`}
         workspaceName={workspace?.name ?? "Workspace"}
         isAdmin={workspace?.role === "admin"}
         members={roster.members as MemberRow[]}
@@ -149,18 +143,21 @@ export default async function SettingsPage() {
         hasOverrides={hasOverrides}
       />
       <WorkedExamplesPanel
+        key={`ex-${workspaceId}`}
         goldCustomer={examples.goldCustomer}
         goldMsp={examples.goldMsp}
         isDefault={examples.isDefault}
         isAdmin={workspace?.role === "admin"}
       />
       <SendingPanel
+        key={`send-${workspaceId}`}
         identities={identities}
         members={roster.members.map((m) => ({ userId: m.userId, email: m.email }))}
         isAdmin={workspace?.role === "admin"}
         envConfigured={!emailIdentityReady(envEmailIdentity())}
       />
       <SettingsPanel
+        key={`gate-${workspaceId}`}
         settings={(settings ?? []) as ModuleSettings[]}
         prompts={(prompts ?? []) as PromptVersion[]}
       />
@@ -171,6 +168,7 @@ export default async function SettingsPage() {
         hasLiveToken={((tokens ?? []) as ApiTokenRow[]).some((t) => !t.revoked_at)}
       />
       <PromptLearning
+        key={`learn-${workspaceId}`}
         rules={(rules ?? []) as RuleRow[]}
         runs={(learningRuns ?? []) as LearningRunRow[]}
         health={(health ?? []) as StageHealthRow[]}

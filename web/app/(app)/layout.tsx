@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { SideNav } from "./side-nav";
 import { currentWorkspace, myWorkspaces } from "@/lib/workspace/context";
+import { claimInvites } from "@/lib/workspace/admin-actions";
 import { TourProvider } from "@/components/tour/tour-provider";
 import { RequestAccess } from "./request-access";
 import { myAccessRequest } from "@/lib/access/actions";
@@ -26,6 +27,15 @@ export default async function AppLayout({
 
   const profile = await getProfile();
   const email = profile?.email ?? user.email;
+
+  // Claim any invite addressed to this email BEFORE deciding whether the user
+  // has a workspace. This must live in the layout, not on a page: a brand-new
+  // invitee has zero memberships, and the no-workspace branch below would
+  // funnel them into request-access — whose approval mints a separate empty
+  // tenant instead of the seat they were invited to. It matches on the
+  // caller's own JWT email and is a cheap no-op when nothing is waiting.
+  await claimInvites();
+
   // Scoping context for the whole shell. RLS already limits what this user can
   // reach; this decides which of their workspaces is on screen.
   const [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);

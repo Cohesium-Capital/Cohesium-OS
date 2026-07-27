@@ -24,15 +24,22 @@ export async function updateGateSettings(input: {
   await requireUser();
   const supabase = await createClient();
   const workspaceId = await currentWorkspaceId();
+  // Upsert, not update: settings rows were only ever seeded for the original
+  // workspace (migration 010), so in a new workspace an update matched zero
+  // rows and reported success while the gates silently ran on hardcoded
+  // fallbacks. The primary key is (workspace_id, module) — 028.
   const { error } = await supabase
     .from("settings")
-    .update({
-      gate_threshold: input.gateThreshold,
-      sample_rate: input.sampleRate,
-      min_sample_size: input.minSampleSize,
-    })
-    .eq("workspace_id", workspaceId)
-    .eq("module", input.module);
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        module: input.module,
+        gate_threshold: input.gateThreshold,
+        sample_rate: input.sampleRate,
+        min_sample_size: input.minSampleSize,
+      },
+      { onConflict: "workspace_id,module" },
+    );
   if (error) throw new Error(error.message);
   revalidatePath("/settings");
 }
