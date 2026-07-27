@@ -88,7 +88,15 @@ export function resolveProvider(): ProviderConfig | null {
   const baseUrl = process.env.LEARNING_BASE_URL || OPENAI_COMPATIBLE[provider];
 
   if (provider === "anthropic") {
-    return { provider: "anthropic", model, apiKey, label: `anthropic/${model}` };
+    // Anthropic's own API by default, but some providers (DeepSeek among them)
+    // expose an Anthropic-compatible endpoint — LEARNING_BASE_URL points there.
+    return {
+      provider: "anthropic",
+      model,
+      apiKey,
+      baseUrl: process.env.LEARNING_BASE_URL || undefined,
+      label: `anthropic/${model}`,
+    };
   }
   if (!baseUrl) {
     // An unknown provider with no base URL cannot be called. Say so plainly
@@ -122,7 +130,10 @@ export async function callModel(
 }
 
 async function callAnthropic(cfg: ProviderConfig, req: LlmRequest): Promise<LlmResponse> {
-  const client = new Anthropic({ apiKey: cfg.apiKey });
+  const client = new Anthropic({
+    apiKey: cfg.apiKey,
+    ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}),
+  });
   const response = await client.messages.create({
     model: cfg.model,
     max_tokens: req.maxTokens,
