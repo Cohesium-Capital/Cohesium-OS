@@ -129,12 +129,46 @@ select count(*) from information_schema.columns
 another's rows, and an insert naming no workspace is refused (by the RLS
 `WITH CHECK`, before `NOT NULL` is even reached).
 
+## Phases 2 and 3 (migrations 032–035)
+
+**Phase 2 — identity and vocabulary.** `workspace_profile` holds a firm's name,
+sender, approach sentence, market vocabulary, and the market-specific prose
+blocks. It stores **overrides only**: a null column means "use the code default",
+which is Cohesium's exact wording in `web/lib/workspace/identity.ts`. Cohesium
+has no row and therefore cannot drift.
+
+The 84 golden fixtures in `web/lib/prompts/__fixtures__` pin every prompt the
+system renders. **When a prompt should change, re-capture them in the same
+commit** — the diff is the review. When one changes unexpectedly, that is the
+suite doing its job; it already caught a re-wrapped sentence that would have
+forked `prompt_versions` for no behavioural gain.
+
+Vocabulary is word-substituted. Prose is not: gold examples and persona angles
+are written for one market, so a new workspace replaces the block wholesale via
+`copy` (which supports `{{tokens}}`). Those blocks are not yet editable in the UI.
+
+**Phase 3 — administration.** Creating a workspace goes through the
+`create_workspace()` function, never a direct insert, so the workspace and its
+creator's admin membership land together. Invites are claim tickets keyed on
+email; `claim_workspace_invites()` matches the caller's own JWT and runs on every
+Settings load. A deferred trigger refuses to remove or demote the last admin.
+
+Two corrections in 035 are worth remembering, because both were invisible to
+review and only showed up when probed:
+
+- A policy **named** for admins tested `is_workspace_member`, so any member could
+  rename the firm — and adding a correct policy alongside it changed nothing,
+  because **permissive policies OR together**. Always drop the old policy by its
+  exact name, and verify by attempting the action as the lesser role.
+- `workspace_profile` shipped member-writable while the app assumed admin-only.
+  The application is never the boundary; the database is.
+
 ## Still to come
 
-- **Phase 2** — per-workspace vocabulary and firm identity. Prompts currently
-  hardcode "MSP" and "Cohesium"; these become workspace config. Target: Cohesium's
-  rendered prompts stay byte-identical.
-- **Phase 3** — Settings surface for workspaces and member invites.
 - **Phase 4** — per-user outbound sending (HeyReach account, SMTP identity).
   Until this lands, the email cron is single-workspace by construction and says
-  so out loud.
+  so out loud: `soleWorkspaceId()` throws the moment a second workspace exists,
+  rather than filing one tenant's replies under another.
+- The `copy` blocks (gold examples, persona angles) have no UI yet.
+- `034` promoted the four `ripley@*` accounts to workspace admin because nothing
+  in the data said who should administer the firm. Worth reviewing.
