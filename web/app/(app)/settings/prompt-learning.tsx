@@ -19,7 +19,10 @@ import {
   dismissRule,
   dropRule,
   runLearningNow,
+  submitPromptFeedback,
 } from "@/lib/learning/actions";
+import type { LearningModule } from "@/lib/learning/signals";
+import { Textarea } from "@/components/ui/textarea";
 import { formatDate } from "@/lib/format/date";
 
 // The window onto the learning loop. Two jobs: show what the prompts have
@@ -27,9 +30,20 @@ import { formatDate } from "@/lib/format/date";
 // click. An automatic prompt-editing loop nobody can see or undo is not a
 // feature, it is a liability.
 
+export type StageHealthRow = {
+  module: string;
+  rejected: number;
+  judged: number;
+  reject_rate: number | null;
+  needs_new_strategy: boolean;
+};
+
 export type RuleRow = {
   id: string;
   module: string;
+  kind?: string;
+  baseline_metric?: number | null;
+  baseline_note?: string | null;
   scope: Record<string, unknown>;
   rule_text: string;
   rationale: string | null;
@@ -53,14 +67,22 @@ export type LearningRunRow = {
   created_at: string;
 };
 
+const STAGES: { key: LearningModule; label: string }[] = [
+  { key: "sourcing", label: "Sourcing" },
+  { key: "personalization", label: "Personalize" },
+  { key: "drafting", label: "Draft" },
+];
+
 export function PromptLearning({
   rules,
   runs,
+  health,
   unprocessed,
   analyzerConfigured,
 }: {
   rules: RuleRow[];
   runs: LearningRunRow[];
+  health: StageHealthRow[];
   unprocessed: number;
   analyzerConfigured: boolean;
 }) {
@@ -68,6 +90,8 @@ export function PromptLearning({
   const [pending, startTransition] = useTransition();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [feedbackFor, setFeedbackFor] = useState<LearningModule | null>(null);
+  const [feedback, setFeedback] = useState("");
 
   const active = rules.filter((r) => r.status === "active");
   const proposed = rules.filter((r) => r.status === "proposed");
@@ -143,6 +167,92 @@ export function PromptLearning({
             {lastRun.error ? ` · error: ${lastRun.error}` : ""}
           </p>
         )}
+
+        {/* Per-stage health. A stage above the rejection threshold stops getting
+            appended rules and starts getting proposed replacement approaches —
+            stacking bullets onto a failing prompt does not fix it. */}
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-medium">How each stage is doing</h3>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {STAGES.map((stage) => {
+              const h = health.find((x) => x.module === stage.key);
+              const pct = h?.reject_rate != null ? Math.round(h.reject_rate * 100) : null;
+              const noun =
+                stage.key === "drafting"
+                  ? "needed an edit"
+                  : stage.key === "personalization"
+                    ? "hooks rejected"
+                    : "graded wrong";
+              return (
+                <div
+                  key={stage.key}
+                  className={`flex flex-col gap-1 rounded-md border p-3 ${
+                    h?.needs_new_strategy ? "border-amber-500/50 bg-amber-500/5" : ""
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm font-medium">{stage.label}</span>
+                    <span className="text-lg font-semibold tabular-nums">
+                      {pct === null ? "—" : `${pct}%`}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {h && h.judged > 0
+                      ? `${h.rejected} of ${h.judged} ${noun}`
+                      : "nothing judged yet"}
+                  </span>
+                  {h?.needs_new_strategy && (
+                    <span className="text-xs text-amber-600">
+                      Failing — the next pass proposes a new approach, not another rule.
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="mt-1 justify-start px-0 text-xs"
+                    onClick={() =>
+                      setFeedbackFor(feedbackFor === stage.key ? null : stage.key)
+                    }
+                  >
+                    {feedbackFor === stage.key ? "Cancel" : "Tell it what's wrong →"}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          {feedbackFor && (
+            <div className="flex flex-col gap-2 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                Say what this prompt is getting wrong, in your own words — the same way
+                you&rsquo;d tell a new hire. It is read immediately, alongside the recent
+                corrections, and comes back as proposals below.
+              </p>
+              <Textarea
+                rows={3}
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                placeholder="e.g. It keeps returning companies too small to have an IT budget. Under 20 employees is not worth sourcing."
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={pending || feedback.trim().length < 4}
+                  onClick={() =>
+                    run(async () => {
+                      const out = await submitPromptFeedback(feedbackFor, feedback);
+                      setFeedback("");
+                      setFeedbackFor(null);
+                      return out;
+                    }, "Feedback recorded.")
+                  }
+                >
+                  Send and re-analyze
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {proposed.length > 0 && (
           <div className="flex flex-col gap-2">
@@ -240,6 +350,14 @@ function RuleCard({
           <p className="text-sm">{rule.rule_text}</p>
           <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <Badge variant="outline">{rule.module}</Badge>
+            {rule.kind === "strategy" && (
+              <Badge variant="secondary">
+                new approach · experiment
+              </Badge>
+            )}
+            {rule.kind === "strategy" && rule.baseline_note && (
+              <span>beating: {rule.baseline_note}</span>
+            )}
             {scope && <span>{scope}</span>}
             <span>
               {rule.support_count} correction{rule.support_count === 1 ? "" : "s"}

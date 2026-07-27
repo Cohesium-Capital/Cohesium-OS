@@ -59,6 +59,57 @@ export async function dismissRule(ruleId: string, reason: string): Promise<void>
   revalidatePath("/settings");
 }
 
+/**
+ * Typed feedback on a stage's prompt. This is the highest-quality signal the
+ * loop can get — the operator saying what is wrong in their own words, instead
+ * of the analyzer inferring it from diffs — so it enters the same pipeline as
+ * every other correction and is analyzed immediately rather than at the next
+ * cron.
+ */
+export async function submitPromptFeedback(
+  moduleKey: LearningModule,
+  note: string,
+): Promise<string[]> {
+  const text = note.trim();
+  if (text.length < 4) throw new Error("Say a little more than that.");
+
+  const supabase = await createClient();
+  const who = await actor();
+
+  const { error } = await supabase.from("learning_signals").insert({
+    module: moduleKey,
+    kind: "operator_note",
+    scope: {},
+    before_text: null,
+    after_text: text,
+    category: "operator_note",
+    ref_table: "operator_note",
+    // Operator notes have no source row to key on; a fresh id keeps the
+    // (ref_table, ref_id, kind) uniqueness meaningful without inventing one.
+    ref_id: crypto.randomUUID(),
+    occurred_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+
+  // Analyze this stage right away: feedback typed into a box should visibly do
+  // something, not sit until 14:00 UTC tomorrow. minSignals 1 because a
+  // deliberate note is worth reading on its own.
+  const result = await analyzeModule(supabase, moduleKey, {
+    trigger: "manual",
+    minSignals: 1,
+  });
+  revalidatePath("/settings");
+
+  return [
+    `Feedback recorded by ${who}.`,
+    result.error
+      ? `Analysis failed: ${result.error}`
+      : result.skipped
+        ? `Analysis skipped: ${result.skipped}`
+        : `${result.proposed} proposal(s) from ${result.signalsConsidered} correction(s) — review them below.`,
+  ];
+}
+
 /** A rule written by hand goes in active, with the operator as its source. */
 export async function addRule(
   module: LearningModule,

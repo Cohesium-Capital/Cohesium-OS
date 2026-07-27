@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { createRun, ingestRun, type CreatedRun } from "./lifecycle";
+import { learningTick } from "@/lib/learning/tick";
 import type { IngestOutcome, ModuleKey } from "@/lib/modules/types";
+import type { LearningModule } from "@/lib/learning/signals";
 
 // Server actions wrapping the run lifecycle. Run as the signed-in user (RLS
 // applies); the copy-paste executor is the default path.
@@ -41,5 +43,19 @@ export async function submitRunOutput(input: {
   });
   revalidatePath("/runs");
   revalidatePath("/review");
+
+  // An ingest is the natural moment to learn: a batch just landed, which means
+  // the corrections on the previous one have had time to accumulate. Guarded by
+  // a signal floor and an hourly cooldown inside learningTick, and it never
+  // throws — the ingest above has already succeeded either way.
+  const { data: run } = await supabase
+    .from("runs")
+    .select("module")
+    .eq("id", input.runId)
+    .maybeSingle();
+  if (run?.module) {
+    await learningTick(supabase, run.module as LearningModule);
+  }
+
   return outcome;
 }

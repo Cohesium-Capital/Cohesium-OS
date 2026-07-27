@@ -15,6 +15,7 @@ import {
   MAX_ACTIVE_RULES,
   type PromptRule,
 } from "./rules";
+import { healthFor } from "./health";
 
 // The analyzer: read a batch of human corrections, propose prompt rules.
 //
@@ -142,6 +143,30 @@ Propose prompt rules ONLY for patterns the evidence actually shows. Your bar:
 Returning zero proposals is the correct answer when the evidence is thin. An
 empty list is a good outcome, not a failed run.`;
 
+const STRATEGY_SYSTEM = `A stage of this pipeline is failing: a large share of everything it produces is
+being rejected by a human. You are given its current approach, the rules already
+appended to it, and the corrections and rejections themselves.
+
+Do NOT propose another incremental rule. The evidence says the approach itself
+is not working, and one more bullet on a failing prompt does not fix it.
+
+Propose at most TWO candidate strategies. A strategy is a short replacement for
+HOW the stage does its job — where it looks, what it treats as qualifying, what
+order it works in, what it refuses to guess at. Each one must:
+
+- be concrete enough that a reader could follow it instead of the current
+  approach, not a sentiment like "be more careful"
+- name what it changes about the current approach and why the rejections
+  suggest it
+- be genuinely different from the other candidate, so the two are worth
+  comparing rather than two phrasings of one idea
+- stay inside the stage's job. Do not propose changing the output format, the
+  contract, or what the pipeline does with the results.
+
+These are experiments, not fixes. Each will run against the current approach and
+be judged on whether the rejection rate actually falls, so propose things that
+would produce a visibly different result rather than a safe restatement.`;
+
 function renderSignals(signals: (LearningSignal & { id: string })[]): string {
   return signals
     .map((s) => {
@@ -207,17 +232,27 @@ export async function analyzeModule(
   }
 
   const existing = await activeRules(supabase, module);
+  const health = await healthFor(supabase, module);
+  // A failing stage gets a replacement approach instead of another bullet.
+  const strategyMode = Boolean(health?.needs_new_strategy);
   const client = new Anthropic({ apiKey });
 
   const userPrompt = [
     `Stage: ${module}`,
+    health
+      ? `Current rejection rate: ${Math.round((health.reject_rate ?? 0) * 100)}% (${health.rejected} of ${health.judged} judged)`
+      : "",
     "",
-    "Rules already active for this stage:",
+    strategyMode
+      ? "The approach currently in use (appended to the stage's prompt):"
+      : "Rules already active for this stage:",
     renderActive(existing),
     "",
     `Human corrections (${signals.length}):`,
     renderSignals(signals),
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   let raw: string;
   let usage: { input_tokens: number; output_tokens: number } | null = null;
@@ -225,7 +260,7 @@ export async function analyzeModule(
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM,
+      system: strategyMode ? STRATEGY_SYSTEM : SYSTEM,
       output_config: {
         effort: "high",
         format: { type: "json_schema", schema: OUTPUT_SCHEMA },
@@ -304,9 +339,22 @@ export async function analyzeModule(
     const evidenceIds = [...new Set(p.evidence_signal_ids.filter((id) => validIds.has(id)))];
     if (!evidenceIds.length) continue;
 
+    // Corrections made in one sitting, on one batch, are one opinion — not a
+    // pattern. Requiring the evidence to span two distinct days or two runs is
+    // what lets the loop react within minutes without encoding a bad afternoon
+    // into the prompt permanently.
+    const evidence = evidenceIds.map((id) => byId.get(id)!).filter(Boolean);
+    const days = new Set(evidence.map((e) => e.occurred_at.slice(0, 10)));
+    const runs = new Set(evidence.map((e) => e.run_id ?? "none"));
+    const spread = days.size >= 2 || runs.size >= 2;
+
     const qualifies =
+      // A strategy replaces the approach rather than adding to it — too big a
+      // change to make without a human, however strong the evidence looks.
+      !strategyMode &&
       evidenceIds.length >= AUTO_ACTIVATE_SUPPORT &&
       p.confidence >= AUTO_ACTIVATE_CONFIDENCE &&
+      spread &&
       // At the cap a rule may only activate by replacing one, never by adding.
       (activeCount < MAX_ACTIVE_RULES || !!p.supersedes_rule_id);
 
@@ -317,6 +365,13 @@ export async function analyzeModule(
 
     rows.push({
       module,
+      kind: strategyMode ? "strategy" : "rule",
+      // The rejection rate this experiment is trying to beat. Without it,
+      // "did the new approach work" has no answer a week from now.
+      baseline_metric: strategyMode ? health?.reject_rate ?? null : null,
+      baseline_note: strategyMode && health
+        ? `${health.rejected} of ${health.judged} rejected when proposed`
+        : null,
       scope: cleanScope(p.scope),
       rule_text: p.rule_text.trim(),
       rationale: p.rationale,

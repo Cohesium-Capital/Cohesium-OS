@@ -6,6 +6,7 @@ import {
   PromptLearning,
   type LearningRunRow,
   type RuleRow,
+  type StageHealthRow,
 } from "./prompt-learning";
 import { RunnerSetup } from "./runner-setup";
 import { RUNNER_SKILL, RUNNER_REPO_URL, runnerEnvTemplate } from "@/lib/runner/skill";
@@ -45,7 +46,7 @@ export default async function SettingsPage() {
 
   // Prompt learning: the rules themselves, the analyzer's audit trail, and how
   // many corrections are queued but not yet read.
-  const [{ data: rules }, { data: learningRuns }, { count: unprocessed }] =
+  const [{ data: rules }, { data: learningRuns }, { count: unprocessed }, { data: health }] =
     await Promise.all([
       supabase
         .from("prompt_rules")
@@ -61,6 +62,7 @@ export default async function SettingsPage() {
         .from("learning_signals")
         .select("id", { count: "exact", head: true })
         .is("processed_at", null),
+      supabase.from("stage_health").select("*"),
     ]);
 
   return (
@@ -84,6 +86,7 @@ export default async function SettingsPage() {
       <PromptLearning
         rules={(rules ?? []) as RuleRow[]}
         runs={(learningRuns ?? []) as LearningRunRow[]}
+        health={(health ?? []) as StageHealthRow[]}
         unprocessed={unprocessed ?? 0}
         analyzerConfigured={Boolean(process.env.ANTHROPIC_API_KEY)}
       />
