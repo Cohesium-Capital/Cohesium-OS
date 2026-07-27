@@ -139,25 +139,29 @@ export default async function ReviewPage({
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .eq("reviewed", false)
         .is("deleted_at", null),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .eq("enrichment_status", "pending")
         .is("deleted_at", null),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .eq("enrichment_status", "enriched")
         .is("deleted_at", null),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
         .in("enrichment_status", ["failed", "low_confidence"])
         .is("deleted_at", null),
-      countEligibleContacts(supabase),
-      countAlreadyPushed(supabase),
+      countEligibleContacts(supabase, workspaceId),
+      countAlreadyPushed(supabase, workspaceId),
     ]);
   const counts = {
     unreviewed: unreviewed.count ?? 0,

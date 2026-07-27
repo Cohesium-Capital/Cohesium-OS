@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { draftEligibleContactIds } from "@/lib/journey";
 import { computeHookGate } from "@/lib/hooks/gate";
 import { hookCoverage, hookTtlCutoff, HOOK_TTL_DAYS } from "@/lib/hooks/usable";
@@ -62,6 +63,9 @@ export default async function PersonalizePage({
   searchParams: Promise<{ run?: string }>;
 }) {
   const supabase = await createClient();
+  // Everything on this page reads and sweeps within the workspace on screen —
+  // RLS alone spans all of a member's workspaces (028's contract).
+  const workspaceId = await currentWorkspaceId();
   // ?run=<id> arrives from a run's timeline entry: research hooks for THAT
   // run's contacts rather than everything waiting at this stage.
   const scope = await loadRunScope(supabase, (await searchParams).run ?? null);
@@ -75,6 +79,7 @@ export default async function PersonalizePage({
   const { data: swept } = await supabase
     .from("hooks")
     .update({ status: "expired" })
+    .eq("workspace_id", workspaceId)
     .eq("status", "candidate")
     .lt("created_at", hookTtlCutoff())
     .select("batch_id");
@@ -87,18 +92,20 @@ export default async function PersonalizePage({
 
   const [eligible, { data: contactData }, coverage, { data: sampledData }, { data: latestBatch }] =
     await Promise.all([
-      draftEligibleContactIds(supabase),
+      draftEligibleContactIds(supabase, workspaceId),
       supabase
         .from("contacts")
         .select("id, full_name, title, organizations(name, domain, kind, current_msp_id)")
+        .eq("workspace_id", workspaceId)
         .is("deleted_at", null)
         .or("email.not.is.null,linkedin_url.not.is.null"),
-      hookCoverage(supabase),
+      hookCoverage(supabase, workspaceId),
       supabase
         .from("hooks")
         .select(
           "id, batch_id, contact_id, text, kind, fallback_angle, source_url, source_published_at, track, created_at, contacts!inner(full_name, title, organizations(name, domain, kind)), batches(label)",
         )
+        .eq("workspace_id", workspaceId)
         .eq("status", "candidate")
         .eq("sampled", true)
         .is("contacts.deleted_at", null)
@@ -107,6 +114,7 @@ export default async function PersonalizePage({
       supabase
         .from("batches")
         .select("id, label, created_at")
+        .eq("workspace_id", workspaceId)
         .eq("module", "personalization")
         .order("created_at", { ascending: false })
         .limit(1)

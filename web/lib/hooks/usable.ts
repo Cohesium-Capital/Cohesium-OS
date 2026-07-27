@@ -67,12 +67,16 @@ export type HookCoverage = {
  * One hooks query + batch gate join, classified per the canonical definition.
  * Soft-deleted contacts are excluded like every other read path.
  */
-export async function hookCoverage(supabase: SupabaseClient): Promise<HookCoverage> {
+export async function hookCoverage(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<HookCoverage> {
   const { data } = await supabase
     .from("hooks")
     .select(
       "id, contact_id, text, kind, fallback_angle, source_url, source_published_at, status, sampled, created_at, batch_id, batches(gate_status), contacts!inner(id)",
     )
+    .eq("workspace_id", workspaceId)
     .in("status", ["verified", "candidate"])
     .gte("created_at", hookTtlCutoff())
     .is("contacts.deleted_at", null)
@@ -115,8 +119,9 @@ export async function hookCoverage(supabase: SupabaseClient): Promise<HookCovera
 /** Convenience for consumers that only need the drafting-side map. */
 export async function usableHooksByContact(
   supabase: SupabaseClient,
+  workspaceId: string,
 ): Promise<Map<string, UsableHook>> {
-  return (await hookCoverage(supabase)).usable;
+  return (await hookCoverage(supabase, workspaceId)).usable;
 }
 
 function toUsable(row: HookStateRow): UsableHook {
