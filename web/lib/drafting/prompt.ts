@@ -14,13 +14,15 @@
 // Batches are single-track by construction (the Draft page separates them), so
 // each generated prompt speaks one register throughout.
 
-// Edit SENDER to change how the sender introduces themselves. Keep it honest.
-export const SENDER = {
-  name: "Ripley",
-  // The one-line "who I am". Refer to the firm only as "Cohesium".
-  intro: "I'm a cofounder of Cohesium, an investment firm",
-};
+import {
+  DEFAULT_PROFILE,
+  renderCopy,
+  type WorkspaceProfile,
+} from "../workspace/identity";
 
+// Who is writing, and what they call the market. Defaults to Cohesium's values,
+// which are the exact strings that used to be inline here — see
+// lib/workspace/identity.ts and the golden fixtures that pin them.
 export type TrackKind = "msp" | "customer";
 
 export type DraftContact = {
@@ -46,20 +48,22 @@ export type DraftContact = {
 };
 
 // The JSON contract is shared by both tracks; only the recipient framing forks.
-const HEADER_FRAMING: Record<TrackKind, string> = {
-  customer: `You draft warm first-touch outreach for ${SENDER.name} at Cohesium. Each recipient
-runs or leads IT at a company that uses a managed IT service provider (an MSP).
+const headerFraming = (kind: TrackKind, p: WorkspaceProfile): string => {
+  const v = p.vocab;
+  return kind === "customer"
+    ? `You draft warm first-touch outreach for ${p.senderName} at ${p.firmName}. Each recipient
+runs or leads IT at a company that uses a ${v.providerSingular} (an ${v.providerAbbrev}).
 The goal is an honest ask for a short conversation about how companies like
-theirs work with their IT provider. ${SENDER.name} is genuinely researching the
-managed IT market and is not selling anything.`,
-  msp: `You draft warm first-touch outreach for ${SENDER.name} at Cohesium. Each recipient
-owns or helps run a managed IT service provider (an MSP). The goal is an honest
-ask for a short conversation about what it takes to build and operate an MSP
-today, from the operator's side. ${SENDER.name} is genuinely researching the
-managed IT market and is not selling anything.`,
+theirs work with their IT provider. ${p.senderName} is genuinely researching the
+${v.market} and is not selling anything.`
+    : `You draft warm first-touch outreach for ${p.senderName} at ${p.firmName}. Each recipient
+owns or helps run a ${v.providerSingular} (an ${v.providerAbbrev}). The goal is an honest
+ask for a short conversation about what it takes to build and operate an ${v.providerAbbrev}
+today, from the operator's side. ${p.senderName} is genuinely researching the
+${v.market} and is not selling anything.`;
 };
 
-const HEADER_CONTRACT = `For EACH contact listed below, draft a message for EACH channel on that contact's
+const headerContract = (p: WorkspaceProfile) => `For EACH contact listed below, draft a message for EACH channel on that contact's
 line. Return ONLY a single JSON object, no markdown and no commentary:
 
 {
@@ -68,92 +72,25 @@ line. Return ONLY a single JSON object, no markdown and no commentary:
   ]
 }
 
-Use the exact contact_id from each line. Sign emails as ${SENDER.name}. "subject"
+Use the exact contact_id from each line. Sign emails as ${p.senderName}. "subject"
 is a short line for email and null for linkedin.`;
 
-function header(kind: TrackKind): string {
-  return [HEADER_FRAMING[kind], "", HEADER_CONTRACT].join("\n");
+function header(kind: TrackKind, p: WorkspaceProfile): string {
+  return [headerFraming(kind, p), "", headerContract(p)].join("\n");
 }
 
 // One worked example per channel. Showing the voice beats describing it, and it
 // is the surest way to stop the model from leaking a meta-label like "this is a
 // cold email" as a subject or body line.
-const GOLD: Record<TrackKind, string> = {
-  customer: `Gold examples (imitate this voice and shape, never copy the facts)
+const gold = (kind: TrackKind, p: WorkspaceProfile): string =>
+  renderCopy(kind === "customer" ? p.copy.goldCustomer : p.copy.goldMsp, p);
 
-Email —
-Subject: quick question on your IT setup
-
-Hi Trish,
-
-I've been digging into how growing pediatric practices actually work with their
-managed IT providers, where it helps and where it just adds overhead, and figured
-someone in your seat would have a clear read on it.
-
-${SENDER.intro}. We learn a market by talking with the people running it day to
-day, and it lets us build a network of operators we can be useful to over time.
-
-Any chance you'd have a few minutes in the next week or two? I'm not selling
-anything, just trying to understand the space.
-
-Thanks,
-${SENDER.name}
-
-LinkedIn —
-Hi Jim, ${SENDER.intro} researching how companies work with their managed IT
-providers, and your read from the practice side would be useful. Open to a quick
-chat in the next week or two? Not selling anything.`,
-  msp: `Gold examples (imitate this voice and shape, never copy the facts)
-
-Email —
-Subject: your take on the MSP market
-
-Hi Tom,
-
-I've been talking with people who've built managed IT businesses in the
-mid-Atlantic about where the market is heading, what's getting harder, what
-still makes the model work, and figured a founder in your seat would have a
-clear read on it.
-
-${SENDER.intro}. We learn a market by talking with the people running it day to
-day, and it lets us build a network of operators we can be useful to over time.
-
-Any chance you'd have a few minutes in the next week or two? I'm not selling
-anything, just trying to understand the business from the operator's side.
-
-Thanks,
-${SENDER.name}
-
-LinkedIn —
-Hi Sam, ${SENDER.intro} researching the managed IT market from the operator's
-side, and your read on where things are heading for MSPs would be useful. Open
-to a quick chat? Not selling anything.`,
-};
-
-// The relevance hook per persona, forked by track: customer personas talk about
-// living with an IT provider; MSP personas talk about running the business.
-const PERSONA_ANGLES: Record<TrackKind, string> = {
-  customer: `Persona angle (the relevance hook)
-- owner: keeping technology and security dependable as the business grows,
-  without IT becoming a distraction.
-- head_of_it: where managed services genuinely help versus where they just
-  commoditize the work.
-- other: a neutral version of the owner angle.`,
-  msp: `Persona angle (the relevance hook)
-- owner: what it takes to build and grow a healthy MSP right now, from pricing
-  pressure to talent to the security workload, and where the market is heading.
-- head_of_it: how service delivery is changing, with tooling and automation,
-  versus what clients actually value and will pay for.
-- other: a neutral version of the owner angle.`,
-};
-
-// What we credit the recipient's perspective on, per track.
-const PERSPECTIVE: Record<TrackKind, string> = {
-  customer: "how companies like theirs work with managed IT",
-  msp: "what it takes to run a managed IT business today",
-};
-
-function rules(kind: TrackKind, learned = ""): string {
+function rules(kind: TrackKind, p: WorkspaceProfile, learned = ""): string {
+  const v = p.vocab;
+  const pick = (c: string, m: string) => renderCopy(kind === "customer" ? c : m, p);
+  const personaAngles = pick(p.copy.personaAnglesCustomer, p.copy.personaAnglesMsp);
+  const perspective = pick(p.copy.perspectiveCustomer, p.copy.perspectiveMsp);
+  const subjectShapes = pick(p.copy.subjectShapesCustomer, p.copy.subjectShapesMsp);
   return `${learned ? `${learned}\n\n` : ""}Structure (model this on warm investor outreach that works)
 - Open with relevance to the recipient, on every channel.
 - NEVER acknowledge that the message is unsolicited. Write as one professional
@@ -163,17 +100,14 @@ function rules(kind: TrackKind, learned = ""): string {
   me", "out of the blue", "hope you don't mind", "forgive the intrusion",
   "random", "unsolicited". Do NOT label the message at all: never write "this is
   a cold email", "[subject]", or any placeholder as a subject or a body line.
-- Say who you are in one line: "${SENDER.intro}".
-- Give the approach briefly: we learn a market by talking with the experienced
-  people running it, about what matters and what pain points still need solving,
-  and it lets us build a network of sharp operators we can be useful to over time,
-  through intros, hiring, and advisor roles.
+- Say who you are in one line: "${p.senderIntro}".
+- Give the approach briefly: ${p.approachDetailed}
 - Personalization is PROVIDED, not researched. Drafting is pure writing: do NOT
   use web search, and do not add any specific claim beyond what a contact's
   line carries.
   - When a line carries hook=<claim>, that claim is ALREADY VERIFIED against
     its source. Open with it, then credit their perspective on
-    ${PERSPECTIVE[kind]}. Do not embellish the claim and do not add any other
+    ${perspective}. Do not embellish the claim and do not add any other
     specific claim.
   - When a line carries fallback_angle=<text>, research found NO verifiable
     hook for this person. Open with that honest observation. Never invent a
@@ -190,7 +124,7 @@ function rules(kind: TrackKind, learned = ""): string {
       : ""
   }
 
-${PERSONA_ANGLES[kind]}
+${personaAngles}
 
 Email
 - 80 to 120 words, never over 130 (count them). Three SHORT paragraphs separated
@@ -199,12 +133,10 @@ Email
   angle, plus the provided hook (or fallback_angle) if the line carries one. The
   first sentence must be about them or about what you are researching in their
   world. It must never be about you and never an apology.
-  (2) Who you are and why it is worth their time: "${SENDER.intro}". We learn a
-  market by talking with the people running it day to day, and it lets us build a
-  network of operators we can be useful to over time.
+  (2) Who you are and why it is worth their time: "${p.senderIntro}". ${p.copy.approachBullet}
   (3) The soft ask, and that you are not selling anything. No apology for
   writing and no reference to how you found them.
-  Sign off with "Thanks," then "${SENDER.name}" on their own lines.
+  Sign off with "Thanks," then "${p.senderName}" on their own lines.
 - The first sentence is about the recipient, not about us. No apology anywhere
   in the message, and no self-introduction in the first sentence.
 - With a hook= token, lead the first sentence with it. Otherwise lead with the
@@ -212,13 +144,7 @@ Email
   use an apology as a stand-in for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
-  shapes: ${
-    kind === "customer"
-      ? `"quick question on your IT setup", "your take on managed IT",
-  "Cohesium + <company>"`
-      : `"your take on the MSP market", "the state of managed IT",
-  "Cohesium + <company>"`
-  }. Never put "sorry", "apologies", or "cold" anywhere in the subject or body.
+  shapes: ${subjectShapes}. Never put "sorry", "apologies", or "cold" anywhere in the subject or body.
   Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
   points.
 
@@ -232,14 +158,14 @@ LinkedIn
 Voice: direct, warm, conversational, a little humble. No em-dashes. No
 semicolons. No bullet points. No corporate filler. It must read as written by a
 person. Never open with "I hope this finds you well" or "My name is". Refer to
-the firm only as "Cohesium".
+the firm only as "${p.firmName}".
 
 Honesty: never invent a detail, event, mutual connection, or claim, and never
 add a specific claim that is not on the contact's line. With no hook provided,
 open with an honest observation about their role or industry rather than a
 fabricated specific. Plain and credible beats clever.
 
-${GOLD[kind]}
+${gold(kind, p)}
 
 Before you return the JSON, re-read every draft and fix any that fail: no
 meta-label or placeholder as a subject or a body line, every specific claim
@@ -288,19 +214,24 @@ function renderContactLines(contacts: DraftContact[], kind: TrackKind): string {
 // contact lines, which sit behind the {{contacts}} placeholder. This is the
 // text the run lifecycle hashes (runs.template_hash) so a prompt version is
 // identified by its instructions, not by whichever contacts were pasted in.
-export function buildTemplateText(kind: TrackKind, learned = ""): string {
-  return [header(kind), "", rules(kind, learned), "", "Contacts:", "{{contacts}}"].join("\n");
+export function buildTemplateText(
+  kind: TrackKind,
+  learned = "",
+  p: WorkspaceProfile = DEFAULT_PROFILE,
+): string {
+  return [header(kind, p), "", rules(kind, p, learned), "", "Contacts:", "{{contacts}}"].join("\n");
 }
 
 export function buildDraftPrompt(
   contacts: DraftContact[],
   kind: TrackKind = "customer",
   learned = "",
+  p: WorkspaceProfile = DEFAULT_PROFILE,
 ): string {
   return [
-    header(kind),
+    header(kind, p),
     "",
-    rules(kind, learned),
+    rules(kind, p, learned),
     "",
     "Contacts:",
     renderContactLines(contacts, kind),
@@ -327,15 +258,17 @@ export function buildDraftAgentPrompt(
   chunkSize = 15,
   kind: TrackKind = "customer",
   learned = "",
+  p: WorkspaceProfile = DEFAULT_PROFILE,
 ): string {
+  const v = p.vocab;
   const n = contacts.length;
   const chunks = Math.max(1, Math.ceil(n / chunkSize));
   const audience =
     kind === "msp"
-      ? "Every contact below owns or helps run a managed IT service provider (an MSP) — the outreach is about operating an MSP, from the operator's side."
-      : "Every contact below runs or leads IT at a company that uses a managed IT service provider — the outreach is about how they work with their IT provider.";
+      ? `Every contact below owns or helps run a ${v.providerSingular} (an ${v.providerAbbrev}) — the outreach is about operating an ${v.providerAbbrev}, from the operator's side.`
+      : `Every contact below runs or leads IT at a company that uses a ${v.providerSingular} — the outreach is about how they work with their IT provider.`;
   const orchestration = `You are running a batch outreach drafting job in Claude Code for
-${SENDER.name} at Cohesium. There are ${n} contacts below. ${audience}
+${p.senderName} at ${p.firmName}. There are ${n} contacts below. ${audience}
 Do NOT draft them all yourself in one pass — fan the work out so each message
 gets focused attention. Personalization is already researched and verified:
 lines carry hook= or fallback_angle= tokens, so no subagent uses web search.
@@ -357,14 +290,14 @@ lines carry hook= or fallback_angle= tokens, so no subagent uses web search.
   ]
 }
 
-Use the exact contact_id from each line. Sign emails as ${SENDER.name}. "subject"
+Use the exact contact_id from each line. Sign emails as ${p.senderName}. "subject"
 is a short line for email and null for linkedin. Draft a message for every
 channel listed on a contact's line.`;
 
   return [
     orchestration,
     "",
-    rules(kind, learned),
+    rules(kind, p, learned),
     "",
     `Contacts (${n}):`,
     renderContactLines(contacts, kind),

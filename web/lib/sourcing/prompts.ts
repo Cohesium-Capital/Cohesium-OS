@@ -3,6 +3,12 @@
 // paste back into the importer. Keeping the heavy research on your subscription
 // instead of the metered API is the project's cost lever.
 
+import {
+  DEFAULT_PROFILE,
+  type WorkspaceProfile,
+  type WorkspaceVocab,
+} from "../workspace/identity";
+
 export type SourcingMode =
   | "research_msps"
   | "research_customers"
@@ -47,9 +53,23 @@ export type PromptParams = {
    * rendered by prepareConfig so they are part of the hashed template.
    */
   learnedRules?: string;
+  /**
+   * The workspace's identity and market vocabulary. Loaded by prepareConfig, so
+   * — like learnedRules — it is part of the hashed template: a firm that renames
+   * its market gets a new prompt_version rather than silently changing the
+   * meaning of the old one's error rate. Defaults to Cohesium's values.
+   *
+   * Named `workspace`, not `profile`: `profile` above is the TARGET company
+   * profile ("10-200 employees, professional services") and has been since the
+   * first version of this file.
+   */
+  workspace?: WorkspaceProfile;
 };
 
-const CONTRACT = `Return ONLY a single JSON object. No markdown, no code fences, no commentary
+const vocabOf = (params: PromptParams): WorkspaceVocab =>
+  (params.workspace ?? DEFAULT_PROFILE).vocab;
+
+const contractText = (v: WorkspaceVocab) => `Return ONLY a single JSON object. No markdown, no code fences, no commentary
 before or after it. The object must match this shape exactly:
 
 {
@@ -59,7 +79,7 @@ before or after it. The object must match this shape exactly:
       "domain": string | null,            // primary website host, e.g. "acme.com" (no https://, no path)
       "hq_city": string | null,
       "hq_state": string | null,          // 2-letter state/province code where applicable
-      "current_msp_name": string | null,  // the managed IT provider this company uses, if known/estimated
+      "current_msp_name": string | null,  // the ${v.providerGeneric} this company uses, if known/estimated
       "source_url": string | null,        // a URL that backs this row
       "confidence": "high" | "medium" | "low",
       "contacts": [
@@ -76,13 +96,13 @@ before or after it. The object must match this shape exactly:
   ]
 }`;
 
-const RULES = `Rules:
+const rulesText = (v: WorkspaceVocab) => `Rules:
 - Use web search to ground every row. Do NOT invent a company, person, domain,
-  or MSP relationship. A fabricated row poisons the dataset, which is the asset
+  or ${v.providerAbbrev} relationship. A fabricated row poisons the dataset, which is the asset
   being built. An honest omission is always better than a confident guess.
 - For anything not verifiable, use null and set "confidence" to "low".
 - "confidence" reflects how sure you are that the entity is real AND that the
-  stated relationship (e.g. which MSP they use) is true. Reserve "high" for
+  stated relationship (e.g. which ${v.providerAbbrev} they use) is true. Reserve "high" for
   facts backed by a clear, citable source.
 - Always include a "source_url" when you can. Put a real URL or null.
 - Find each company's website "domain" by searching its name (e.g. "<company>
@@ -98,18 +118,18 @@ const RULES = `Rules:
 
 // Concrete, highest-yield ways to find an MSP's customers (and resolve
 // anonymized references). Appended to the customer-finding modes.
-const METHODS = `Where to look (highest-yield first):
-- The MSP's own site: case studies, testimonials, and "our clients" pages. Also
-  check indexed PDFs (site:<mspdomain> filetype:pdf) and the client logo wall —
+const methodsText = (v: WorkspaceVocab) => `Where to look (highest-yield first):
+- The ${v.providerAbbrev}'s own site: case studies, testimonials, and "our clients" pages. Also
+  check indexed PDFs (site:<${v.providerAbbrev.toLowerCase()}domain> filetype:pdf) and the client logo wall —
   read each logo's alt text, image filename, and link target to name the company.
 - Verified review sites: Clutch (lists the reviewer's company, industry, size),
   plus G2, UpCity, TechBehemoths, GoodFirms, FeaturedCustomers, Google reviews.
-- Web-wide co-mentions via search operators: "<MSP>" (client OR customer OR
-  "partnered with"); "<MSP>" -site:<mspdomain> for third-party and news mentions;
-  intext:"<MSP>" filetype:pdf.
-- LinkedIn win/onboarding posts: site:linkedin.com/posts "<MSP>" (welcome OR
+- Web-wide co-mentions via search operators: "<${v.providerAbbrev}>" (client OR customer OR
+  "partnered with"); "<${v.providerAbbrev}>" -site:<${v.providerAbbrev.toLowerCase()}domain> for third-party and news mentions;
+  intext:"<${v.providerAbbrev}>" filetype:pdf.
+- LinkedIn win/onboarding posts: site:linkedin.com/posts "<${v.providerAbbrev}>" (welcome OR
   "new client" OR onboarded), and press releases, local business-journal news,
-  and award announcements naming the MSP.
+  and award announcements naming the ${v.providerAbbrev}.
 - If a source only gives an anonymized reference (e.g. "the IT Director at a
   Richmond law firm"), resolve it: combine the clues (industry + city + title +
   first name) and search LinkedIn / company sites to name the real company and
@@ -122,7 +142,8 @@ including a company, and set confidence to match the strength of the evidence.`;
 // is valuable but optional: requiring it made the model discard good companies
 // whose provider simply is not documented anywhere, which is most of them. It
 // stays a bonus field, and the honest null is explicitly allowed.
-const MSP_LINK_OPTIONAL = `If you can find evidence of which MSP a company uses, set "current_msp_name"
+const providerLinkOptional = (v: WorkspaceVocab) =>
+  `If you can find evidence of which ${v.providerAbbrev} a company uses, set "current_msp_name"
 and let "confidence" reflect how well documented that link is. If you cannot,
 set "current_msp_name" to null and still return the company — an unknown
 provider is NOT a reason to drop a company that fits the profile, and a guessed
@@ -132,8 +153,9 @@ named contact at each.`;
 
 // The provider-relationship methods, offered as an optional bonus pass for
 // research_customers rather than the mode's main job.
-const MSP_LINK_METHODS = `If you want to try to identify a company's IT provider (optional, only when it
-is cheap to do), these are the highest-yield places: the MSP's own case
+const providerLinkMethods = (v: WorkspaceVocab) =>
+  `If you want to try to identify a company's IT provider (optional, only when it
+is cheap to do), these are the highest-yield places: the ${v.providerAbbrev}'s own case
 studies, testimonials, and client logo walls; review sites like Clutch, G2,
 UpCity and TechBehemoths that name the reviewer's company; web-wide
 co-mentions ("<company>" with client OR "partnered with"); and LinkedIn
@@ -152,9 +174,10 @@ another; a shorter honest list of NEW companies beats a padded one.
 
 // Same instruction, scoped per MSP: a company we already know as MSP A's client
 // is still a new find under MSP B, so exclusion is by (company, MSP) pair.
-const EXCLUSIONS_PER_MSP = `Clients we already have on file for these MSPs — do NOT return them again for
-the same MSP, and do not spend search effort re-confirming them. Finding one of
-these companies as a client of a DIFFERENT MSP below is still new and worth
+const exclusionsPerProvider = (v: WorkspaceVocab) =>
+  `Clients we already have on file for these ${v.providerAbbrevPlural} — do NOT return them again for
+the same ${v.providerAbbrev}, and do not spend search effort re-confirming them. Finding one of
+these companies as a client of a DIFFERENT ${v.providerAbbrev} below is still new and worth
 returning.
 {{known}}`;
 
@@ -164,7 +187,7 @@ returning.
 // the list the prompt carries becomes an INCLUSION list bounded by how many
 // results were requested, rather than an exclusion list that grows with the
 // database.
-const CHECK_VIA_API = `Do NOT research companies we already have. You have an API for this — use it
+const checkViaApiText = (v: WorkspaceVocab) => `Do NOT research companies we already have. You have an API for this — use it
 instead of guessing:
 
 1. SHORTLIST first, cheaply. Produce a wide list of candidate company names
@@ -177,7 +200,7 @@ instead of guessing:
    authoritative. Never skip this step to save a call.
 3. RESEARCH only the ones it returns as new, and only up to the number
    requested. This is where the real work goes: verify the company, establish
-   the MSP relationship, find the contact, and collect a source URL for each.
+   the ${v.providerAbbrev} relationship, find the contact, and collect a source URL for each.
 4. If step 3 leaves you short of the requested count, go back to step 1 with a
    different angle (a different city, industry, or source type) rather than
    padding with companies you could not verify.
@@ -193,18 +216,19 @@ export function buildTemplateText(params: PromptParams): string {
   const profile = params.profile?.trim();
   const viaApi = !!params.checkKnownViaApi;
   const hasKnown = !viaApi && !!params.known?.length;
+  const v = vocabOf(params);
 
   if (params.mode === "research_msps") {
     return [
-      `You are sourcing managed IT service providers (MSPs) as potential acquisition targets.`,
-      `Find up to {{count}} real MSPs based in {{region}}.`,
+      `You are sourcing ${v.providerPlural} (${v.providerAbbrevPlural}) as potential acquisition targets.`,
+      `Find up to {{count}} real ${v.providerAbbrevPlural} based in {{region}}.`,
       profile ? `Target profile: {{targetProfile}}.` : "",
-      `For each MSP, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is an MSP.`,
+      `For each ${v.providerAbbrev}, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is an ${v.providerAbbrev}.`,
       "",
-      viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS : "",
-      CONTRACT,
+      viaApi ? checkViaApiText(v) : hasKnown ? EXCLUSIONS : "",
+      contractText(v),
       "",
-      RULES,
+      rulesText(v),
       params.learnedRules ? `\n${params.learnedRules}` : "",
     ]
       .filter(Boolean)
@@ -213,19 +237,19 @@ export function buildTemplateText(params: PromptParams): string {
 
   if (params.mode === "research_customers") {
     return [
-      `You are sourcing companies that fit our target profile in a specific geography, so we can study the managed IT market and reach the people running these businesses.`,
+      `You are sourcing companies that fit our target profile in a specific geography, so we can study the ${v.market} and reach the people running these businesses.`,
       `Find up to {{count}} real companies based in {{region}}.`,
       profile ? `Target profile: {{targetProfile}}.` : "",
       `Qualification is profile fit and geography — nothing else. A company qualifies if it matches the profile above and is based in the region.`,
-      MSP_LINK_OPTIONAL,
-      `Identify a contact at EVERY company you return: the owner/decision-maker ("owner") or the person who leads IT ("head_of_it"). A company with no contact is not usable, so put the search effort into finding a named person. Every organization you return is a customer (not an MSP).`,
+      providerLinkOptional(v),
+      `Identify a contact at EVERY company you return: the owner/decision-maker ("owner") or the person who leads IT ("head_of_it"). A company with no contact is not usable, so put the search effort into finding a named person. Every organization you return is a customer (not an ${v.providerAbbrev}).`,
       "",
-      viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS : "",
-      MSP_LINK_METHODS,
+      viaApi ? checkViaApiText(v) : hasKnown ? EXCLUSIONS : "",
+      providerLinkMethods(v),
       "",
-      CONTRACT,
+      contractText(v),
       "",
-      RULES,
+      rulesText(v),
       params.learnedRules ? `\n${params.learnedRules}` : "",
     ]
       .filter(Boolean)
@@ -234,20 +258,20 @@ export function buildTemplateText(params: PromptParams): string {
 
   // find_customers_for_msps
   return [
-    `You are finding the CUSTOMERS of specific managed IT service providers (MSPs), so we can study how their clients work with them.`,
-    `For each MSP listed below, find up to {{count}} real companies that are its clients.`,
+    `You are finding the CUSTOMERS of specific ${v.providerPlural} (${v.providerAbbrevPlural}), so we can study how their clients work with them.`,
+    `For each ${v.providerAbbrev} listed below, find up to {{count}} real companies that are its clients.`,
     profile ? `Prefer customers matching: {{targetProfile}}.` : "",
-    `Set each customer's "current_msp_name" to the EXACT MSP name from this list it belongs to. Set "confidence" by how clearly that client relationship is documented. Identify an owner/decision-maker ("owner") or IT lead ("head_of_it") contact when findable. Every organization you return is a customer.`,
+    `Set each customer's "current_msp_name" to the EXACT ${v.providerAbbrev} name from this list it belongs to. Set "confidence" by how clearly that client relationship is documented. Identify an owner/decision-maker ("owner") or IT lead ("head_of_it") contact when findable. Every organization you return is a customer.`,
     "",
-    `MSPs:`,
+    `${v.providerAbbrevPlural}:`,
     `{{mspList}}`,
     "",
-    viaApi ? CHECK_VIA_API : hasKnown ? EXCLUSIONS_PER_MSP : "",
-    METHODS,
+    viaApi ? checkViaApiText(v) : hasKnown ? exclusionsPerProvider(v) : "",
+    methodsText(v),
     "",
-    CONTRACT,
+    contractText(v),
     "",
-    RULES,
+    rulesText(v),
     params.learnedRules ? `\n${params.learnedRules}` : "",
   ]
     .filter(Boolean)
@@ -274,7 +298,7 @@ function buildKnownList(params: PromptParams): string {
   if (params.mode === "find_customers_for_msps") {
     const byMsp = new Map<string, KnownOrg[]>();
     for (const o of known) {
-      const key = o.mspName?.trim() || "(MSP not recorded)";
+      const key = o.mspName?.trim() || `(${vocabOf(params).providerAbbrev} not recorded)`;
       const arr = byMsp.get(key) ?? [];
       arr.push(o);
       byMsp.set(key, arr);
@@ -304,7 +328,7 @@ export function buildPrompt(params: PromptParams): string {
     ? msps
         .map((m) => `- ${m.name}${m.domain ? ` (${m.domain})` : ""}`)
         .join("\n")
-    : "- (no MSPs provided)";
+    : `- (no ${vocabOf(params).providerAbbrevPlural} provided)`;
   return substitute(buildTemplateText(params), {
     region,
     count: String(count),

@@ -1,0 +1,53 @@
+You are sourcing managed IT service providers (MSPs) as potential acquisition targets.
+Find up to 25 real MSPs based in Virginia.
+Target profile: 10-200 employees, professional services.
+For each MSP, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is an MSP.
+Return ONLY a single JSON object. No markdown, no code fences, no commentary
+before or after it. The object must match this shape exactly:
+
+{
+  "organizations": [
+    {
+      "name": string,                     // the company's name
+      "domain": string | null,            // primary website host, e.g. "acme.com" (no https://, no path)
+      "hq_city": string | null,
+      "hq_state": string | null,          // 2-letter state/province code where applicable
+      "current_msp_name": string | null,  // the managed IT provider this company uses, if known/estimated
+      "source_url": string | null,        // a URL that backs this row
+      "confidence": "high" | "medium" | "low",
+      "contacts": [
+        {
+          "full_name": string | null,
+          "persona": "owner" | "head_of_it" | "other",
+          "title": string | null,
+          "linkedin_url": string | null,
+          "source_url": string | null,
+          "confidence": "high" | "medium" | "low"
+        }
+      ]
+    }
+  ]
+}
+Rules:
+- Use web search to ground every row. Do NOT invent a company, person, domain,
+  or MSP relationship. A fabricated row poisons the dataset, which is the asset
+  being built. An honest omission is always better than a confident guess.
+- For anything not verifiable, use null and set "confidence" to "low".
+- "confidence" reflects how sure you are that the entity is real AND that the
+  stated relationship (e.g. which MSP they use) is true. Reserve "high" for
+  facts backed by a clear, citable source.
+- Always include a "source_url" when you can. Put a real URL or null.
+- Find each company's website "domain" by searching its name (e.g. "<company>
+  official website"). Only use null if you genuinely cannot determine it. A bare
+  host like "acme.com" — no https://, no path.
+- Prefer a real "full_name" for each contact. If a source names only a role
+  (e.g. "Office Manager"), search for the person in that role; only leave
+  full_name null, with confidence "low", if you cannot find the name.
+- For each named contact, find their LinkedIn profile URL by searching their
+  name plus the company (e.g. "Jane Doe Acme LinkedIn") and set "linkedin_url".
+  Use null only if you genuinely cannot find their profile.
+- Output the JSON object and nothing else.
+
+Learned from previous human edits (these come from real corrections to earlier
+output — follow them as strictly as the rules above):
+- Lead with the recipient's own words when the hook is a talk or a post.

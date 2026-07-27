@@ -10,6 +10,7 @@ import {
 import { importPayload } from "../sourcing/import-core";
 import type { ImportKind } from "../sourcing/types";
 import { learnedRuleBlock } from "../learning/rules";
+import { workspaceProfile } from "../workspace/profile";
 import type { RunModule, IngestContext, IngestOutcome } from "./types";
 
 // Sourcing as a pipeline module. renderPrompt delegates to the existing
@@ -96,10 +97,13 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
   async prepareConfig(supabase, config, ctx) {
     // Rules learned from graded mistakes and review deletions ride every
     // sourcing prompt, on both executors.
+    const profile = await workspaceProfile(supabase, ctx.workspaceId);
     const learned = await learnedRuleBlock(supabase, "sourcing", ctx.workspaceId);
-    const withRules = learned.block
-      ? { ...config, learnedRules: learned.block }
-      : config;
+    const withRules = {
+      ...config,
+      workspace: profile,
+      ...(learned.block ? { learnedRules: learned.block } : {}),
+    };
     const learnedNote = learned.rules.length
       ? [`Prompt carries ${learned.rules.length} rule(s) learned from your corrections.`]
       : [];

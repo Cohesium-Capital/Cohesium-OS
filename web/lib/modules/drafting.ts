@@ -9,6 +9,8 @@ import {
 } from "../drafting/prompt";
 import { storeDrafts } from "../drafting/import-core";
 import { learnedRuleBlock } from "../learning/rules";
+import { workspaceProfile } from "../workspace/profile";
+import { DEFAULT_PROFILE, type WorkspaceProfile } from "../workspace/identity";
 import type { RunModule, IngestOutcome } from "./types";
 
 // Drafting as a pipeline module. Output is one or more drafted touches per
@@ -27,7 +29,14 @@ export type DraftingConfig = {
    *  in prepareConfig so it is part of the hashed template, which is what makes
    *  a rule change a new prompt_version and therefore measurable. */
   learnedRules?: string;
+  /** The workspace's firm identity and market vocabulary (migration 032),
+   *  loaded in prepareConfig for the same reason: renaming the firm or the
+   *  market changes the prompt, so it must change the version too. */
+  profile?: WorkspaceProfile;
 };
+
+const profileOf = (config: DraftingConfig): WorkspaceProfile =>
+  config.profile ?? DEFAULT_PROFILE;
 
 // Prefer the operator's explicit track; derive from the batch otherwise so a
 // module-driven run of MSP contacts never gets the customer framing.
@@ -54,31 +63,31 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   // template, its hash, and the persisted config all describe the same run.
   async prepareConfig(supabase, config, ctx) {
     const kind = trackOf(config);
+    const profile = await workspaceProfile(supabase, ctx.workspaceId);
     const { block, rules } = await learnedRuleBlock(supabase, "drafting", ctx.workspaceId, {
       track: kind,
     });
-    if (!block) return { config };
-    return {
-      config: { ...config, learnedRules: block },
-      notes: [
-        `Prompt carries ${rules.length} rule(s) learned from your edits to earlier drafts.`,
-      ],
-    };
+    const prepared = { ...config, profile, ...(block ? { learnedRules: block } : {}) };
+    const notes = block
+      ? [`Prompt carries ${rules.length} rule(s) learned from your edits to earlier drafts.`]
+      : [];
+    return { config: prepared, notes };
   },
 
   renderPrompt(_template, config) {
     const contacts = config.contacts ?? [];
     const kind = trackOf(config);
     const learned = config.learnedRules ?? "";
+    const profile = profileOf(config);
     return config.mode === "agent"
-      ? buildDraftAgentPrompt(contacts, config.chunkSize ?? 15, kind, learned)
-      : buildDraftPrompt(contacts, kind, learned);
+      ? buildDraftAgentPrompt(contacts, config.chunkSize ?? 15, kind, learned, profile)
+      : buildDraftPrompt(contacts, kind, learned, profile);
   },
 
   // The static per-track rules text ({{contacts}} placeholder) — what the run
   // lifecycle hashes to version the prompt independent of the pasted batch.
   templateText(config) {
-    return buildTemplateText(trackOf(config), config.learnedRules ?? "");
+    return buildTemplateText(trackOf(config), config.learnedRules ?? "", profileOf(config));
   },
 
   parse(rawText) {
