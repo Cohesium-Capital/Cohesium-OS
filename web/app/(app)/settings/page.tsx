@@ -8,6 +8,8 @@ import {
   sendingIdentities,
 } from "@/lib/workspace/admin-actions";
 import { SendingPanel } from "./sending-panel";
+import { AccessRequestsPanel } from "./access-requests-panel";
+import { pendingAccessRequests, isInstanceOperator } from "@/lib/access/actions";
 import { envEmailIdentity, emailIdentityReady } from "@/lib/send/identity-env";
 import { workspaceProfile } from "@/lib/workspace/profile";
 import { DEFAULT_PROFILE } from "@/lib/workspace/identity";
@@ -40,11 +42,14 @@ export default async function SettingsPage() {
   await claimInvites();
 
   const workspace = await currentWorkspace();
-  const [roster, profile, identities] = await Promise.all([
+  const [roster, profile, identities, operator] = await Promise.all([
     workspaceRoster(),
     workspaceProfile(supabase, workspaceId),
     sendingIdentities(),
+    isInstanceOperator(),
   ]);
+  // Only whoever runs this deployment sees other firms' requests to join it.
+  const accessRequests = operator ? await pendingAccessRequests() : [];
   // Show only what this workspace has actually overridden: a field equal to the
   // default renders blank, so the placeholder tells the truth about where the
   // value comes from.
@@ -118,6 +123,7 @@ export default async function SettingsPage() {
           Eval-gate thresholds, grading sample rates, and prompt versions per module.
         </p>
       </div>
+      <AccessRequestsPanel requests={accessRequests} />
       <WorkspacePanel
         workspaceName={workspace?.name ?? "Workspace"}
         isAdmin={workspace?.role === "admin"}
