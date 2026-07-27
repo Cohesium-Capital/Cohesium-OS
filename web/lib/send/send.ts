@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { heyreachAddLeads, type HeyreachLead } from "./providers";
 import { type SendReport, EMPTY_SEND_REPORT } from "./types";
+import { linkedinIdentityFor } from "./identity";
+import { currentWorkspaceId } from "@/lib/workspace/context";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type TouchRow = {
   id: string;
@@ -32,8 +35,9 @@ function splitName(full: string | null): { first?: string; last?: string } {
 // reply, so this is belt-and-suspenders. Suppressed contacts are excluded for
 // every channel — 'pending' rows block too, until a human confirms in triage.
 export async function sendApproved(): Promise<SendReport> {
-  await requireUser();
+  const user = await requireUser();
   const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
   const report: SendReport = { ...EMPTY_SEND_REPORT, errors: [] };
 
   const { data, error } = await supabase
@@ -93,12 +97,32 @@ export async function sendApproved(): Promise<SendReport> {
   // --- LinkedIn -> HeyReach ----------------------------------------------
   const liAll = active.filter((t) => t.channel === "linkedin" && t.contacts!.linkedin_url);
   if (liAll.length) {
-    const key = process.env.HEYREACH_API_KEY;
-    const campaign = process.env.HEYREACH_CAMPAIGN_ID;
-    const account = process.env.HEYREACH_ACCOUNT_ID;
+    // The sender's own LinkedIn account when they have one, else the
+    // workspace's, else the environment (migration 036).
+    //
+    // Resolved with the SERVICE-ROLE client, because sending_secret is
+    // unreadable under RLS by design and the user's client would come back
+    // without the API key — the identity would look permanently
+    // "unconfigured" for any workspace that set its own. This is a server
+    // action: the key is read on the server, used on the server, and never
+    // serialized to the client. The workspace is not attacker-controlled
+    // either — currentWorkspaceId() has already validated membership against
+    // the user's own session, and the admin client is scoped to that id.
+    const identity = await linkedinIdentityFor(createAdminClient(), workspaceId, user.id);
+    const key = identity.apiKey;
+    const campaign = identity.campaignId;
+    const account = identity.accountId;
     if (!key || !campaign || !account) {
       report.errors.push(
-        "HeyReach not configured (HEYREACH_API_KEY / HEYREACH_CAMPAIGN_ID / HEYREACH_ACCOUNT_ID).",
+        identity.source === "env"
+          ? "HeyReach not configured (HEYREACH_API_KEY / HEYREACH_CAMPAIGN_ID / HEYREACH_ACCOUNT_ID), or set a LinkedIn identity in Settings."
+          : `The LinkedIn identity for this workspace is incomplete (${[
+              !account && "no account",
+              !campaign && "no campaign",
+              !key && "no API key",
+            ]
+              .filter(Boolean)
+              .join(", ")}).`,
       );
     } else {
       // Rolling-24h cap (mirrors EMAIL_DAILY_CAP): scheduled_at marks when we
