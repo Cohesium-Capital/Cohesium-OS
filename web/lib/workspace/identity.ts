@@ -106,8 +106,20 @@ export const DEFAULT_VOCAB: WorkspaceVocab = {
   marketShort: "managed IT",
 };
 
-// Cohesium's prose, exactly as it was inline in lib/drafting/prompt.ts.
-export const DEFAULT_COPY: DraftCopy = {
+/**
+ * Cohesium's own prose — the text that was inline in lib/drafting/prompt.ts and
+ * was the default until migration 039.
+ *
+ * It stopped being the default because it is not generic, it is Cohesium's:
+ * "growing pediatric practices", "the mid-Atlantic", "the MSP market". Those
+ * fragments are why the examples cannot be word-substituted for another firm,
+ * and inheriting them would frame a staffing firm's outreach around managed IT.
+ *
+ * Kept here, and seeded into Cohesium's workspace_profile by 039, so their
+ * prompts do not change by a single byte. The cohesium_* golden fixtures prove
+ * exactly that.
+ */
+export const COHESIUM_COPY: DraftCopy = {
   approachInline:
     "We learn a market by talking with the people running it day to\nday, and it lets us build a network of operators we can be useful to over time.",
   approachBullet:
@@ -185,6 +197,101 @@ to a quick chat? Not selling anything.`,
   subjectShapesCustomer: `"quick question on your IT setup", "your take on managed IT",
   "{{firmName}} + <company>"`,
   subjectShapesMsp: `"your take on the MSP market", "the state of managed IT",
+  "{{firmName}} + <company>"`,
+};
+
+/**
+ * The default worked examples: same voice and shape, no borrowed market.
+ *
+ * Every market-bound fragment is either tokenised or generalised. What remains
+ * is the part that actually transfers — the register, the three-paragraph
+ * shape, the soft ask, the LinkedIn brevity — which is the reason the block
+ * exists at all. The Email and LinkedIn rules already specify structure in
+ * detail, so what these add is mostly voice.
+ *
+ * They are deliberately less vivid than COHESIUM_COPY. A specific example is a
+ * stronger teacher (12% of Cohesium's drafts adopted its opener), but a
+ * specific example from the WRONG market is a strong teacher of the wrong
+ * thing, and that failure is silent: it produces a fluent, well-formed message
+ * framed around a market the recipient is not in. Nothing in the honesty rules
+ * catches that, because no fact was fabricated.
+ *
+ * A workspace that writes its own examples should — that is what `copy` is for.
+ */
+export const DEFAULT_COPY: DraftCopy = {
+  approachInline:
+    "We learn a market by talking with the people running it day to\nday, and it lets us build a network of operators we can be useful to over time.",
+  approachBullet:
+    "We learn a\n  market by talking with the people running it day to day, and it lets us build a\n  network of operators we can be useful to over time.",
+
+  goldCustomer: `Gold examples (imitate this voice and shape, never copy the facts)
+
+Email —
+Subject: quick question on your {{marketShort}} setup
+
+Hi Trish,
+
+I've been digging into how companies like yours actually work with their
+{{providerGeneric}}s, where it helps and where it just adds overhead, and figured
+someone in your seat would have a clear read on it.
+
+{{senderIntro}}. {{approachInline}}
+
+Any chance you'd have a few minutes in the next week or two? I'm not selling
+anything, just trying to understand the space.
+
+Thanks,
+{{senderName}}
+
+LinkedIn —
+Hi Jim, {{senderIntro}} researching how companies work with their
+{{providerGeneric}}s, and your read from the inside would be useful. Open to a quick
+chat in the next week or two? Not selling anything.`,
+
+  goldMsp: `Gold examples (imitate this voice and shape, never copy the facts)
+
+Email —
+Subject: your take on the {{market}}
+
+Hi Tom,
+
+I've been talking with people who've built {{providerPlural}} about where the
+market is heading, what's getting harder, what still makes the model work, and
+figured a founder in your seat would have a clear read on it.
+
+{{senderIntro}}. {{approachInline}}
+
+Any chance you'd have a few minutes in the next week or two? I'm not selling
+anything, just trying to understand the business from the operator's side.
+
+Thanks,
+{{senderName}}
+
+LinkedIn —
+Hi Sam, {{senderIntro}} researching the {{market}} from the operator's
+side, and your read on where things are heading for {{providerAbbrevPlural}} would be useful. Open
+to a quick chat? Not selling anything.`,
+
+  personaAnglesCustomer: `Persona angle (the relevance hook)
+- owner: keeping the operation dependable as the business grows, without this
+  becoming a distraction from the work itself.
+- head_of_it: where an outside provider genuinely helps versus where it just
+  commoditizes the work.
+- other: a neutral version of the owner angle.`,
+
+  personaAnglesMsp: `Persona angle (the relevance hook)
+- owner: what it takes to build and grow a healthy {{providerAbbrev}} right now, from
+  pricing pressure to talent to workload, and where the market is heading.
+- head_of_it: how service delivery is changing, with tooling and automation,
+  versus what clients actually value and will pay for.
+- other: a neutral version of the owner angle.`,
+
+  perspectiveCustomer: "how companies like theirs work with a {{providerGeneric}}",
+  perspectiveMsp: "what it takes to run a {{providerSingular}} today",
+
+  subjectShapesCustomer: `"quick question on your {{marketShort}} setup", "your take on {{marketShort}}",
+  "{{firmName}} + <company>"`,
+  subjectShapesMsp: `"your take on the {{market}}", "the state of {{marketShort}}",
   "{{firmName}} + <company>"`,
 };
 

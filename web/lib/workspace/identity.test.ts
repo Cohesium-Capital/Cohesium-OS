@@ -63,14 +63,20 @@ describe("workspace profile", () => {
     assert.match(text, /"Meridian \+ <company>"/, "subject shapes carry the firm's own name");
   });
 
-  test("copy blocks a workspace has NOT overridden still read as the default market", () => {
-    // Honest limitation, asserted so it cannot be forgotten: the gold examples
-    // and persona angles are Cohesium's market prose ("growing pediatric
-    // practices", "the MSP market"). Vocabulary substitution cannot fix them —
-    // a new workspace has to replace the blocks, which is what `copy` is for.
+  test("a workspace that overrides nothing gets neutral examples, not another firm's market", () => {
+    // This is the phase-2 limitation, now fixed. It used to assert the
+    // opposite — that a new workspace inherited "growing pediatric practices" —
+    // because the default examples were Cohesium's. They are neutral now, and
+    // Cohesium's own text lives in its workspace_profile (migration 039).
     const text = draftTemplate("customer", "", STAFFING);
-    assert.match(text, /pediatric practices/, "inherits the default worked example");
+    assert.ok(!text.includes("pediatric"), "no borrowed market in the default examples");
+    assert.ok(!text.includes("mid-Atlantic"), "no borrowed geography either");
+    // Still a worked example, and still speaking this firm's language.
+    assert.match(text, /Gold examples/);
+    assert.match(text, /staffing partners/, "the example uses their vocabulary");
+  });
 
+  test("a workspace can still replace the examples wholesale", () => {
     const overridden = draftTemplate(
       "customer",
       "",
@@ -78,11 +84,12 @@ describe("workspace profile", () => {
         ...STAFFING,
         copy: {
           ...STAFFING.copy,
-          goldCustomer: "Gold examples\n\nEmail —\nSubject: your hiring pipeline\n\nHi Sam,\n\n{{senderIntro}}.",
+          goldCustomer:
+            "Gold examples\n\nEmail —\nSubject: your hiring pipeline\n\nHi Sam,\n\n{{senderIntro}}.",
         },
       }),
     );
-    assert.ok(!overridden.includes("pediatric practices"), "an override replaces it wholesale");
+    assert.match(overridden, /your hiring pipeline/);
     assert.match(overridden, /I'm a partner at Meridian, a search fund\./, "tokens still resolve");
   });
 

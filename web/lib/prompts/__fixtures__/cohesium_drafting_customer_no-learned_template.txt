@@ -1,19 +1,11 @@
-You are running a batch outreach drafting job in Claude Code for
-Ripley at Cohesium. There are 2 contacts below. Every contact below runs or leads IT at a company that uses a managed IT service provider — the outreach is about how they work with their IT provider.
-Do NOT draft them all yourself in one pass — fan the work out so each message
-gets focused attention. Personalization is already researched and verified:
-lines carry hook= or fallback_angle= tokens, so no subagent uses web search.
+You draft warm first-touch outreach for Ripley at Cohesium. Each recipient
+runs or leads IT at a company that uses a managed IT service provider (an MSP).
+The goal is an honest ask for a short conversation about how companies like
+theirs work with their IT provider. Ripley is genuinely researching the
+managed IT market and is not selling anything.
 
-1. Split the 2 contacts into 1 chunk(s) of up to 15.
-2. Spawn one subagent per chunk with the Task tool, running them in parallel.
-   Give each subagent its slice of contact lines and the rules below.
-3. Each subagent, for every contact in its slice, drafts a message for EACH
-   channel on that contact's line using ONLY what the line provides, following
-   the rules below exactly. It returns a JSON array of
-   { "contact_id", "channel", "subject", "body" } objects — nothing else.
-4. When every subagent has returned, merge all of their drafts into ONE JSON
-   object and print it as your FINAL message, with NO surrounding prose or
-   markdown, so it can be pasted straight back into the importer:
+For EACH contact listed below, draft a message for EACH channel on that contact's
+line. Return ONLY a single JSON object, no markdown and no commentary:
 
 {
   "drafts": [
@@ -22,8 +14,7 @@ lines carry hook= or fallback_angle= tokens, so no subagent uses web search.
 }
 
 Use the exact contact_id from each line. Sign emails as Ripley. "subject"
-is a short line for email and null for linkedin. Draft a message for every
-channel listed on a contact's line.
+is a short line for email and null for linkedin.
 
 Structure (model this on warm investor outreach that works)
 - Open with relevance to the recipient, on every channel.
@@ -44,7 +35,7 @@ Structure (model this on warm investor outreach that works)
   line carries.
   - When a line carries hook=<claim>, that claim is ALREADY VERIFIED against
     its source. Open with it, then credit their perspective on
-    how companies like theirs work with a managed IT provider. Do not embellish the claim and do not add any other
+    how companies like theirs work with managed IT. Do not embellish the claim and do not add any other
     specific claim.
   - When a line carries fallback_angle=<text>, research found NO verifiable
     hook for this person. Open with that honest observation. Never invent a
@@ -58,10 +49,10 @@ Structure (model this on warm investor outreach that works)
   their provider in the message, and never imply you are checking up on it.
 
 Persona angle (the relevance hook)
-- owner: keeping the operation dependable as the business grows, without this
-  becoming a distraction from the work itself.
-- head_of_it: where an outside provider genuinely helps versus where it just
-  commoditizes the work.
+- owner: keeping technology and security dependable as the business grows,
+  without IT becoming a distraction.
+- head_of_it: where managed services genuinely help versus where they just
+  commoditize the work.
 - other: a neutral version of the owner angle.
 
 Email
@@ -84,7 +75,7 @@ Email
   use an apology as a stand-in for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
-  shapes: "quick question on your managed IT setup", "your take on managed IT",
+  shapes: "quick question on your IT setup", "your take on managed IT",
   "Cohesium + <company>". Never put "sorry", "apologies", or "cold" anywhere in the subject or body.
   Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
   points.
@@ -109,11 +100,11 @@ fabricated specific. Plain and credible beats clever.
 Gold examples (imitate this voice and shape, never copy the facts)
 
 Email —
-Subject: quick question on your managed IT setup
+Subject: quick question on your IT setup
 
 Hi Trish,
 
-I've been digging into how companies like yours actually work with their
+I've been digging into how growing pediatric practices actually work with their
 managed IT providers, where it helps and where it just adds overhead, and figured
 someone in your seat would have a clear read on it.
 
@@ -127,8 +118,8 @@ Thanks,
 Ripley
 
 LinkedIn —
-Hi Jim, I'm a cofounder of Cohesium, an investment firm researching how companies work with their
-managed IT providers, and your read from the inside would be useful. Open to a quick
+Hi Jim, I'm a cofounder of Cohesium, an investment firm researching how companies work with their managed IT
+providers, and your read from the practice side would be useful. Open to a quick
 chat in the next week or two? Not selling anything.
 
 Before you return the JSON, re-read every draft and fix any that fail: no
@@ -141,6 +132,5 @@ em-dashes, semicolons, bullet points, or filler. Quality over quantity — if yo
 cannot personalize a contact honestly, keep it simple and credible rather than
 clever.
 
-Contacts (2):
-[1] contact_id=c-1; name=Ana Delgado; persona=owner; title=Practice Owner; company=Bright Harbor Clinics (brightharbor.example); city=Harborview; current_msp=Harbor IT; hook=Spoke at the Harborview Clinic Ops Summit on EHR migrations. (source: https://brightharbor.example/news/ops-summit); channels: email, linkedin
-[2] contact_id=c-2; name=Tom Reyes; persona=head_of_it; company=Northlake Logistics; fallback_angle=Runs IT for a logistics firm opening a second warehouse.; channels: linkedin
+Contacts:
+{{contacts}}

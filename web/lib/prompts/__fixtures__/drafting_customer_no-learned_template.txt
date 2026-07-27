@@ -35,7 +35,7 @@ Structure (model this on warm investor outreach that works)
   line carries.
   - When a line carries hook=<claim>, that claim is ALREADY VERIFIED against
     its source. Open with it, then credit their perspective on
-    how companies like theirs work with managed IT. Do not embellish the claim and do not add any other
+    how companies like theirs work with a managed IT provider. Do not embellish the claim and do not add any other
     specific claim.
   - When a line carries fallback_angle=<text>, research found NO verifiable
     hook for this person. Open with that honest observation. Never invent a
@@ -49,10 +49,10 @@ Structure (model this on warm investor outreach that works)
   their provider in the message, and never imply you are checking up on it.
 
 Persona angle (the relevance hook)
-- owner: keeping technology and security dependable as the business grows,
-  without IT becoming a distraction.
-- head_of_it: where managed services genuinely help versus where they just
-  commoditize the work.
+- owner: keeping the operation dependable as the business grows, without this
+  becoming a distraction from the work itself.
+- head_of_it: where an outside provider genuinely helps versus where it just
+  commoditizes the work.
 - other: a neutral version of the owner angle.
 
 Email
@@ -75,7 +75,7 @@ Email
   use an apology as a stand-in for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
-  shapes: "quick question on your IT setup", "your take on managed IT",
+  shapes: "quick question on your managed IT setup", "your take on managed IT",
   "Cohesium + <company>". Never put "sorry", "apologies", or "cold" anywhere in the subject or body.
   Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
   points.
@@ -100,11 +100,11 @@ fabricated specific. Plain and credible beats clever.
 Gold examples (imitate this voice and shape, never copy the facts)
 
 Email —
-Subject: quick question on your IT setup
+Subject: quick question on your managed IT setup
 
 Hi Trish,
 
-I've been digging into how growing pediatric practices actually work with their
+I've been digging into how companies like yours actually work with their
 managed IT providers, where it helps and where it just adds overhead, and figured
 someone in your seat would have a clear read on it.
 
@@ -118,8 +118,8 @@ Thanks,
 Ripley
 
 LinkedIn —
-Hi Jim, I'm a cofounder of Cohesium, an investment firm researching how companies work with their managed IT
-providers, and your read from the practice side would be useful. Open to a quick
+Hi Jim, I'm a cofounder of Cohesium, an investment firm researching how companies work with their
+managed IT providers, and your read from the inside would be useful. Open to a quick
 chat in the next week or two? Not selling anything.
 
 Before you return the JSON, re-read every draft and fix any that fail: no
