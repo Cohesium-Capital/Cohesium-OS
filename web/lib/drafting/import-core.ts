@@ -46,6 +46,8 @@ export async function storeDrafts(
   drafts: Draft[],
   provenance: DraftProvenance = {},
   hookIds: Record<string, string> = {},
+  // The workspace these touches belong to, from the run that produced them.
+  workspaceId?: string,
 ): Promise<DraftReport> {
   const report: DraftReport = { ...EMPTY_DRAFT_REPORT, messages: [] };
   const ids = [...new Set(drafts.map((d) => d.contact_id))];
@@ -139,6 +141,7 @@ export async function storeDrafts(
     } else {
       inserts.push({
         contact_id: d.contact_id,
+    workspace_id: workspaceId,
         channel: d.channel,
         direction: "outbound",
         sequence_step: 1,

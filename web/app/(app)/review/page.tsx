@@ -13,6 +13,7 @@ import { ReviewGrid, ReviewSelectionProvider } from "./review-grid";
 import { PushToClayButton } from "./push-to-clay-button";
 import { countAlreadyPushed, countEligibleContacts } from "@/lib/enrichment/pending";
 import { contactRunMap, loadRunScope } from "@/lib/runs/scope";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { RunScopeBanner } from "@/components/run-scope-banner";
 
 type ContactRow = {
@@ -58,6 +59,7 @@ export default async function ReviewPage({
   const from = (page - 1) * PAGE_SIZE;
 
   const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
 
   // Arriving from a run's timeline entry scopes the grid to that run's records.
   const scope = await loadRunScope(supabase, sp.run ?? null);
@@ -71,7 +73,8 @@ export default async function ReviewPage({
       "id, full_name, persona, title, linkedin_url, confidence, reviewed, enrichment_status, organizations!inner(id, name, domain, kind, current_msp_id)",
       { count: "exact" },
     )
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .eq("workspace_id", workspaceId);
   if (needsReviewOnly) query = query.eq("reviewed", false);
   if (q) query = query.ilike("organizations.name", `%${q}%`);
   // An empty scope is still a scope: a run with no records shows no rows rather

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +55,13 @@ export default async function MspsPage({
   const from = (page - 1) * PAGE_SIZE;
 
   const supabase = await createClient();
-  let query = supabase.from("msp_stats").select("*", { count: "exact" });
+  // Scope reads to the workspace on screen; RLS already bounds them to the
+  // workspaces this user belongs to at all.
+  const workspaceId = await currentWorkspaceId();
+  let query = supabase
+    .from("msp_stats")
+    .select("*", { count: "exact" })
+    .eq("workspace_id", workspaceId);
   if (q) query = query.ilike("name", `%${q}%`);
   const { data, count } = await query
     .order("status_rank", { ascending: true })

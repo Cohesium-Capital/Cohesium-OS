@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { currentWorkspaceId } from "@/lib/workspace/context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -45,6 +46,9 @@ export default async function RunsPage({
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
   const supabase = await createClient();
+  // Scope reads to the workspace on screen; RLS already bounds them to the
+  // workspaces this user belongs to at all.
+  const workspaceId = await currentWorkspaceId();
 
   // Only runs that actually produced records. A prompt generated but never
   // pasted back is not yet a run worth tracking — it has nothing to open, and
@@ -52,6 +56,7 @@ export default async function RunsPage({
   const { data, count } = await supabase
     .from("flow_runs")
     .select("*", { count: "exact" })
+    .eq("workspace_id", workspaceId)
     .eq("has_records", true)
     .order("created_at", { ascending: false })
     .range(from, from + PAGE_SIZE - 1);
@@ -64,6 +69,7 @@ export default async function RunsPage({
   const { data: allRows } = await supabase
     .from("flow_runs")
     .select("gate_status, pending, sourced, status")
+    .eq("workspace_id", workspaceId)
     .eq("has_records", true);
   const summary = (allRows ?? []) as unknown as Pick<
     FlowRun,

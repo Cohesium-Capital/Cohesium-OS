@@ -49,7 +49,10 @@ async function readRemote(token) {
   // Deliberately the API and not raw.githubusercontent.com: raw is served
   // through a CDN that lags a write by minutes, so verifying against it reports
   // drift that has already been fixed — a spurious CI failure, and worse, one
-  // that trains you to ignore this check. The API reflects a push immediately.
+  // that trains you to ignore this check. The API is far fresher, though not
+  // instant either: a read within ~10s of a write can still return the old
+  // body. That is fine here because CI runs minutes after a merge, but it does
+  // mean a dispatch fired immediately after a push can see stale content.
   const url = `https://api.github.com/repos/${REPO}/contents/${PATH_IN_REPO}?ref=${BRANCH}`;
   return fetch(url, {
     headers: {
@@ -78,6 +81,25 @@ async function currentRemote(token) {
   return res.text();
 }
 
+// 401 and 403/404 fail for different reasons and need different fixes, and the
+// distinction is easy to get backwards: 401 is the credential being rejected
+// outright, NOT a missing permission. Saying "does it have contents:write?" for
+// a 401 sends you to check the one thing that isn't wrong.
+function tokenError(status) {
+  if (status === 401) {
+    return new Error(
+      `RUNNER_REPO_TOKEN was rejected by GitHub (401 — bad credentials). The token value ` +
+        `itself is not recognised, so this is not a permissions problem. Check that it has not ` +
+        `expired or been revoked, and that the whole value was copied. If it is a fine-grained ` +
+        `PAT on an org-owned repo, confirm the organisation approved it.`,
+    );
+  }
+  return new Error(
+    `RUNNER_REPO_TOKEN was accepted but cannot write to ${REPO} (HTTP ${status}). Give it ` +
+      `Contents: Read and write, with repository access including ${REPO}.`,
+  );
+}
+
 async function push(token) {
   const api = `https://api.github.com/repos/${REPO}/contents/${PATH_IN_REPO}`;
   const headers = {
@@ -90,9 +112,7 @@ async function push(token) {
   let sha;
   const head = await fetch(`${api}?ref=${BRANCH}`, { headers });
   if (head.ok) sha = (await head.json()).sha;
-  else if (head.status !== 404) {
-    throw new Error(`could not read ${REPO}: HTTP ${head.status} — does the token have contents:write?`);
-  }
+  else if (head.status !== 404) throw tokenError(head.status);
 
   const res = await fetch(api, {
     method: "PUT",
@@ -104,19 +124,8 @@ async function push(token) {
       ...(sha ? { sha } : {}),
     }),
   });
-  if (res.status === 401) {
-    throw new Error(
-      "publish failed: GitHub rejected the token (401). It is expired, revoked, or " +
-        "carries stray whitespace from being pasted. Regenerate a fine-grained PAT with " +
-        `Contents: Read and write on ${REPO} and set it again.`,
-    );
-  }
-  if (res.status === 403 || res.status === 404) {
-    throw new Error(
-      `publish failed: HTTP ${res.status}. The token is valid but lacks Contents: write on ${REPO}.`,
-    );
-  }
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403 || res.status === 404) throw tokenError(res.status);
     throw new Error(`publish failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
   }
 }
