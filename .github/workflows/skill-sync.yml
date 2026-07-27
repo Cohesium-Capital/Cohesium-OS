@@ -55,6 +55,9 @@ jobs:
       - name: Publish to the public runner repo (or verify on a PR)
         working-directory: web
         env:
+          # Always valid inside Actions, and enough to read a public repo. Used
+          # only for the verification read's rate limit — never for the write.
+          GITHUB_TOKEN: ${{ github.token }}
           # Withheld from pull requests on purpose — a fork's workflow must
           # never hold a write-capable token. Present on push AND on a manual
           # dispatch, so "republish now" actually can. Absent until the secret
