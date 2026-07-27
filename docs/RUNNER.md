@@ -128,7 +128,15 @@ export COHESIUM_API_URL=https://your-app.vercel.app
 export COHESIUM_API_TOKEN=cin_…
 ```
 
-4. Ask Claude Code to source — the `source-companies` skill
+4. **If the runner is a Claude Code session inside the Claude app, set network
+   access to `full`.** Those sessions are sandboxed and default to blocking
+   outbound requests beyond a small allowlist. The runner is entirely outbound
+   requests to this app, so it cannot work until that is changed. The failure
+   looks like a connection or DNS error on the first `POST /api/sourcing/runs`,
+   not a 401/403 — the request never arrives, so nothing shows up in the app's
+   logs either, which is what makes it confusing to diagnose. Claude Code run
+   from a terminal is not sandboxed and needs no change.
+5. Ask Claude Code to source — the `source-companies` skill
    (`.claude/skills/source-companies/SKILL.md`) carries the loop.
 
 ## API

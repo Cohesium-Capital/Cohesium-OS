@@ -158,7 +158,22 @@ export function RunnerSetup({
           </li>
 
           <li className="flex flex-col gap-2">
-            <div className="font-medium">4. Ask for what you want</div>
+            <div className="font-medium">4. Allow network access (Claude app only)</div>
+            <p className="text-muted-foreground">
+              A Claude Code session started inside the Claude app runs sandboxed, and its default
+              network setting blocks outbound requests to anything but a short allowlist. The
+              runner is nothing but outbound requests to this app, so it fails there until you
+              change it: in the session&rsquo;s settings, set{" "}
+              <span className="font-medium text-foreground">network access</span> to{" "}
+              <span className="font-medium text-foreground">full</span>. The symptom if you
+              skip it is a connection or DNS error on the very first call, not a permissions
+              message from us — the request never reaches the API. Claude Code in a terminal is
+              not sandboxed and needs nothing.
+            </p>
+          </li>
+
+          <li className="flex flex-col gap-2">
+            <div className="font-medium">5. Ask for what you want</div>
             <p className="text-muted-foreground">
               Open it in Claude Code and say it plainly — e.g.{" "}
               <em>

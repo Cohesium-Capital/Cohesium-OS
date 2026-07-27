@@ -45,6 +45,25 @@ export them. Do not improvise another route into the database — the token is
 deliberately scoped to one user's row-level permissions, and there is no
 supported path around it.
 
+### If the first request cannot connect
+
+A Claude Code session running inside the Claude app is sandboxed, and its
+default network setting blocks outbound requests beyond a small allowlist. This
+skill is nothing but outbound requests to the app, so it cannot work there until
+that is changed.
+
+The symptom is a connection refused, DNS, or timeout error on the first call —
+**not** a 401 or 403, because the request never leaves the sandbox. If you see
+that, stop and tell the operator:
+
+> This session can't reach the app. In the Claude app, set this session's
+> network access to **full**, then ask me again.
+
+Do not work around it: not by switching to a different host, not by asking for
+database credentials, and not by researching companies without the
+already-known check. A sandbox that blocks the API also blocks the deduplication
+that makes this path worth using.
+
 ## The loop
 
 ### 1. Start the run
@@ -150,3 +169,6 @@ Tell the operator, in numbers:
   good outcome; returning 25 with 13 guesses is a bad one that is expensive to
   undo.
 - **One run, one ingest.** Don't retry an ingest that already succeeded.
+- **A connection error is a setup problem, not a reason to improvise.** In the
+  Claude app that almost always means network access is not set to full — say
+  so and stop, rather than finding another way to produce rows.
