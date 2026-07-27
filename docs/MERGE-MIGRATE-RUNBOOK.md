@@ -200,5 +200,7 @@ trade.
   at risk — one that resolves to a contact takes that contact's workspace.
   Finishing this means looping capture over the configured IMAP identities.
 - The `copy` blocks (gold examples, persona angles) have no UI yet.
-- `034` promoted the four `ripley@*` accounts to workspace admin because nothing
-  in the data said who should administer the firm. Worth reviewing.
+- ~~`034` promoted the four `ripley@*` accounts to workspace admin.~~ Reviewed
+  and settled in `037`: `matt@cohesium.co` is an admin, and the typo account
+  `ripley@cohersiumcap.com` was removed outright — it had never signed in and
+  owned nothing. Four admins remain.
