@@ -11,6 +11,8 @@ import {
 import { SideNav } from "./side-nav";
 import { currentWorkspace, myWorkspaces } from "@/lib/workspace/context";
 import { TourProvider } from "@/components/tour/tour-provider";
+import { RequestAccess } from "./request-access";
+import { myAccessRequest } from "@/lib/access/actions";
 
 // Protected shell for all signed-in pages. The gate is the user (requireUser),
 // not the profile row, so a momentarily-missing profile can't cause a redirect
@@ -22,14 +24,29 @@ export default async function AppLayout({
 }) {
   const user = await requireUser();
 
-  // Email allowlist, enforced here on every protected page (sign-in no longer
-  // routes through the callback that used to check it).
+  const profile = await getProfile();
+  const email = profile?.email ?? user.email;
+  // Scoping context for the whole shell. RLS already limits what this user can
+  // reach; this decides which of their workspaces is on screen.
+  const [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);
+
+  // MEMBERSHIP is the gate. Someone signed in with no workspace can already
+  // read nothing — every table is gated on membership (028) — so rather than a
+  // dead end, they get the front door: tell us who you are, and the operator
+  // provisions a workspace for your firm.
+  //
+  // ALLOWED_EMAILS still applies where it is set, but as an instance-level
+  // gate rather than the access model: someone outside it never reaches the
+  // request form, which is what you want during a closed beta and what you
+  // must clear to let strangers in at all.
   const allowed = (process.env.ALLOWED_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   const userEmail = user.email?.toLowerCase();
-  if (allowed.length && (!userEmail || !allowed.includes(userEmail))) {
+  const blockedByAllowlist = allowed.length > 0 && (!userEmail || !allowed.includes(userEmail));
+
+  if (blockedByAllowlist) {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
         <Card className="w-full max-w-sm">
@@ -49,11 +66,15 @@ export default async function AppLayout({
     );
   }
 
-  const profile = await getProfile();
-  const email = profile?.email ?? user.email;
-  // Scoping context for the whole shell. RLS already limits what this user can
-  // reach; this decides which of their workspaces is on screen.
-  const [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);
+  if (!workspace) {
+    return (
+      <RequestAccess
+        email={email ?? null}
+        existing={await myAccessRequest()}
+        signOut={signOut}
+      />
+    );
+  }
 
   return (
     // TourProvider wraps the whole shell so the Demonstrate walkthrough can
