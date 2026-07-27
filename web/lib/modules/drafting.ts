@@ -8,6 +8,7 @@ import {
   type TrackKind,
 } from "../drafting/prompt";
 import { storeDrafts } from "../drafting/import-core";
+import { findExampleLeaks, describeLeaks } from "../drafting/example-leak";
 import { learnedRuleBlock } from "../learning/rules";
 import { workspaceProfile } from "../workspace/profile";
 import { DEFAULT_PROFILE, type WorkspaceProfile } from "../workspace/identity";
@@ -109,6 +110,34 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
 
   async ingest(supabase, output, ctx): Promise<IngestOutcome> {
     const config = (ctx.config ?? {}) as DraftingConfig;
+
+    // Advisory only: did any draft borrow the worked example's market substance
+    // rather than imitating its voice? Reported, never rejected — a false
+    // positive that binned a good draft would cost more than the thing it
+    // guards against, and every draft is human-reviewed before it sends anyway.
+    const byId = new Map((config.contacts ?? []).map((c) => [c.contact_id, c]));
+    const leakNotes: string[] = [];
+    for (const d of output.drafts) {
+      const c = byId.get(d.contact_id);
+      if (!c) continue;
+      // Everything legitimately known about this recipient. A draft that says
+      // "pediatric practice" to an actual pediatric practice is not borrowing.
+      const context = [
+        c.company_name,
+        c.title,
+        c.city,
+        c.current_msp,
+        c.hook_text,
+        c.fallback_angle,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const note = describeLeaks(
+        findExampleLeaks(d.body, profileOf(config), context, trackOf(config)),
+      );
+      if (note) leakNotes.push(`${c.full_name ?? d.contact_id}: ${note}`);
+    }
+
     const report = await storeDrafts(
       supabase,
       output.drafts,
@@ -129,6 +158,7 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
       messages: [
         `${report.drafted} draft(s) written, ${report.updated} updated; ${report.skippedNoAddress} skipped (no address), ${report.skippedUnknown} unknown contact.`,
         ...report.messages,
+        ...leakNotes,
       ],
     };
   },

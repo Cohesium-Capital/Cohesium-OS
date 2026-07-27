@@ -11,6 +11,14 @@ import {
   type DraftContact,
   type TrackKind,
 } from "../drafting/prompt";
+import { completeProfile, COHESIUM_COPY, type WorkspaceProfile } from "../workspace/identity";
+
+// Cohesium's profile: the built-in identity with their own worked examples,
+// which is exactly what migration 039 seeds into their workspace_profile. The
+// cohesium_* fixtures were captured BEFORE the default examples were made
+// market-neutral, so if this stops reproducing them byte for byte, Cohesium's
+// live prompts have moved.
+const COHESIUM: WorkspaceProfile = completeProfile({ copy: COHESIUM_COPY });
 
 // Every prompt shape the system can render, enumerated once.
 //
@@ -123,26 +131,39 @@ function sourcingVariants(): { name: string; text: string }[] {
   return out;
 }
 
-/** Both tracks across all three drafting entry points. */
+/**
+ * Both tracks across all three drafting entry points, rendered twice: with the
+ * neutral built-in default, and with Cohesium's own examples.
+ *
+ * Two sets because the two things being protected are different. The plain
+ * fixtures pin what a NEW workspace gets. The cohesium_ ones pin what Cohesium
+ * actually sends, which must not have moved at all.
+ */
 function draftingVariants(): { name: string; text: string }[] {
   const out: { name: string; text: string }[] = [];
-  for (const kind of ["customer", "msp"] as TrackKind[]) {
-    for (const [label, learned] of [
-      ["no-learned", ""],
-      ["learned", LEARNED],
-    ] as const) {
-      out.push({
-        name: `drafting_${kind}_${label}_template`,
-        text: buildDraftTemplate(kind, learned),
-      });
-      out.push({
-        name: `drafting_${kind}_${label}_single`,
-        text: buildDraftPrompt(CONTACTS, kind, learned),
-      });
-      out.push({
-        name: `drafting_${kind}_${label}_agent`,
-        text: buildDraftAgentPrompt(CONTACTS, 15, kind, learned),
-      });
+  const profiles: [string, WorkspaceProfile | undefined][] = [
+    ["", undefined],
+    ["cohesium_", COHESIUM],
+  ];
+  for (const [prefix, profile] of profiles) {
+    for (const kind of ["customer", "msp"] as TrackKind[]) {
+      for (const [label, learned] of [
+        ["no-learned", ""],
+        ["learned", LEARNED],
+      ] as const) {
+        out.push({
+          name: `${prefix}drafting_${kind}_${label}_template`,
+          text: buildDraftTemplate(kind, learned, profile),
+        });
+        out.push({
+          name: `${prefix}drafting_${kind}_${label}_single`,
+          text: buildDraftPrompt(CONTACTS, kind, learned, profile),
+        });
+        out.push({
+          name: `${prefix}drafting_${kind}_${label}_agent`,
+          text: buildDraftAgentPrompt(CONTACTS, 15, kind, learned, profile),
+        });
+      }
     }
   }
   return out;

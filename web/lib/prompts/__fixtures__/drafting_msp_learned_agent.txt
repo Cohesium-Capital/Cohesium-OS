@@ -48,7 +48,7 @@ Structure (model this on warm investor outreach that works)
   line carries.
   - When a line carries hook=<claim>, that claim is ALREADY VERIFIED against
     its source. Open with it, then credit their perspective on
-    what it takes to run a managed IT business today. Do not embellish the claim and do not add any other
+    what it takes to run a managed IT service provider today. Do not embellish the claim and do not add any other
     specific claim.
   - When a line carries fallback_angle=<text>, research found NO verifiable
     hook for this person. Open with that honest observation. Never invent a
@@ -59,8 +59,8 @@ Structure (model this on warm investor outreach that works)
   plainly you are not selling anything.
 
 Persona angle (the relevance hook)
-- owner: what it takes to build and grow a healthy MSP right now, from pricing
-  pressure to talent to the security workload, and where the market is heading.
+- owner: what it takes to build and grow a healthy MSP right now, from
+  pricing pressure to talent to workload, and where the market is heading.
 - head_of_it: how service delivery is changing, with tooling and automation,
   versus what clients actually value and will pay for.
 - other: a neutral version of the owner angle.
@@ -85,7 +85,7 @@ Email
   use an apology as a stand-in for relevance.
 - Subject: short and specific, ideally under 40 characters, written to look like
   a note a colleague would send. A light question or a plain topic works. Good
-  shapes: "your take on the MSP market", "the state of managed IT",
+  shapes: "your take on the managed IT market", "the state of managed IT",
   "Cohesium + <company>". Never put "sorry", "apologies", or "cold" anywhere in the subject or body.
   Never use the words free or guaranteed, a fake "Re:", all caps, or exclamation
   points.
@@ -110,14 +110,13 @@ fabricated specific. Plain and credible beats clever.
 Gold examples (imitate this voice and shape, never copy the facts)
 
 Email —
-Subject: your take on the MSP market
+Subject: your take on the managed IT market
 
 Hi Tom,
 
-I've been talking with people who've built managed IT businesses in the
-mid-Atlantic about where the market is heading, what's getting harder, what
-still makes the model work, and figured a founder in your seat would have a
-clear read on it.
+I've been talking with people who've built managed IT service providers about where the
+market is heading, what's getting harder, what still makes the model work, and
+figured a founder in your seat would have a clear read on it.
 
 I'm a cofounder of Cohesium, an investment firm. We learn a market by talking with the people running it day to
 day, and it lets us build a network of operators we can be useful to over time.
