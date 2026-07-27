@@ -55,7 +55,10 @@ jobs:
       - name: Publish to the public runner repo (or verify on a PR)
         working-directory: web
         env:
-          # Absent on pull requests from forks and until the secret is created;
-          # the script falls back to verify-only rather than failing to run.
-          RUNNER_REPO_TOKEN: ${{ github.event_name == 'push' && secrets.RUNNER_REPO_TOKEN || '' }}
+          # Withheld from pull requests on purpose — a fork's workflow must
+          # never hold a write-capable token. Present on push AND on a manual
+          # dispatch, so "republish now" actually can. Absent until the secret
+          # exists, where the script falls back to verify-only rather than
+          # failing to run.
+          RUNNER_REPO_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RUNNER_REPO_TOKEN || '' }}
         run: node scripts/publish-skill.mjs ${{ github.event_name == 'pull_request' && '--verify' || '' }}
