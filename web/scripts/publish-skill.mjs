@@ -130,35 +130,43 @@ async function push(token) {
   }
 }
 
-// GITHUB_TOKEN only — it is always valid inside Actions and can read a public
-// repo. Deliberately NOT the write token: reads do not need it, and reaching for
-// it is what turned a bad credential into a failed verification.
-const readToken = process.env.GITHUB_TOKEN?.trim() || null;
-const remote = await currentRemote(readToken);
+async function main() {
+  // GITHUB_TOKEN only — it is always valid inside Actions and can read a public
+  // repo. Deliberately NOT the write token: reads do not need it, and reaching
+  // for it is what turned a bad credential into a failed verification.
+  const readToken = process.env.GITHUB_TOKEN?.trim() || null;
+  const remote = await currentRemote(readToken);
 
-if (remote === canonical) {
-  console.log(`✓ ${REPO} is in step with the canonical skill`);
-  process.exit(0);
+  if (remote === canonical) {
+    console.log(`✓ ${REPO} is in step with the canonical skill`);
+    return;
+  }
+
+  const what = remote === null ? "missing from" : "out of date in";
+  const token = verifyOnly ? null : resolveToken();
+
+  if (!token) {
+    throw new Error(
+      [
+        `the runner skill is ${what} ${REPO}.`,
+        "",
+        "  A collaborator selecting that repo in Claude Code would get stale",
+        "  instructions, with nothing to tell them so.",
+        "",
+        "  Fix locally:   npm run publish:skill      (uses your gh login)",
+        "  Fix in CI:     add a RUNNER_REPO_TOKEN secret with contents:write",
+        `                 on ${REPO}, and this step publishes on its own.`,
+      ].join("\n"),
+    );
+  }
+
+  await push(token);
+  console.log(`✓ published the canonical skill to ${REPO}`);
 }
 
-const what = remote === null ? "missing from" : "out of date in";
-const token = verifyOnly ? null : resolveToken();
-
-if (!token) {
-  console.error(
-    [
-      `✗ the runner skill is ${what} ${REPO}.`,
-      "",
-      "  A collaborator selecting that repo in Claude Code would get stale",
-      "  instructions, with nothing to tell them so.",
-      "",
-      "  Fix locally:   npm run publish:skill      (uses your gh login)",
-      "  Fix in CI:     add a RUNNER_REPO_TOKEN secret with contents:write",
-      `                 on ${REPO}, and this step publishes on its own.`,
-    ].join("\n"),
-  );
+// Every failure here is a configuration problem with a specific fix, so print
+// the fix. A Node stack trace buries it under frames nobody needs.
+main().catch((e) => {
+  console.error(`✗ ${e.message}`);
   process.exit(1);
-}
-
-await push(token);
-console.log(`✓ published the canonical skill to ${REPO}`);
+});
