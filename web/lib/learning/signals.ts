@@ -19,7 +19,10 @@ export type SignalKind =
   | "draft_redraft"
   | "hook_reject"
   | "grade_correction"
-  | "contact_delete";
+  | "contact_delete"
+  // Typed feedback on a prompt, entered on Settings — the operator saying what
+  // is wrong directly rather than the analyzer inferring it from a diff.
+  | "operator_note";
 
 export type LearningSignal = {
   module: LearningModule;
@@ -42,8 +45,16 @@ const EXCERPT = 600;
 const excerpt = (v: string | null | undefined): string | null =>
   v == null ? null : v.length > EXCERPT ? `${v.slice(0, EXCERPT)}…` : v;
 
-/** How far back a collection pass looks when nothing has been collected yet. */
-const LOOKBACK_DAYS = 30;
+/**
+ * How far back a collection pass looks.
+ *
+ * Deliberately long. Corrections are made in occasional concentrated sessions
+ * rather than continuously, so a 30-day window can easily contain one session —
+ * or none — and the loop would then have nothing to learn from despite plenty
+ * of accumulated evidence. Re-reading old rows is free: the (ref_table, ref_id,
+ * kind) key means anything already collected is ignored on the way in.
+ */
+const LOOKBACK_DAYS = 120;
 
 function since(days = LOOKBACK_DAYS): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();

@@ -44,7 +44,7 @@ alter table public.learning_signals add constraint learning_signals_kind_check
                   'grade_correction','contact_delete','operator_note'));
 
 -- ---------- 3. stage_health ----------
--- One rejection rate per stage, over a 30-day window, from whatever "rejected"
+-- One rejection rate per stage, over a 90-day window, from whatever "rejected"
 -- means for that stage:
 --   sourcing         a graded record marked wrong or missing
 --   personalization  a researched hook a human rejected
@@ -53,6 +53,11 @@ alter table public.learning_signals add constraint learning_signals_kind_check
 -- The drafting rate is deliberately edits-per-draft rather than reply rate:
 -- replies are slow, sparse, and confounded by list quality, while an edit is an
 -- immediate, unambiguous "this wasn't good enough to send".
+--
+-- 90 days rather than 30 because review happens in occasional concentrated
+-- sessions, not continuously — a 30-day window can hold a single session or
+-- none, leaving the rate either wildly noisy or undefined. The metric is a
+-- RATE, so a stage that gets fixed dilutes as new judgments land.
 
 create or replace view public.stage_health
 with (security_invoker = on) as
@@ -63,7 +68,7 @@ with sourcing as (
     count(*)                                                      as judged
   from public.grades g
   where g.module = 'sourcing'
-    and g.created_at > now() - interval '30 days'
+    and g.created_at > now() - interval '90 days'
 ),
 personalization as (
   select
@@ -71,7 +76,7 @@ personalization as (
     count(*) filter (where h.status = 'rejected')                 as rejected,
     count(*) filter (where h.status in ('verified','rejected'))   as judged
   from public.hooks h
-  where h.verified_at > now() - interval '30 days'
+  where h.verified_at > now() - interval '90 days'
 ),
 drafting as (
   select
@@ -81,7 +86,7 @@ drafting as (
   from public.touches t
   left join public.touch_edits e on e.touch_id = t.id
   where t.direction = 'outbound'
-    and t.created_at > now() - interval '30 days'
+    and t.created_at > now() - interval '90 days'
 )
 select
   module,

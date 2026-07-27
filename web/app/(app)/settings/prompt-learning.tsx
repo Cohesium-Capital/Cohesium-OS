@@ -119,10 +119,11 @@ export function PromptLearning({
         </CardTitle>
         <CardDescription>
           Every human correction — a draft you edited, a hook you rejected, a contact you
-          deleted with a reason — is collected and read for patterns. A pattern backed by at
-          least three independent corrections becomes a rule appended to that stage&rsquo;s
-          prompt; anything weaker waits here for your call. Rules ride the prompt version, so
-          Outcomes measures whether each one actually helped.
+          deleted with a reason — is collected and read for patterns. A pattern becomes a rule
+          appended to that stage&rsquo;s prompt when it holds up across two separate working
+          sessions, or repeats on six different records within one; anything weaker waits here
+          for your call. Rules ride the prompt version, so Outcomes measures whether each one
+          actually helped.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

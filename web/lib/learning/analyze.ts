@@ -16,6 +16,7 @@ import {
   type PromptRule,
 } from "./rules";
 import { healthFor } from "./health";
+import { evidenceIsIndependent } from "./sessions";
 
 // The analyzer: read a batch of human corrections, propose prompt rules.
 //
@@ -339,14 +340,16 @@ export async function analyzeModule(
     const evidenceIds = [...new Set(p.evidence_signal_ids.filter((id) => validIds.has(id)))];
     if (!evidenceIds.length) continue;
 
-    // Corrections made in one sitting, on one batch, are one opinion — not a
-    // pattern. Requiring the evidence to span two distinct days or two runs is
-    // what lets the loop react within minutes without encoding a bad afternoon
-    // into the prompt permanently.
+    // Independence is measured in SESSIONS, not calendar days: someone who
+    // reviews in one concentrated block every couple of weeks would never
+    // accumulate two days, and midnight would split one sitting into two. A
+    // single session can still teach a rule, but only by making the same point
+    // on enough separate records that one frame of mind stops explaining it.
     const evidence = evidenceIds.map((id) => byId.get(id)!).filter(Boolean);
-    const days = new Set(evidence.map((e) => e.occurred_at.slice(0, 10)));
-    const runs = new Set(evidence.map((e) => e.run_id ?? "none"));
-    const spread = days.size >= 2 || runs.size >= 2;
+    const spread = evidenceIsIndependent(
+      evidence.map((e) => ({ occurred_at: e.occurred_at, ref_id: e.ref_id })),
+      AUTO_ACTIVATE_SUPPORT,
+    );
 
     const qualifies =
       // A strategy replaces the approach rather than adding to it — too big a
@@ -354,7 +357,7 @@ export async function analyzeModule(
       !strategyMode &&
       evidenceIds.length >= AUTO_ACTIVATE_SUPPORT &&
       p.confidence >= AUTO_ACTIVATE_CONFIDENCE &&
-      spread &&
+      spread.ok &&
       // At the cap a rule may only activate by replacing one, never by adding.
       (activeCount < MAX_ACTIVE_RULES || !!p.supersedes_rule_id);
 
@@ -369,9 +372,6 @@ export async function analyzeModule(
       // The rejection rate this experiment is trying to beat. Without it,
       // "did the new approach work" has no answer a week from now.
       baseline_metric: strategyMode ? health?.reject_rate ?? null : null,
-      baseline_note: strategyMode && health
-        ? `${health.rejected} of ${health.judged} rejected when proposed`
-        : null,
       scope: cleanScope(p.scope),
       rule_text: p.rule_text.trim(),
       rationale: p.rationale,
@@ -383,6 +383,10 @@ export async function analyzeModule(
       })),
       support_count: evidenceIds.length,
       confidence: p.confidence,
+      // Why this did or did not activate, in the operator's terms.
+      baseline_note: strategyMode
+        ? (health ? `${health.rejected} of ${health.judged} rejected when proposed` : null)
+        : spread.reason,
       source: "analyzer",
       created_by: `analyzer:${MODEL}`,
       activated_at: qualifies ? new Date().toISOString() : null,
