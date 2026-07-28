@@ -23,7 +23,15 @@ type Mode = "single" | "agent";
 const clampSize = (n: number, max: number) =>
   Math.max(1, Math.min(Number.isFinite(n) ? Math.round(n) : 1, Math.max(1, max)));
 
-export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
+export function DraftBuilder({
+  contacts,
+  scopeRunId = null,
+}: {
+  contacts: DraftContact[];
+  /** Set when the Draft page is filtered to one run — recorded on the drafting
+   *  run so the Runs timeline can nest it under its source. */
+  scopeRunId?: string | null;
+}) {
   const [json, setJson] = useState("");
   const [outcome, setOutcome] = useState<IngestOutcome | null>(null);
   const [pending, startTransition] = useTransition();
@@ -92,7 +100,13 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
         const created = await startRun({
           module: "drafting",
           label: `Drafts · ${trackLabel} · ${runContacts.length} contact(s)`,
-          config: { track, mode, chunkSize: effSize, contacts: runContacts },
+          config: {
+            track,
+            mode,
+            chunkSize: effSize,
+            contacts: runContacts,
+            ...(scopeRunId ? { sourceRunId: scopeRunId } : {}),
+          },
         });
         setRunId(created.runId);
         setPrompt(created.prompt);

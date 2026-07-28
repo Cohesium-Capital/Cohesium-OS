@@ -207,7 +207,7 @@ export default async function DraftPage({
   return (
     <div className="flex flex-col gap-6">
       <RunScopeBanner scope={scope} basePath="/draft" noun="contacts" />
-      <DraftBuilder contacts={contacts} />
+      <DraftBuilder contacts={contacts} scopeRunId={scope?.runId ?? null} />
     </div>
   );
 }

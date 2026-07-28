@@ -65,6 +65,27 @@ export default async function RunsPage({
   const total = count ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // A drafting run that was SCOPED to one source run (the Draft page's ?run=
+  // filter, recorded as config.sourceRunId) is a step of that run's story, so
+  // it nests inside the source's card instead of standing alone on the
+  // timeline. Unscoped drafting runs span several sources and stay top-level;
+  // so does a scoped one whose source fell outside this page's window — an
+  // entry must never silently disappear.
+  const idsOnPage = new Set(runs.map((r) => r.id));
+  const nestedByParent = new Map<string, FlowRun[]>();
+  const topLevel: FlowRun[] = [];
+  for (const r of runs) {
+    const sourceRunId =
+      r.module === "drafting" && r.entry_kind === "run"
+        ? ((r.config?.sourceRunId as string | undefined) ?? null)
+        : null;
+    if (sourceRunId && idsOnPage.has(sourceRunId)) {
+      nestedByParent.set(sourceRunId, [...(nestedByParent.get(sourceRunId) ?? []), r]);
+    } else {
+      topLevel.push(r);
+    }
+  }
+
   // Header summary across every run (cheap: the view is already aggregated).
   const { data: allRows } = await supabase
     .from("flow_runs")
@@ -113,8 +134,13 @@ export default async function RunsPage({
       <div data-tour="runs-table">
         {runs.length ? (
           <ol className="flex flex-col">
-            {runs.map((run, i) => (
-              <RunEntry key={run.id} run={run} last={i === runs.length - 1} />
+            {topLevel.map((run, i) => (
+              <RunEntry
+                key={run.id}
+                run={run}
+                last={i === topLevel.length - 1}
+                nested={nestedByParent.get(run.id) ?? []}
+              />
             ))}
           </ol>
         ) : (
@@ -152,7 +178,16 @@ export default async function RunsPage({
   );
 }
 
-function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
+function RunEntry({
+  run,
+  last,
+  nested = [],
+}: {
+  run: FlowRun;
+  last: boolean;
+  /** Drafting runs scoped to this run (config.sourceRunId), newest first. */
+  nested?: FlowRun[];
+}) {
   const stages = stageCounts(run);
   const furthest = furthestStage(run);
   const action = nextAction(run);
@@ -255,6 +290,31 @@ function RunEntry({ run, last }: { run: FlowRun; last: boolean }) {
               </>
             )}
           </p>
+        )}
+
+        {nested.length > 0 && (
+          <div className="mt-3 flex flex-col gap-1.5 rounded-md border bg-muted/30 px-3 py-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Drafting on this run&rsquo;s records
+            </p>
+            {nested.map((d) => (
+              <div
+                key={d.id}
+                className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+              >
+                <RunBadge code={d.run_code} />
+                <Link
+                  href={`/runs/${d.id}`}
+                  className="text-foreground underline-offset-2 hover:underline"
+                >
+                  {runTypeLabel(d)}
+                </Link>
+                <span className="tabular-nums">{d.drafts_created} draft(s)</span>
+                {d.status === "failed" && <Badge variant="destructive">failed</Badge>}
+                <span className="ml-auto">{relativeTime(d.created_at)}</span>
+              </div>
+            ))}
+          </div>
         )}
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
