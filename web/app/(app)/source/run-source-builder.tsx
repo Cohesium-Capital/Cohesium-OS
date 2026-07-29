@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { KNOWN_LIMIT, type Msp, type SourcingMode } from "@/lib/sourcing/prompts";
+import { KNOWN_LIMIT, MODE_RUN_LABEL, type Msp, type SourcingMode } from "@/lib/sourcing/prompts";
 import { startRun, submitRunOutput } from "@/lib/runs/actions";
 import type { IngestOutcome } from "@/lib/modules/types";
 import { Button } from "@/components/ui/button";
@@ -193,7 +193,7 @@ export function RunSourceBuilder({
   function start() {
     startTransition(async () => {
       try {
-        const label = `${kind === "msp" ? "Target Companies" : "Customers"} · ${mode.replace(/_/g, " ")}`;
+        const label = `${kind === "msp" ? "Target Companies" : "Customers"} · ${MODE_RUN_LABEL[mode]}`;
         const created = await startRun({
           module: "sourcing",
           label,
@@ -262,7 +262,9 @@ export function RunSourceBuilder({
             <Label>Mode</Label>
             <Select value={mode} onValueChange={(v) => setMode(v as SourcingMode)}>
               <SelectTrigger>
-                <SelectValue />
+                {/* Base UI shows the raw value unless given a formatter, which
+                    surfaced the mode key ("research_msps") in the closed trigger. */}
+                <SelectValue>{(v) => (v ? MODE_LABELS[v as SourcingMode] : "")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {(Object.keys(MODE_LABELS) as SourcingMode[]).map((m) => (

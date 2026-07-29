@@ -14,6 +14,16 @@ export type SourcingMode =
   | "research_customers"
   | "find_customers_for_msps";
 
+// Human, market-neutral phrasing for a mode — used in run/batch labels shown in
+// the UI. The mode KEYS above stay fixed (API contract); this is only how a run
+// reads on the Runs page. Kept out of the raw `mode.replace(/_/g," ")`, which
+// would surface "research msps".
+export const MODE_RUN_LABEL: Record<SourcingMode, string> = {
+  research_msps: "research target companies",
+  research_customers: "research customers",
+  find_customers_for_msps: "find customers for target companies",
+};
+
 export type Msp = { id?: string; name: string; domain: string | null };
 
 // Cap on the do-not-research list embedded in a pasted prompt. The list has to
