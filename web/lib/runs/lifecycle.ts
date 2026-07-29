@@ -145,6 +145,9 @@ export async function createRun(
     const prepared = await mod.prepareConfig(supabase, config, {
       executor,
       workspaceId: opts.workspaceId,
+      // The run's creator is the sender — carried down so drafting can resolve
+      // the per-user sign-off / intro (migration 045). Absent on headless paths.
+      userId: opts.createdBy ?? null,
     });
     config = prepared.config;
     notes = prepared.notes ?? [];

@@ -11,6 +11,7 @@ import { storeDrafts } from "../drafting/import-core";
 import { exampleLeakDetector, describeLeaks } from "../drafting/example-leak";
 import { learnedRuleBlock } from "../learning/rules";
 import { workspaceProfile } from "../workspace/profile";
+import { senderOverridesFor, applySenderOverrides } from "../workspace/sender";
 import { DEFAULT_PROFILE, type WorkspaceProfile } from "../workspace/identity";
 import type { RunModule, IngestOutcome } from "./types";
 
@@ -64,7 +65,13 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
   // template, its hash, and the persisted config all describe the same run.
   async prepareConfig(supabase, config, ctx) {
     const kind = trackOf(config);
-    const profile = await workspaceProfile(supabase, ctx.workspaceId);
+    const base = await workspaceProfile(supabase, ctx.workspaceId);
+    // The sender is the run's creator, not the firm: overlay their sign-off name
+    // and intro over the workspace default (migration 045). This makes senderName
+    // part of the hashed template, so a per-user sender is a per-user prompt
+    // version — intentional, and how outcomes stay attributable per author.
+    const overrides = await senderOverridesFor(supabase, ctx.workspaceId, ctx.userId ?? null);
+    const profile = applySenderOverrides(base, overrides);
     const { block, rules } = await learnedRuleBlock(supabase, "drafting", ctx.workspaceId, {
       track: kind,
     });
@@ -146,6 +153,7 @@ export const draftingModule: RunModule<DraftingConfig, DraftsPayload> = {
         runId: ctx.runId,
         promptVersionId: ctx.promptVersionId ?? null,
         track: trackOf(config),
+        createdBy: ctx.createdBy ?? null,
       },
       hookIdsOf(config),
       ctx.workspaceId,

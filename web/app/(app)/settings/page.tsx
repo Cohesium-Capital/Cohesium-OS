@@ -7,6 +7,9 @@ import { workspaceRoster, sendingIdentities } from "@/lib/workspace/admin-action
 import { SendingPanel } from "./sending-panel";
 import { WorkedExamplesPanel } from "./worked-examples-panel";
 import { currentWorkedExamples } from "@/lib/workspace/admin-actions";
+import { SenderPanel } from "./sender-panel";
+import { myMemberSender } from "@/lib/settings/actions";
+import { senderOverridesFor } from "@/lib/workspace/sender";
 import { AccessRequestsPanel } from "./access-requests-panel";
 import { pendingAccessRequests, isInstanceOperator } from "@/lib/access/actions";
 import { envEmailIdentity, emailIdentityReady } from "@/lib/send/identity-env";
@@ -50,6 +53,16 @@ export default async function SettingsPage() {
   ]);
   // Only whoever runs this deployment sees other firms' requests to join it.
   const accessRequests = operator ? await pendingAccessRequests() : [];
+
+  // The current user's own sign-off, and what they'd sign as if they leave it
+  // blank: their auto-resolved name (sending identity / profile) over the
+  // workspace default. The placeholder tells that truth (migration 045).
+  const [mine, auto] = await Promise.all([
+    myMemberSender(),
+    senderOverridesFor(supabase, workspaceId, user.id),
+  ]);
+  const resolvedSenderName = auto.senderName ?? profile.senderName;
+  const resolvedSenderIntro = auto.senderIntro ?? profile.senderIntro;
   // Show only what this workspace has actually overridden: a field equal to the
   // default renders blank, so the placeholder tells the truth about where the
   // value comes from.
@@ -145,6 +158,13 @@ export default async function SettingsPage() {
           vocab: { ...DEFAULT_PROFILE.vocab },
         }}
         hasOverrides={hasOverrides}
+      />
+      <SenderPanel
+        key={`sender-${workspaceId}`}
+        initialName={mine?.senderName ?? ""}
+        initialIntro={mine?.senderIntro ?? ""}
+        placeholderName={resolvedSenderName}
+        placeholderIntro={resolvedSenderIntro}
       />
       <WorkedExamplesPanel
         key={`ex-${workspaceId}`}

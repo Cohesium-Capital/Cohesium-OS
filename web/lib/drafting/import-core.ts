@@ -11,6 +11,10 @@ export type DraftProvenance = {
   runId?: string | null;
   promptVersionId?: string | null;
   track?: TrackKind | null;
+  // Who authored this draft. Stamped on touches.created_by (migration 045) so
+  // the send path resolves the From: identity of the person who wrote it, not
+  // the shared firm mailbox. Null on headless paths (no logged-in user).
+  createdBy?: string | null;
 };
 
 // Resolve the active drafting prompt version, for callers that store drafts
@@ -116,6 +120,9 @@ export async function storeDrafts(
       // Applies to the update path too: a re-draft carries whatever hook its
       // new copy consumed (or null, honestly landing it in the no-hook arm).
       hook_id: hookIds[d.contact_id] ?? null,
+      // The author, so the send path can send as them (migration 045). On a
+      // re-draft this correctly re-attributes to whoever produced the new copy.
+      created_by: provenance.createdBy ?? null,
     };
 
     const prev = existingKey.get(`${d.contact_id}|${d.channel}`);
