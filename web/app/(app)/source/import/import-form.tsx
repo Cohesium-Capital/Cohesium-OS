@@ -145,7 +145,11 @@ export function ImportForm({
               <Label>Row kind</Label>
               <Select value={kind} onValueChange={(v) => setKind(v as ImportKind)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>
+                    {(v) =>
+                      v === "msp" ? "Target companies (acquisition targets)" : "Customers"
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="msp">Target companies (acquisition targets)</SelectItem>
@@ -162,7 +166,13 @@ export function ImportForm({
                   onValueChange={(v) => setTargetMsp(v ?? NO_TARGET)}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>
+                      {(v) =>
+                        !v || v === NO_TARGET
+                          ? "None — broad import"
+                          : msps.find((m) => m.id === v)?.name ?? "Selected"
+                      }
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_TARGET}>None — broad import</SelectItem>

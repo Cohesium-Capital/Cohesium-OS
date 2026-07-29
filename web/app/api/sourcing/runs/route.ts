@@ -3,6 +3,7 @@ import { z } from "zod";
 import { guard } from "../_auth";
 import { withRls, asSupabase } from "@/lib/db/rls";
 import { createRun } from "@/lib/runs/lifecycle";
+import { MODE_RUN_LABEL } from "@/lib/sourcing/prompts";
 
 // Start a sourcing run from the runner executor.
 //
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
         createdBy: auth.ownerId,
         label:
           body.label ??
-          `${kind === "msp" ? "Target Companies" : "Customers"} · ${body.mode.replace(/_/g, " ")} · runner`,
+          `${kind === "msp" ? "Target Companies" : "Customers"} · ${MODE_RUN_LABEL[body.mode]} · runner`,
         config: {
           mode: body.mode,
           region: body.region ?? "",
