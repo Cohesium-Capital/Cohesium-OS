@@ -78,9 +78,9 @@ curl -sS -X POST "$COHESIUM_API_URL/api/sourcing/runs" \
 
 `mode` is one of:
 
-- `research_msps` — find MSPs themselves
-- `research_customers` — find companies that use an MSP
-- `find_customers_for_msps` — find the clients of specific MSPs (requires
+- `research_msps` — find {{providerAbbrevPlural}} themselves
+- `research_customers` — find companies that use a {{providerGeneric}}
+- `find_customers_for_msps` — find the clients of specific {{providerAbbrevPlural}} (requires
   `mspIds: [...]`)
 
 The response carries `runId`, `batchId`, `prompt`, and `checkKnown`
@@ -119,10 +119,10 @@ carries `matched` so you can see what it collided with).
 ### 4. Research only the new ones
 
 Take from `new` up to the requested count and do the real work per company:
-verify it exists, establish the MSP relationship, find an owner or IT-lead
+verify it exists, establish the {{providerAbbrev}} relationship, find an owner or lead
 contact, and collect a **source URL for every row**. Follow the rules in the
 run's `prompt` exactly — especially: never invent a company, person, domain, or
-MSP relationship. An honest omission beats a confident guess, because a
+{{providerAbbrev}} relationship. An honest omission beats a confident guess, because a
 fabricated row poisons the dataset this whole system exists to build.
 
 If `new` runs out before you reach the requested count, **go back to step 2 with

@@ -2,7 +2,8 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { RUNNER_SKILL, runnerEnvTemplate } from "./skill";
+import { RUNNER_SKILL, renderRunnerSkill, runnerEnvTemplate } from "./skill";
+import { DEFAULT_VOCAB } from "../workspace/identity";
 
 // skill.json is a build artefact of the canonical SKILL.md, and the app hands it
 // to collaborators as their copy of the skill. If the two drift, the app ships
@@ -36,6 +37,29 @@ describe("runner skill bundle", () => {
   test("installs to the personal skills path, so it works outside a repo", () => {
     assert.equal(RUNNER_SKILL.installPath, "~/.claude/skills/source-companies/SKILL.md");
     assert.equal(RUNNER_SKILL.filename, "SKILL.md");
+  });
+
+  test("renders the tenant's target-universe vocabulary, API literals fixed", () => {
+    // Default vocab is Cohesium's, so the rendered skill reads "MSPs" and has no
+    // unrendered tokens left.
+    const cohesium = renderRunnerSkill(DEFAULT_VOCAB).content;
+    assert.ok(!cohesium.includes("{{"), "no unrendered tokens for the default vocab");
+    assert.match(cohesium, /find MSPs themselves/);
+
+    // A TPA workspace sees its own term and no trace of "MSP" in the prose.
+    const tpa = renderRunnerSkill({
+      ...DEFAULT_VOCAB,
+      providerAbbrev: "TPA",
+      providerAbbrevPlural: "TPAs",
+      providerGeneric: "TPA",
+    }).content;
+    assert.match(tpa, /find TPAs themselves/);
+    assert.ok(!/\bMSPs?\b/.test(tpa), "a TPA workspace sees no MSP wording in the prose");
+
+    // The API contract never moves, whatever the vocabulary.
+    assert.match(tpa, /"mode":"research_customers"/);
+    assert.match(tpa, /research_msps/);
+    assert.match(tpa, /mspIds/);
   });
 
   test("the env template prefills the deployment origin and never a real token", () => {

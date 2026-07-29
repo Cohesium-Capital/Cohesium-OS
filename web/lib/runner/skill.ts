@@ -1,4 +1,5 @@
 import skill from "./skill.json";
+import type { WorkspaceVocab } from "../workspace/identity";
 
 // The sourcing-runner skill, served to operators from Settings so onboarding a
 // collaborator needs no repository access at all — the app is the distribution
@@ -19,6 +20,27 @@ export const RUNNER_SKILL: {
   installPath: string;
   content: string;
 } = skill;
+
+/**
+ * The skill rendered for one workspace's market. The canonical SKILL.md carries
+ * {{provider…}} tokens so the runner's framing names the tenant's own target
+ * universe — "MSPs" for Cohesium, "TPAs" for Ilium — while the API-contract
+ * literals (mode keys, `mspIds`) stay fixed. The per-run research brief is still
+ * the authority; this only aligns the surrounding instructions. Unknown tokens
+ * are left intact rather than blanked, so a typo is visible, not silently empty.
+ */
+export function renderRunnerSkill(vocab: WorkspaceVocab): {
+  filename: string;
+  installPath: string;
+  content: string;
+} {
+  const map = vocab as unknown as Record<string, string>;
+  const content = RUNNER_SKILL.content.replace(
+    /\{\{(\w+)\}\}/g,
+    (m, key: string) => map[key] ?? m,
+  );
+  return { ...RUNNER_SKILL, content };
+}
 
 /**
  * Public repository carrying only this skill.
