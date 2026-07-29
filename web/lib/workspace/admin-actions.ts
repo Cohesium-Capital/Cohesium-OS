@@ -168,7 +168,11 @@ export async function claimInvites(): Promise<number> {
 
 export type ProfileInput = {
   firmName?: string;
-  senderName?: string;
+  // senderName is deliberately NOT here: the sign-off name is per user
+  // (member_sender / their profile), not a firm-wide default an admin sets. The
+  // workspace_profile.sender_name column still exists as a hidden last-resort
+  // fallback and is preserved by this upsert (it only writes the columns it
+  // names), but there is no admin path to it anymore.
   senderIntro?: string;
   approach?: string;
   vocab?: Partial<WorkspaceVocab>;
@@ -212,10 +216,9 @@ export async function saveWorkspaceProfile(input: ProfileInput): Promise<void> {
     workspace_id: workspaceId,
     firm_name:
       blankToNull(input.firmName) === DEFAULT_PROFILE.firmName ? null : blankToNull(input.firmName),
-    sender_name:
-      blankToNull(input.senderName) === DEFAULT_PROFILE.senderName
-        ? null
-        : blankToNull(input.senderName),
+    // sender_name is deliberately ABSENT (like `copy` below): the sign-off name
+    // is per user now, so the firm form must not write it. The upsert only
+    // writes the columns it names, so the stored last-resort value is preserved.
     sender_intro:
       blankToNull(input.senderIntro) === DEFAULT_PROFILE.senderIntro
         ? null

@@ -305,10 +305,16 @@ export function renderCopy(text: string, p: WorkspaceProfile): string {
     firmName: p.firmName,
     senderName: p.senderName,
     senderIntro: p.senderIntro,
+    // `approach` is the single source for "why you're reaching out": the tenant
+    // default (workspace_profile.approach), overlaid with the sender's own
+    // per-workspace override (member_sender.approach) at draft time. The older
+    // pre-wrapped copy blocks (approachInline/approachBullet) and the code-level
+    // approachDetailed all now render from this one field, so editing it — as
+    // admin default or as a personal override — actually changes the message.
     approach: p.approach,
-    approachDetailed: p.approachDetailed,
-    approachInline: p.copy.approachInline,
-    approachBullet: p.copy.approachBullet,
+    approachDetailed: p.approach,
+    approachInline: p.approach,
+    approachBullet: p.approach,
     ...p.vocab,
   };
   return text.replace(/\{\{(\w+)\}\}/g, (m, key: string) => values[key] ?? m);

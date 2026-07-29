@@ -46,7 +46,6 @@ export type InviteRow = { id: string; email: string; role: string; createdAt: st
 
 export type ProfileFields = {
   firmName: string;
-  senderName: string;
   senderIntro: string;
   approach: string;
   vocab: Record<string, string>;
@@ -309,36 +308,27 @@ export function WorkspacePanel({
         <CardHeader className="pb-3">
           <CardTitle className="text-base">How this firm talks</CardTitle>
           <CardDescription>
-            These go into every research prompt and every drafted message, word for word. Leave a
-            field blank to keep the built-in default (shown as the placeholder) — that way an
-            improvement to the default still reaches you.
+            <span className="font-medium text-foreground">Tenant-wide.</span> Set by an admin,
+            applies to everyone in this workspace. These go into every research prompt and every
+            drafted message. Leave a field blank to keep the built-in default (shown as the
+            placeholder). The intro and approach here are the firm <em>defaults</em> — each member
+            can override their own in &ldquo;Your sign-off&rdquo; below.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Firm name</span>
-              <Input
-                value={fields.firmName}
-                placeholder={defaults.firmName}
-                onChange={(e) => setFields((f) => ({ ...f, firmName: e.target.value }))}
-                disabled={!isAdmin || pending}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Sender&rsquo;s first name</span>
-              <Input
-                value={fields.senderName}
-                placeholder={defaults.senderName}
-                onChange={(e) => setFields((f) => ({ ...f, senderName: e.target.value }))}
-                disabled={!isAdmin || pending}
-              />
-            </label>
-          </div>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">Firm name</span>
+            <Input
+              value={fields.firmName}
+              placeholder={defaults.firmName}
+              onChange={(e) => setFields((f) => ({ ...f, firmName: e.target.value }))}
+              disabled={!isAdmin || pending}
+            />
+          </label>
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">
-              One line of who you are — used verbatim in messages
+              One line of who you are — the firm default (members can override)
             </span>
             <Input
               value={fields.senderIntro}
@@ -350,7 +340,7 @@ export function WorkspacePanel({
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">
-              Why you&rsquo;re reaching out — one honest sentence
+              Why you&rsquo;re reaching out — the firm default (members can override)
             </span>
             <Textarea
               rows={2}
@@ -364,8 +354,9 @@ export function WorkspacePanel({
           <div className="border-t pt-4">
             <p className="mb-1 text-sm font-medium">What you call the market</p>
             <p className="mb-3 text-xs text-muted-foreground">
-              Substituted throughout the sourcing and drafting prompts. A firm researching
-              staffing agencies rather than IT providers changes these and the prompts follow.
+              Tenant-wide, for now. Substituted throughout the sourcing and drafting prompts. A firm
+              researching staffing agencies rather than IT providers changes these and the prompts
+              follow.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               {VOCAB_FIELDS.map((f) => (
@@ -392,7 +383,6 @@ export function WorkspacePanel({
                     () =>
                       saveWorkspaceProfile({
                         firmName: fields.firmName,
-                        senderName: fields.senderName,
                         senderIntro: fields.senderIntro,
                         approach: fields.approach,
                         vocab: fields.vocab,

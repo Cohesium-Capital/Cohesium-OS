@@ -20,14 +20,22 @@ import type { WorkspaceProfile } from "./identity";
 
 export type SenderSources = {
   /** the user's own member_sender row for this workspace, if any */
-  override: { sender_name: string | null; sender_intro: string | null } | null;
+  override: {
+    sender_name: string | null;
+    sender_intro: string | null;
+    approach: string | null;
+  } | null;
   /** from_name on the user's personal email sending_identity (migration 043) */
   identityFromName: string | null;
   /** profiles.full_name for the user (migration 003) */
   fullName: string | null;
 };
 
-export type SenderOverride = { senderName?: string; senderIntro?: string };
+export type SenderOverride = {
+  senderName?: string;
+  senderIntro?: string;
+  approach?: string;
+};
 
 const trimmed = (v: string | null | undefined): string | undefined => {
   const t = v?.trim();
@@ -48,10 +56,14 @@ export function pickSenderOverrides(s: SenderSources): SenderOverride {
     firstName(s.identityFromName) ??
     firstName(s.fullName);
   const senderIntro = trimmed(s.override?.sender_intro);
+  // Intro and approach are prose: an override supplies them or the caller keeps
+  // the workspace default. Only the NAME derives from other user sources.
+  const approach = trimmed(s.override?.approach);
 
   const out: SenderOverride = {};
   if (senderName) out.senderName = senderName;
   if (senderIntro) out.senderIntro = senderIntro;
+  if (approach) out.approach = approach;
   return out;
 }
 
@@ -60,11 +72,12 @@ export function applySenderOverrides(
   p: WorkspaceProfile,
   o: SenderOverride,
 ): WorkspaceProfile {
-  if (!o.senderName && !o.senderIntro) return p;
+  if (!o.senderName && !o.senderIntro && !o.approach) return p;
   return {
     ...p,
     ...(o.senderName ? { senderName: o.senderName } : {}),
     ...(o.senderIntro ? { senderIntro: o.senderIntro } : {}),
+    ...(o.approach ? { approach: o.approach } : {}),
   };
 }
 
@@ -84,7 +97,7 @@ export async function senderOverridesFor(
       await Promise.all([
         supabase
           .from("member_sender")
-          .select("sender_name, sender_intro")
+          .select("sender_name, sender_intro, approach")
           .eq("workspace_id", workspaceId)
           .eq("user_id", userId)
           .maybeSingle(),
