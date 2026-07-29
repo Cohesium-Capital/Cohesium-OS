@@ -44,6 +44,55 @@ export async function updateGateSettings(input: {
   revalidatePath("/settings");
 }
 
+// A member's OWN sign-off name and intro for the current workspace (migration
+// 045). Distinct from the workspace default (workspace_profile, admin-set): this
+// is personal. RLS restricts the row to user_id = auth.uid(), so a member can
+// only ever read/write their own. Empty input clears the override, dropping the
+// member back to the resolved default.
+export async function saveMemberSender(input: {
+  senderName?: string | null;
+  senderIntro?: string | null;
+}): Promise<void> {
+  const user = await requireUser();
+  const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
+  const norm = (v?: string | null): string | null => {
+    const t = v?.trim();
+    return t ? t : null;
+  };
+  const { error } = await supabase.from("member_sender").upsert(
+    {
+      workspace_id: workspaceId,
+      user_id: user.id,
+      sender_name: norm(input.senderName),
+      sender_intro: norm(input.senderIntro),
+      updated_at: new Date().toISOString(),
+      updated_by: user.email ?? user.id,
+    },
+    { onConflict: "workspace_id,user_id" },
+  );
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings");
+}
+
+export async function myMemberSender(): Promise<{
+  senderName: string | null;
+  senderIntro: string | null;
+} | null> {
+  const user = await requireUser();
+  const supabase = await createClient();
+  const workspaceId = await currentWorkspaceId();
+  const { data } = await supabase
+    .from("member_sender")
+    .select("sender_name, sender_intro")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  return data
+    ? { senderName: data.sender_name ?? null, senderIntro: data.sender_intro ?? null }
+    : null;
+}
+
 export async function activatePromptVersion(input: { id: string; module: string }): Promise<void> {
   await requireUser();
   const supabase = await createClient();
