@@ -80,7 +80,7 @@ export async function importPayload(
     const withMsp = orgs.filter((o) => o.current_msp_name).length;
     if (withMsp >= Math.ceil(orgs.length / 2)) {
       return fail(
-        `${withMsp} of ${orgs.length} rows name an MSP (current_msp_name), so these look like customers, not MSPs. Set Row kind to "Customers".`,
+        `${withMsp} of ${orgs.length} rows name a provider (current_msp_name), so these look like customers, not target companies. Set Row kind to "Customers".`,
       );
     }
   }
@@ -145,11 +145,11 @@ export async function importPayload(
           .from("organizations")
           .insert(stubRows)
           .select("id, name");
-        if (error) return fail(`Failed creating MSP references: ${error.message}`);
+        if (error) return fail(`Failed creating target company references: ${error.message}`);
         stubs?.forEach((s) => mspIdByName.set(s.name.toLowerCase(), s.id));
         report.inserted.organizations += stubs?.length ?? 0;
         report.messages.push(
-          `Created ${stubs?.length ?? 0} new MSP reference(s) from customer links — unconfirmed, low confidence until someone reviews them on the MSPs page.`,
+          `Created ${stubs?.length ?? 0} new target company reference(s) from customer links — unconfirmed, low confidence until someone reviews them on the Target Companies page.`,
         );
       }
     }

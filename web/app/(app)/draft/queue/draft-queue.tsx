@@ -485,7 +485,7 @@ export function DraftQueue({
             <DialogDescription>
               {editing?.contact_name} · {editing?.company} · {editing?.channel}
               {editing?.org_kind === "msp"
-                ? " · MSP target"
+                ? " · target company"
                 : editing?.org_kind === "customer"
                   ? " · customer"
                   : ""}

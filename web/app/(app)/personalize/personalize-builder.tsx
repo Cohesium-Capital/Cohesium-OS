@@ -53,7 +53,7 @@ export function PersonalizeBuilder({
   // ride the customer track, same rule as the Draft page.
   const [track, setTrackState] = useState<Track>(customer.length ? "customer" : "msp");
   const trackContacts = track === "msp" ? msp : customer;
-  const trackLabel = track === "msp" ? "MSP-target" : "customer";
+  const trackLabel = track === "msp" ? "target-company" : "customer";
 
   const [size, setSize] = useState(20);
 
@@ -135,7 +135,7 @@ export function PersonalizeBuilder({
                   disabled={msp.length === 0}
                   onClick={() => setTrack("msp")}
                 >
-                  MSP targets ({msp.length})
+                  Target companies ({msp.length})
                 </Button>
                 <Button
                   variant={track === "customer" ? "default" : "outline"}

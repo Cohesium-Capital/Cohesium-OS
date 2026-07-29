@@ -77,7 +77,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
     const len = (next === "msp" ? mspContacts : customerContacts).length;
     setSize((s) => clampSize(s, len || 1));
   }
-  const trackLabel = track === "msp" ? "MSP-target" : "customer";
+  const trackLabel = track === "msp" ? "target-company" : "customer";
 
   const effSize = clampSize(size, trackContacts.length || 1);
   const batch = useMemo(() => trackContacts.slice(0, effSize), [trackContacts, effSize]);
@@ -184,7 +184,7 @@ export function DraftBuilder({ contacts }: { contacts: DraftContact[] }) {
                       disabled={mspContacts.length === 0}
                       onClick={() => setTrack("msp")}
                     >
-                      MSP targets ({mspContacts.length})
+                      Target companies ({mspContacts.length})
                     </Button>
                     <Button
                       variant={track === "customer" ? "default" : "outline"}

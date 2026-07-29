@@ -258,7 +258,7 @@ export function ReviewGrid({
       },
       {
         accessorKey: "estimated_msp",
-        header: "Estimated MSP",
+        header: "Estimated provider",
         cell: ({ row }) =>
           row.original.estimated_msp ? (
             <Link

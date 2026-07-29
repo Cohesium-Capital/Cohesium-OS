@@ -50,7 +50,7 @@ const DATA: NavItem[] = [
   { href: "/runs", label: "Runs", icon: Activity },
   { href: "/outcomes", label: "Outcomes", icon: TrendingUp },
   { href: "/companies", label: "Companies", icon: Landmark },
-  { href: "/msps", label: "MSPs", icon: Building2 },
+  { href: "/msps", label: "Target Companies", icon: Building2 },
 ];
 
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", icon: Settings };

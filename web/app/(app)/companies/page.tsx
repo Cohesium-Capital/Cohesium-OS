@@ -103,7 +103,7 @@ export default async function CompaniesPage({
       <div>
         <h1 className="text-2xl font-semibold">Companies</h1>
         <p className="text-sm text-muted-foreground">
-          Every customer and MSP the pipeline has added, newest first. &ldquo;Added&rdquo; is
+          Every customer and target company the pipeline has added, newest first. &ldquo;Added&rdquo; is
           when the company first entered the database — re-sourcing an existing company merges
           into the original row and does not reset it.
         </p>
@@ -111,7 +111,7 @@ export default async function CompaniesPage({
 
       <div className="flex flex-wrap gap-3">
         <SummaryCard label="Customers" value={customers.count ?? 0} />
-        <SummaryCard label="MSPs / targets" value={msps.count ?? 0} />
+        <SummaryCard label="Target companies" value={msps.count ?? 0} />
         <SummaryCard label="Added in last 7 days" value={recent.count ?? 0} accent />
       </div>
 
@@ -123,7 +123,7 @@ export default async function CompaniesPage({
             <TableRow>
               <TableHead>Company</TableHead>
               <TableHead>Kind</TableHead>
-              <TableHead>Estimated MSP</TableHead>
+              <TableHead>Estimated provider</TableHead>
               <TableHead>Location</TableHead>
               <TableHead className="text-right">Contacts</TableHead>
               <TableHead>First run</TableHead>

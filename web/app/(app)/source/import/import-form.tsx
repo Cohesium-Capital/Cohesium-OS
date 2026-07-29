@@ -124,7 +124,7 @@ export function ImportForm({
         <div>
           <h1 className="text-2xl font-semibold">Import</h1>
           <p className="text-sm text-muted-foreground">
-            Paste the JSON from your research, or upload a CSV of known MSPs.
+            Paste the JSON from your research, or upload a CSV of known target companies.
           </p>
         </div>
         <Button variant="outline" nativeButton={false} render={<Link href="/review/grade" />}>
@@ -136,7 +136,7 @@ export function ImportForm({
         <CardHeader>
           <CardTitle>What are you importing?</CardTitle>
           <CardDescription>
-            This sets the row kind and how MSP links are resolved.
+            This sets the row kind and how provider links are resolved.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -148,7 +148,7 @@ export function ImportForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="msp">MSPs (acquisition targets)</SelectItem>
+                  <SelectItem value="msp">Target companies (acquisition targets)</SelectItem>
                   <SelectItem value="customer">Customers</SelectItem>
                 </SelectContent>
               </Select>
@@ -156,7 +156,7 @@ export function ImportForm({
 
             {kind === "customer" && (
               <div className="grid w-full max-w-xs gap-2">
-                <Label>Targeting one MSP? (enables yield tracking)</Label>
+                <Label>Targeting one target company? (enables yield tracking)</Label>
                 <Select
                   value={targetMsp}
                   onValueChange={(v) => setTargetMsp(v ?? NO_TARGET)}
@@ -194,7 +194,7 @@ export function ImportForm({
             <TabsContent value="csv" className="flex flex-col gap-3 pt-2">
               <Input type="file" accept=".csv,text/csv" onChange={onFile} />
               <Textarea
-                placeholder="name,domain&#10;Acme MSP,acmemsp.com"
+                placeholder="name,domain&#10;Acme Co,acme.com"
                 value={csv}
                 onChange={(e) => setCsv(e.target.value)}
                 rows={10}
@@ -230,7 +230,7 @@ export function ImportForm({
                 <p className="text-xs text-muted-foreground">
                   &ldquo;Need checking&rdquo; counts new companies imported with low
                   confidence or no domain. They are kept, not rejected — confirm the details
-                  on the MSPs page, where they show an{" "}
+                  on the Target Companies page, where they show an{" "}
                   <span className="text-amber-600">unconfirmed</span> tag. Contacts are
                   separate: they all start as{" "}
                   <span className="text-amber-600">Needs review</span> on Review &amp; Enrich.

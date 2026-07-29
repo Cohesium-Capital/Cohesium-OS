@@ -28,9 +28,9 @@ import {
 } from "@/components/ui/select";
 
 const MODE_LABELS: Record<SourcingMode, string> = {
-  research_msps: "Research MSPs (find acquisition targets)",
-  research_customers: "Research customers (then estimate their MSP)",
-  find_customers_for_msps: "Find customers for specific MSPs",
+  research_msps: "Research Target Companies (find acquisition targets)",
+  research_customers: "Research Customers (then estimate their provider)",
+  find_customers_for_msps: "Find Customers for Specific Target Companies",
 };
 
 function parseMspLines(text: string): Msp[] {
@@ -193,7 +193,7 @@ export function RunSourceBuilder({
   function start() {
     startTransition(async () => {
       try {
-        const label = `${kind === "msp" ? "MSPs" : "Customers"} · ${mode.replace(/_/g, " ")}`;
+        const label = `${kind === "msp" ? "Target Companies" : "Customers"} · ${mode.replace(/_/g, " ")}`;
         const created = await startRun({
           module: "sourcing",
           label,
@@ -286,7 +286,7 @@ export function RunSourceBuilder({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="count">
-                {mode === "find_customers_for_msps" ? "Customers per MSP" : "How many"}
+                {mode === "find_customers_for_msps" ? "Customers per target company" : "How many"}
               </Label>
               <Input
                 id="count"
@@ -314,7 +314,7 @@ export function RunSourceBuilder({
 
           {mode === "find_customers_for_msps" && (
             <div className="grid gap-3">
-              <Label>Target MSPs</Label>
+              <Label>Target companies</Label>
               {msps.length > 0 && (
                 <div className="flex max-h-64 flex-col gap-2 overflow-auto rounded-md border p-3">
                   {msps.map((m) => (
@@ -334,7 +334,7 @@ export function RunSourceBuilder({
                 </div>
               )}
               <Textarea
-                placeholder="Add more MSPs, one per line: Name, domain.com"
+                placeholder="Add more target companies, one per line: Name, domain.com"
                 value={extraMsps}
                 onChange={(e) => setExtraMsps(e.target.value)}
                 rows={3}
