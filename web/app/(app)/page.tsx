@@ -311,7 +311,7 @@ export default async function HomePage() {
       step: 1,
       label: "Source",
       icon: Radar,
-      blurb: "Find companies that use an MSP and import them.",
+      blurb: "Find companies that use a provider and import them.",
       count: null,
       countNoun: "",
       chip: sourceChip,
@@ -537,7 +537,7 @@ export default async function HomePage() {
               <div className="flex flex-col">
                 <span className="font-medium">Companies</span>
                 <span className="text-xs text-muted-foreground">
-                  Customers and MSPs with the date each was added.
+                  Customers and target companies with the date each was added.
                 </span>
               </div>
               <ArrowRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
@@ -547,7 +547,7 @@ export default async function HomePage() {
             <Card className="flex-row items-center gap-4 px-5 py-4 transition-shadow group-hover:shadow-elev-2">
               <Building2 className="size-5 text-muted-foreground" />
               <div className="flex flex-col">
-                <span className="font-medium">MSPs</span>
+                <span className="font-medium">Target Companies</span>
                 <span className="text-xs text-muted-foreground">
                   Acquisition targets and their customer counts.
                 </span>

@@ -65,7 +65,7 @@ function versionLabel(row: DraftOutcome): string {
 }
 
 function trackLabel(track: string | null): string {
-  if (track === "msp") return "MSP";
+  if (track === "msp") return "Target company";
   if (track === "customer") return "Customer";
   return "—";
 }

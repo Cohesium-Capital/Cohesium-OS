@@ -13,7 +13,7 @@ import type { CompanyKindFilter, CompanySort } from "./types";
 const KINDS: { value: CompanyKindFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "customer", label: "Customers" },
-  { value: "msp", label: "MSPs / targets" },
+  { value: "msp", label: "Target companies" },
 ];
 
 const SORTS: { value: CompanySort; label: string }[] = [

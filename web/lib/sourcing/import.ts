@@ -23,7 +23,7 @@ export async function importSourced(input: {
   const supabase = await createClient();
   const workspaceId = await currentWorkspaceId();
 
-  const label = `${input.kind === "msp" ? "MSPs" : "Customers"} import · ${new Date().toISOString().slice(0, 10)}`;
+  const label = `${input.kind === "msp" ? "Target Companies" : "Customers"} import · ${new Date().toISOString().slice(0, 10)}`;
 
   // A failed batch or run insert is a failed import, not a degraded one:
   // contacts landing with batch_id null are treated as ALREADY GATED by

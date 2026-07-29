@@ -62,10 +62,10 @@ export async function POST(req: Request) {
           .eq("workspace_id", auth.workspaceId)
           .eq("kind", "msp")
           .in("id", body.mspIds);
-        if (error) throw new Error(`could not load MSPs: ${error.message}`);
+        if (error) throw new Error(`could not load target companies: ${error.message}`);
         msps = (data ?? []) as MspRow[];
         const missing = body.mspIds.filter((id) => !msps.some((m) => m.id === id));
-        if (missing.length) throw new NotFound(`unknown MSP id(s): ${missing.join(", ")}`);
+        if (missing.length) throw new NotFound(`unknown target company id(s): ${missing.join(", ")}`);
       }
 
       // A single target lets the run report new_for_target at ingest.
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
         createdBy: auth.ownerId,
         label:
           body.label ??
-          `${kind === "msp" ? "MSPs" : "Customers"} · ${body.mode.replace(/_/g, " ")} · runner`,
+          `${kind === "msp" ? "Target Companies" : "Customers"} · ${body.mode.replace(/_/g, " ")} · runner`,
         config: {
           mode: body.mode,
           region: body.region ?? "",

@@ -40,7 +40,7 @@ export function MspControls({
         className="flex items-center gap-2"
       >
         <Input
-          placeholder="Search MSPs…"
+          placeholder="Search target companies…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           className="max-w-xs"
@@ -65,7 +65,7 @@ export function MspControls({
 
       <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
         <span>
-          {total} MSP{total === 1 ? "" : "s"} · page {page} of {pageCount}
+          {total} target compan{total === 1 ? "y" : "ies"} · page {page} of {pageCount}
         </span>
         <Button
           variant="outline"

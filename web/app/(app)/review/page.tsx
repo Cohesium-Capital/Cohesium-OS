@@ -200,7 +200,7 @@ export default async function ReviewPage({
               Every sourced contact arrives marked{" "}
               <span className="font-medium text-amber-600">Needs review</span> — that means
               nobody has checked it yet, not that anything looks wrong with it. Open the row,
-              check company, title, LinkedIn and estimated MSP, then delete the junk and mark
+              check company, title, LinkedIn and estimated provider, then delete the junk and mark
               the keepers reviewed. Only reviewed contacts can be enriched in step B.
             </CardDescription>
           </CardHeader>

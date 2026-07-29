@@ -127,13 +127,13 @@ export const sourcingModule: RunModule<SourcingConfig, SourcingPayload> = {
     if (!known.length) return { config: withRules, notes: learnedNote };
     const label =
       config.mode === "research_msps"
-        ? `${known.length} MSP${known.length === 1 ? "" : "s"}`
+        ? `${known.length} target compan${known.length === 1 ? "y" : "ies"}`
         : `${known.length} compan${known.length === 1 ? "y" : "ies"}`;
     return {
       config: { ...withRules, known, knownOmitted: omitted },
       notes: [
         `Prompt excludes ${label} already sourced${
-          config.mode === "find_customers_for_msps" ? " for the selected MSP(s)" : ""
+          config.mode === "find_customers_for_msps" ? " for the selected target compan(y/ies)" : ""
         }${omitted ? `, plus ${omitted} more listed only as a count` : ""}.`,
         ...learnedNote,
       ],

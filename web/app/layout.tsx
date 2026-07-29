@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Cohesium Intel",
-  description: "MSP customer-intelligence and acquisition engine.",
+  description: "Customer-intelligence and acquisition engine.",
 };
 
 export default function RootLayout({

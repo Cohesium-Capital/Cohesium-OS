@@ -52,9 +52,9 @@ const MODULE_LABEL: Record<string, string> = {
 };
 
 const MODE_LABEL: Record<SourcingMode, string> = {
-  research_msps: "MSP targets",
+  research_msps: "Target companies",
   research_customers: "Customers",
-  find_customers_for_msps: "Customers of MSPs",
+  find_customers_for_msps: "Customers of target companies",
 };
 
 function namedMsps(config: Record<string, unknown>): string[] {
@@ -73,7 +73,7 @@ export function runTypeLabel(run: Pick<FlowRun, "module" | "config">): string {
   const mode = config.mode as SourcingMode | undefined;
   if (mode === "find_customers_for_msps") {
     const names = namedMsps(config);
-    if (!names.length) return "Customers of MSPs";
+    if (!names.length) return "Customers of target companies";
     if (names.length <= 3) return `Customers of ${names.join(", ")}`;
     return `Customers of ${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
   }
@@ -100,7 +100,7 @@ export function runDetailChips(
   if (typeof region === "string" && region.trim()) chips.push(region.trim());
   if (typeof profile === "string" && profile.trim()) chips.push(profile.trim());
   if (typeof count === "number" && count > 0) chips.push(`asked for ${count}`);
-  if (typeof countPer === "number" && countPer > 0) chips.push(`${countPer} per MSP`);
+  if (typeof countPer === "number" && countPer > 0) chips.push(`${countPer} per target company`);
   return chips;
 }
 

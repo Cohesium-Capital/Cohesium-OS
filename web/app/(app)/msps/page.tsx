@@ -75,7 +75,7 @@ export default async function MspsPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold">MSPs</h1>
+        <h1 className="text-2xl font-semibold">Target Companies</h1>
         <p className="text-sm text-muted-foreground">
           Acquisition targets and how much customer coverage we have for each.
         </p>
@@ -83,8 +83,8 @@ export default async function MspsPage({
 
       <p className="text-sm text-muted-foreground">
         Status comes from targeted customer searches: a run that adds new customers keeps
-        an MSP <strong>productive</strong>; a targeted run that adds zero marks it{" "}
-        <strong>exhausted</strong>. MSPs with no targeted run yet are{" "}
+        a target company <strong>productive</strong>; a targeted run that adds zero marks it{" "}
+        <strong>exhausted</strong>. Target companies with no targeted run yet are{" "}
         <strong>unexplored</strong>. Use the per-row shortcut to run a targeted search.
       </p>
 
@@ -92,7 +92,7 @@ export default async function MspsPage({
         An <span className="text-amber-600">unconfirmed</span> tag next to a name means the
         company record itself hasn&rsquo;t been vetted — either nobody has reviewed it, or it
         was imported with low confidence. Most are stubs created automatically because a
-        customer record named that MSP, so the name may be a guess. Check the details before
+        customer record named that company, so the name may be a guess. Check the details before
         treating one as a real acquisition target.
       </p>
 
@@ -102,7 +102,7 @@ export default async function MspsPage({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>MSP</TableHead>
+              <TableHead>Target Company</TableHead>
               <TableHead className="text-right">Customers</TableHead>
               <TableHead className="text-right">Contacts</TableHead>
               <TableHead>Added</TableHead>
@@ -128,7 +128,7 @@ export default async function MspsPage({
                               title={
                                 r.reviewed
                                   ? "Low confidence — the company details came from weak evidence. Confirm before relying on it."
-                                  : "Nobody has confirmed this MSP yet. Many are auto-created from a customer record that named them."
+                                  : "Nobody has confirmed this target company yet. Many are auto-created from a customer record that named them."
                               }
                             >
                               unconfirmed
@@ -174,8 +174,8 @@ export default async function MspsPage({
               <TableRow>
                 <TableCell colSpan={8} className="h-24 text-center">
                   {q
-                    ? "No MSPs match that search."
-                    : "No MSPs yet. Import some, or they appear as customers link to them."}
+                    ? "No target companies match that search."
+                    : "No target companies yet. Import some, or they appear as customers link to them."}
                 </TableCell>
               </TableRow>
             )}
