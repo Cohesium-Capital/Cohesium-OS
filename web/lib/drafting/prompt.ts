@@ -100,7 +100,7 @@ function rules(kind: TrackKind, p: WorkspaceProfile, learned = ""): string {
   "random", "unsolicited". Do NOT label the message at all: never write "this is
   a cold email", "[subject]", or any placeholder as a subject or a body line.
 - Say who you are in one line: "${p.senderIntro}".
-- Give the approach briefly: ${p.approachDetailed}
+- Give the approach briefly: ${p.approach}
 - Personalization is PROVIDED, not researched. Drafting is pure writing: do NOT
   use web search, and do not add any specific claim beyond what a contact's
   line carries.
@@ -132,7 +132,7 @@ Email
   angle, plus the provided hook (or fallback_angle) if the line carries one. The
   first sentence must be about them or about what you are researching in their
   world. It must never be about you and never an apology.
-  (2) Who you are and why it is worth their time: "${p.senderIntro}". ${p.copy.approachBullet}
+  (2) Who you are and why it is worth their time: "${p.senderIntro}". ${p.approach}
   (3) The soft ask, and that you are not selling anything. No apology for
   writing and no reference to how you found them.
   Sign off with "Thanks," then "${p.senderName}" on their own lines.

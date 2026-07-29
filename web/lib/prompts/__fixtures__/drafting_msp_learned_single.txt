@@ -30,10 +30,7 @@ Structure (model this on warm investor outreach that works)
   "random", "unsolicited". Do NOT label the message at all: never write "this is
   a cold email", "[subject]", or any placeholder as a subject or a body line.
 - Say who you are in one line: "I'm a cofounder of Cohesium, an investment firm".
-- Give the approach briefly: we learn a market by talking with the experienced
-  people running it, about what matters and what pain points still need solving,
-  and it lets us build a network of sharp operators we can be useful to over time,
-  through intros, hiring, and advisor roles.
+- Give the approach briefly: We learn a market by talking with the people running it day to day, and it lets us build a network of operators we can be useful to over time.
 - Personalization is PROVIDED, not researched. Drafting is pure writing: do NOT
   use web search, and do not add any specific claim beyond what a contact's
   line carries.
@@ -63,9 +60,7 @@ Email
   angle, plus the provided hook (or fallback_angle) if the line carries one. The
   first sentence must be about them or about what you are researching in their
   world. It must never be about you and never an apology.
-  (2) Who you are and why it is worth their time: "I'm a cofounder of Cohesium, an investment firm". We learn a
-  market by talking with the people running it day to day, and it lets us build a
-  network of operators we can be useful to over time.
+  (2) Who you are and why it is worth their time: "I'm a cofounder of Cohesium, an investment firm". We learn a market by talking with the people running it day to day, and it lets us build a network of operators we can be useful to over time.
   (3) The soft ask, and that you are not selling anything. No apology for
   writing and no reference to how you found them.
   Sign off with "Thanks," then "Ripley" on their own lines.
@@ -109,8 +104,7 @@ I've been talking with people who've built managed IT service providers about wh
 market is heading, what's getting harder, what still makes the model work, and
 figured a founder in your seat would have a clear read on it.
 
-I'm a cofounder of Cohesium, an investment firm. We learn a market by talking with the people running it day to
-day, and it lets us build a network of operators we can be useful to over time.
+I'm a cofounder of Cohesium, an investment firm. We learn a market by talking with the people running it day to day, and it lets us build a network of operators we can be useful to over time.
 
 Any chance you'd have a few minutes in the next week or two? I'm not selling
 anything, just trying to understand the business from the operator's side.

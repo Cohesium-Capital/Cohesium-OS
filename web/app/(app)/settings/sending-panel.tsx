@@ -94,10 +94,12 @@ export function SendingPanel({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Sending</CardTitle>
         <CardDescription>
-          Which mailbox and LinkedIn account outreach goes out from. Your personal identity is
-          yours — it follows you into every workspace you belong to, and only you can edit it.
-          The shared identity is this workspace&rsquo;s own and covers anyone without their own;
-          campaign and API key are set there, since those belong to the firm.
+          Which mailbox and LinkedIn account outreach goes out from.{" "}
+          <span className="font-medium text-foreground">Your personal identity follows you
+          across every workspace</span> — it is yours, and only you can edit it.{" "}
+          <span className="font-medium text-foreground">The shared identity is tenant-wide</span>,
+          this workspace&rsquo;s own, covering anyone without their own; campaign and API key are
+          set there, since those belong to the firm.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

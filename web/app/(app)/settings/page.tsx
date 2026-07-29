@@ -63,6 +63,7 @@ export default async function SettingsPage() {
   ]);
   const resolvedSenderName = auto.senderName ?? profile.senderName;
   const resolvedSenderIntro = auto.senderIntro ?? profile.senderIntro;
+  const resolvedApproach = auto.approach ?? profile.approach;
   // Show only what this workspace has actually overridden: a field equal to the
   // default renders blank, so the placeholder tells the truth about where the
   // value comes from.
@@ -145,14 +146,12 @@ export default async function SettingsPage() {
         invites={roster.invites as InviteRow[]}
         profile={{
           firmName: overrideOf(profile.firmName, DEFAULT_PROFILE.firmName),
-          senderName: overrideOf(profile.senderName, DEFAULT_PROFILE.senderName),
           senderIntro: overrideOf(profile.senderIntro, DEFAULT_PROFILE.senderIntro),
           approach: overrideOf(profile.approach, DEFAULT_PROFILE.approach),
           vocab: vocabOverrides,
         }}
         defaults={{
           firmName: DEFAULT_PROFILE.firmName,
-          senderName: DEFAULT_PROFILE.senderName,
           senderIntro: DEFAULT_PROFILE.senderIntro,
           approach: DEFAULT_PROFILE.approach,
           vocab: { ...DEFAULT_PROFILE.vocab },
@@ -163,8 +162,10 @@ export default async function SettingsPage() {
         key={`sender-${workspaceId}`}
         initialName={mine?.senderName ?? ""}
         initialIntro={mine?.senderIntro ?? ""}
+        initialApproach={mine?.approach ?? ""}
         placeholderName={resolvedSenderName}
         placeholderIntro={resolvedSenderIntro}
+        placeholderApproach={resolvedApproach}
       />
       <WorkedExamplesPanel
         key={`ex-${workspaceId}`}

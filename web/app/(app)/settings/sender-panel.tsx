@@ -25,25 +25,31 @@ import { saveMemberSender } from "@/lib/settings/actions";
 export function SenderPanel({
   initialName,
   initialIntro,
+  initialApproach,
   placeholderName,
   placeholderIntro,
+  placeholderApproach,
 }: {
   initialName: string;
   initialIntro: string;
+  initialApproach: string;
   placeholderName: string;
   placeholderIntro: string;
+  placeholderApproach: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [name, setName] = useState(initialName);
   const [intro, setIntro] = useState(initialIntro);
+  const [approach, setApproach] = useState(initialApproach);
 
-  const dirty = name !== initialName || intro !== initialIntro;
+  const dirty =
+    name !== initialName || intro !== initialIntro || approach !== initialApproach;
 
   const save = () =>
     start(async () => {
       try {
-        await saveMemberSender({ senderName: name, senderIntro: intro });
+        await saveMemberSender({ senderName: name, senderIntro: intro, approach });
         toast.success("Saved. New drafts you create sign as this.");
         router.refresh();
       } catch (e) {
@@ -56,9 +62,11 @@ export function SenderPanel({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Your sign-off</CardTitle>
         <CardDescription>
-          How messages you draft in this workspace are signed and how you introduce
-          yourself. This is personal to you — teammates sign as themselves. Leave a box
-          blank to use the placeholder shown.
+          <span className="font-medium text-foreground">You, within this workspace.</span> How
+          messages <em>you</em> draft here are signed and framed — teammates sign as themselves,
+          and this does not follow you to other workspaces. Leave a box blank to use the
+          placeholder (your firm&rsquo;s default, or your name). Your mailbox itself lives under
+          Sending and follows you across every workspace.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -83,6 +91,18 @@ export function SenderPanel({
             disabled={pending}
           />
         </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">
+            Why you&rsquo;re reaching out — one honest sentence
+          </span>
+          <Textarea
+            rows={2}
+            value={approach}
+            onChange={(e) => setApproach(e.target.value)}
+            placeholder={placeholderApproach}
+            disabled={pending}
+          />
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={pending || !dirty} onClick={save}>
             Save
@@ -95,6 +115,7 @@ export function SenderPanel({
               onClick={() => {
                 setName(initialName);
                 setIntro(initialIntro);
+                setApproach(initialApproach);
               }}
             >
               Discard changes

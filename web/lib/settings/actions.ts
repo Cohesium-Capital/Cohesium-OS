@@ -52,6 +52,7 @@ export async function updateGateSettings(input: {
 export async function saveMemberSender(input: {
   senderName?: string | null;
   senderIntro?: string | null;
+  approach?: string | null;
 }): Promise<void> {
   const user = await requireUser();
   const supabase = await createClient();
@@ -66,6 +67,7 @@ export async function saveMemberSender(input: {
       user_id: user.id,
       sender_name: norm(input.senderName),
       sender_intro: norm(input.senderIntro),
+      approach: norm(input.approach),
       updated_at: new Date().toISOString(),
       updated_by: user.email ?? user.id,
     },
@@ -78,18 +80,23 @@ export async function saveMemberSender(input: {
 export async function myMemberSender(): Promise<{
   senderName: string | null;
   senderIntro: string | null;
+  approach: string | null;
 } | null> {
   const user = await requireUser();
   const supabase = await createClient();
   const workspaceId = await currentWorkspaceId();
   const { data } = await supabase
     .from("member_sender")
-    .select("sender_name, sender_intro")
+    .select("sender_name, sender_intro, approach")
     .eq("workspace_id", workspaceId)
     .eq("user_id", user.id)
     .maybeSingle();
   return data
-    ? { senderName: data.sender_name ?? null, senderIntro: data.sender_intro ?? null }
+    ? {
+        senderName: data.sender_name ?? null,
+        senderIntro: data.sender_intro ?? null,
+        approach: data.approach ?? null,
+      }
     : null;
 }
 

@@ -17,9 +17,19 @@ const sources = (over: Partial<SenderSources> = {}): SenderSources => ({
 
 test("explicit override is used verbatim, not first-named", () => {
   const out = pickSenderOverrides(
-    sources({ override: { sender_name: "Saagar K.", sender_intro: "I'm a cofounder of Ilium" } }),
+    sources({
+      override: {
+        sender_name: "Saagar K.",
+        sender_intro: "I'm a cofounder of Ilium",
+        approach: "We're modernizing retirement TPA and talk with the people who run these firms",
+      },
+    }),
   );
-  assert.deepEqual(out, { senderName: "Saagar K.", senderIntro: "I'm a cofounder of Ilium" });
+  assert.deepEqual(out, {
+    senderName: "Saagar K.",
+    senderIntro: "I'm a cofounder of Ilium",
+    approach: "We're modernizing retirement TPA and talk with the people who run these firms",
+  });
 });
 
 test("sending-identity name falls back to a first name", () => {
@@ -35,7 +45,7 @@ test("profile full_name is the last name source, first-named", () => {
 test("name precedence: override > identity > profile", () => {
   const out = pickSenderOverrides(
     sources({
-      override: { sender_name: "Sam", sender_intro: null },
+      override: { sender_name: "Sam", sender_intro: null, approach: null },
       identityFromName: "Ignored Identity",
       fullName: "Ignored Profile",
     }),
@@ -51,9 +61,23 @@ test("intro comes only from an explicit override", () => {
 
 test("blank/whitespace values are ignored and fall through", () => {
   const out = pickSenderOverrides(
-    sources({ override: { sender_name: "   ", sender_intro: "" }, fullName: "Ripley Carroll" }),
+    sources({
+      override: { sender_name: "   ", sender_intro: "", approach: "  " },
+      fullName: "Ripley Carroll",
+    }),
   );
   assert.deepEqual(out, { senderName: "Ripley" });
+});
+
+test("approach comes only from an explicit override (never derived)", () => {
+  // A name source supplies no approach; an override does.
+  assert.equal(pickSenderOverrides(sources({ fullName: "Ripley Carroll" })).approach, undefined);
+  assert.equal(
+    pickSenderOverrides(
+      sources({ override: { sender_name: null, sender_intro: null, approach: "why we reach out" } }),
+    ).approach,
+    "why we reach out",
+  );
 });
 
 test("nothing resolvable yields no keys, so the caller keeps its default", () => {
