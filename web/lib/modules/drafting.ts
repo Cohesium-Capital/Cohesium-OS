@@ -23,6 +23,12 @@ import type { RunModule, IngestOutcome } from "./types";
 
 export type DraftingConfig = {
   contacts: DraftContact[];
+  /** The run this drafting session was scoped to (the Draft page's ?run=
+   *  filter), when it was exactly one. The Runs timeline nests the drafting
+   *  entry inside that run's card; unscoped sessions span several runs and
+   *  stay top-level. Recorded at start — a run's config is its own record of
+   *  what it was asked to do. */
+  sourceRunId?: string | null;
   track?: TrackKind;
   // "single": one pasted batch; "agent": Claude Code fans chunks out to subagents.
   mode?: "single" | "agent";
