@@ -25,6 +25,8 @@
 *.pem
 
 # debug
+# CI tees the test run here to check whether the DB suites skipped.
+test.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

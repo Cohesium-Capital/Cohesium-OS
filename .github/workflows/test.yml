@@ -1,0 +1,84 @@
+name: Tests
+
+# Nothing ran the test suite until now — skill-sync.yml was the only workflow,
+# so 148 tests, including the golden fixtures that prove Cohesium's prompts have
+# not moved, lived entirely on whichever laptop last thought to run them.
+#
+# Postgres is a service here rather than an absence, because the 17 tests that
+# need it are the ones most worth running on every PR: they are what proves a
+# member of one workspace cannot read or write another's rows. Without a
+# database they skip, and a security guarantee that only runs when someone
+# remembers is not a guarantee.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes the first; no point finishing a run for a commit
+# nobody will look at.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Without the health check the first connection races container start,
+        # which reads as a flaky ECONNREFUSED — and rls.test.ts treats that as
+        # "no Postgres here" and SKIPS. The suite would go quietly missing
+        # rather than fail, which is the failure mode worth spending a health
+        # check to avoid.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        env:
+          # rls.test.ts creates and drops its own database from this connection.
+          TEST_PG_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+        # One run, then inspect what it said. The suite SKIPS when it cannot
+        # reach Postgres, so a green run proves nothing on its own — a broken
+        # service container would look exactly like a passing one, and the
+        # isolation tests would go quietly missing. pipefail keeps npm's exit
+        # code through the tee.
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+          if grep -q "skipping — no local Postgres" test.log; then
+            echo "::error::RLS/workspace-isolation tests skipped — the postgres service was unreachable"
+            exit 1
+          fi
+          echo "✓ database-backed tests ran against the service container"
+
+      - name: Lint
+        run: npx eslint .
