@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { currentWorkspace, currentWorkspaceId } from "./context";
-import { DEFAULT_PROFILE, type WorkspaceVocab } from "./identity";
+import { DEFAULT_COPY, DEFAULT_PROFILE, type WorkspaceVocab } from "./identity";
 import { workspaceProfile } from "./profile";
 import {
   buildExamples,
@@ -663,4 +663,131 @@ export async function currentWorkedExamples(): Promise<{
     goldMsp: profile.copy.goldMsp,
     isDefault: !stored?.goldCustomer,
   };
+}
+
+/**
+ * The framing blocks: the prose around the worked examples that tells the model
+ * WHO it is writing to and what a subject line should look like.
+ *
+ * Editable here rather than only by migration because they are market-specific
+ * in a way vocabulary substitution cannot reach — "where a TPA takes the
+ * compliance work off their plate" is a sentence about one industry, not a word
+ * that can be swapped. A tenant whose angles are wrong has no other way to fix
+ * them, and wrong angles are worse than generic ones: they make confident,
+ * fluent claims about the recipient's job that happen not to be true.
+ *
+ * `approachInline` and `approachBullet` stay out of this deliberately. They are
+ * wrapped renderings of `approach`, which the identity panel already edits, and
+ * their LINE BREAKS are part of the prompt hash — editing them in a textarea
+ * would fork prompt_versions on invisible whitespace.
+ */
+const FRAMING_KEYS = [
+  "personaAnglesCustomer",
+  "personaAnglesMsp",
+  "subjectShapesCustomer",
+  "subjectShapesMsp",
+  "perspectiveCustomer",
+  "perspectiveMsp",
+] as const;
+
+export type FramingKey = (typeof FRAMING_KEYS)[number];
+export type FramingCopy = Record<FramingKey, string>;
+
+/** The effective blocks (a workspace's own, or the built-in defaults). */
+export async function currentFramingCopy(): Promise<{
+  copy: FramingCopy;
+  defaults: FramingCopy;
+  overridden: FramingKey[];
+}> {
+  await requireUser();
+  const workspaceId = await currentWorkspaceId();
+  const supabase = await createClient();
+  const profile = await workspaceProfile(supabase, workspaceId);
+  const { data } = await supabase
+    .from("workspace_profile")
+    .select("copy")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  const stored = (data?.copy as Record<string, string> | null) ?? null;
+
+  const copy = {} as FramingCopy;
+  const defaults = {} as FramingCopy;
+  const overridden: FramingKey[] = [];
+  for (const key of FRAMING_KEYS) {
+    copy[key] = profile.copy[key];
+    defaults[key] = DEFAULT_COPY[key];
+    // Which fields this workspace has actually changed — so the UI can say
+    // "yours" rather than presenting an inherited default as a decision made.
+    if (stored?.[key]) overridden.push(key);
+  }
+  return { copy, defaults, overridden };
+}
+
+/** Save the framing blocks, merging into whatever else `copy` holds. */
+export async function saveFramingCopy(input: Partial<FramingCopy>): Promise<void> {
+  const workspaceId = await assertAdmin();
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  const next: Record<string, string> = {};
+  for (const key of FRAMING_KEYS) {
+    const value = input[key];
+    if (value === undefined) continue;
+    const trimmed = value.trim();
+    // An empty block would delete a section of the prompt rather than reset it,
+    // and the result reads as a prompt someone forgot to finish. Reset is a
+    // separate, explicit action.
+    if (!trimmed) throw new Error("A framing block cannot be empty — use Reset to restore the default.");
+    next[key] = trimmed;
+  }
+  if (!Object.keys(next).length) return;
+
+  // Same merge discipline as saveWorkedExamples: `copy` is one jsonb column
+  // shared with the gold examples, and an upsert that names only these keys
+  // would drop the rest.
+  const { data: existing } = await supabase
+    .from("workspace_profile")
+    .select("copy")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+
+  const { error } = await supabase.from("workspace_profile").upsert(
+    {
+      workspace_id: workspaceId,
+      copy: { ...((existing?.copy as Record<string, string> | null) ?? {}), ...next },
+      updated_at: new Date().toISOString(),
+      updated_by: user.email ?? user.id,
+    },
+    { onConflict: "workspace_id" },
+  );
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
+/** Drop this workspace's override for one block, restoring the built-in text. */
+export async function resetFramingBlock(key: FramingKey): Promise<void> {
+  const workspaceId = await assertAdmin();
+  const user = await requireUser();
+  const supabase = await createClient();
+  if (!FRAMING_KEYS.includes(key)) throw new Error(`Not a framing block: ${key}`);
+
+  const { data: existing } = await supabase
+    .from("workspace_profile")
+    .select("copy")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  const copy = { ...((existing?.copy as Record<string, string> | null) ?? {}) };
+  delete copy[key];
+
+  const { error } = await supabase.from("workspace_profile").upsert(
+    {
+      workspace_id: workspaceId,
+      copy,
+      updated_at: new Date().toISOString(),
+      updated_by: user.email ?? user.id,
+    },
+    { onConflict: "workspace_id" },
+  );
+  if (error) throw new Error(error.message);
+  refresh();
 }
