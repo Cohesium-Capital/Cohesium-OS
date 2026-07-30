@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { guard } from "../_auth";
+import { guard } from "../../_auth";
 import { withRls, asSupabase } from "@/lib/db/rls";
 import { createRun } from "@/lib/runs/lifecycle";
 import { MODE_RUN_LABEL } from "@/lib/sourcing/prompts";

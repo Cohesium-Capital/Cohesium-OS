@@ -6,8 +6,23 @@ import { authenticateRunner, isAuthFailure, type RunnerAuth } from "@/lib/auth/r
 // an RLS-bound client, then validate the JSON body. Both failures return the
 // same shape so the agent driving the run gets an actionable message rather
 // than a bare status code — it has to be able to diagnose itself.
+//
+// Lives here rather than under sourcing/ because the ingest route is now
+// module-generic: hooks and drafts come back through the same door.
 
-export const SCOPE = "sourcing";
+/** Scope for the three sourcing endpoints: start a run, check candidates, ingest. */
+export const SOURCING_SCOPE = "sourcing";
+
+/**
+ * Scope for posting a module's output back to a run started in the UI.
+ *
+ * Separate from `sourcing` on purpose, and not a widening of it: a drafting
+ * ingest writes touches — message bodies — which is a broader grant than
+ * researching companies. It is still bounded by the send queue (every draft
+ * lands unapproved), but it deserves its own opt-in rather than arriving
+ * silently on credentials minted for sourcing.
+ */
+export const INGEST_SCOPE = "ingest";
 
 export type Guarded<T> =
   | { ok: true; auth: RunnerAuth; body: T }
@@ -19,8 +34,9 @@ const fail = (error: string, status: number, hint?: string) =>
 export async function guard<T>(
   req: Request,
   schema: z.ZodType<T>,
+  scope: string = SOURCING_SCOPE,
 ): Promise<Guarded<T>> {
-  const auth = await authenticateRunner(req, SCOPE);
+  const auth = await authenticateRunner(req, scope);
   if (isAuthFailure(auth)) {
     return {
       ok: false,
@@ -29,11 +45,14 @@ export async function guard<T>(
         auth.status,
         auth.status === 401
           ? "Send Authorization: Bearer <token>. Create a token in the app under Settings → API tokens."
-          : undefined,
+          : auth.status === 403
+            ? // A token minted before this scope existed is the likely cause, and
+              // it cannot be granted retroactively — scopes are fixed at mint.
+              `This token was created without the "${scope}" scope. Mint a new one in the app under Settings → API tokens; scopes are fixed when a token is created.`
+            : undefined,
       ),
     };
   }
-
 
   let raw: unknown;
   try {

@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { createRun, ingestRun, type CreatedRun } from "./lifecycle";
 import { learningTick } from "@/lib/learning/tick";
 import { currentWorkspaceId } from "@/lib/workspace/context";
+import { deliveryFooter } from "./delivery";
 import type { IngestOutcome, ModuleKey } from "@/lib/modules/types";
 import type { LearningModule } from "@/lib/learning/signals";
 
@@ -27,6 +29,16 @@ export async function startRun(input: {
     workspaceId: await currentWorkspaceId(),
   });
   revalidatePath("/runs");
+
+  // Agent mode hands the work to Claude Code, which can make the request itself.
+  if (input.config.mode === "agent") {
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "https";
+    if (host) {
+      return { ...created, prompt: created.prompt + deliveryFooter(created.runId, `${proto}://${host}`) };
+    }
+  }
   return created;
 }
 

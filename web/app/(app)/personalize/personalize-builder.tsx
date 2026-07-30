@@ -248,10 +248,13 @@ export function PersonalizeBuilder({
       {runId && (
         <Card>
           <CardHeader>
-            <CardTitle>2. Paste the hooks JSON</CardTitle>
+            <CardTitle>{mode === "single" ? "2. Paste the hooks JSON" : "2. Or paste the hooks JSON"}</CardTitle>
             <CardDescription>
-              Bring back the JSON and import it. A sample lands in the verify queue below —
-              drafting consumes hooks only after the batch clears its gate.
+              {mode === "agent"
+                ? "The fan-out prompt ends with a command that posts the result back on its own, so this box is the fallback — for a session without network access, or a token minted before the ingest scope existed."
+                : "Bring back the JSON and import it."}{" "}
+              A sample lands in the verify queue below — drafting consumes hooks only after the
+              batch clears its gate.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">

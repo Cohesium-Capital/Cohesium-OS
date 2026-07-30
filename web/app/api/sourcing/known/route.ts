@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { guard } from "../_auth";
+import { guard } from "../../_auth";
 import { withRls, asSupabase } from "@/lib/db/rls";
 import { loadOrgIndex, partitionCandidates } from "@/lib/sourcing/known";
 

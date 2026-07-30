@@ -165,7 +165,10 @@ A tenant whose market vocabulary matters to the framing should therefore take th
 
 ## API
 
-All routes require `Authorization: Bearer <token>` with the `sourcing` scope.
+All routes require `Authorization: Bearer <token>`. The three `/api/sourcing/*`
+routes need the `sourcing` scope; `/api/runs/<id>/ingest` needs `ingest`.
+**Scopes are fixed when a token is minted** — a token created before a scope
+existed cannot be granted it, so a 403 there means minting a new one.
 
 ### `POST /api/sourcing/runs`
 
@@ -212,6 +215,36 @@ The uncapped check. Up to 2000 candidates per request; call as often as needed.
   the same company under a different MSP is genuine new information.
 - **unscoped**: known if we hold the company at all, regardless of MSP — for
   plain research there's no reason to spend a search on a company we have.
+
+### `POST /api/runs/<runId>/ingest`
+
+Post any module's output back to a run **started in the app** — hook research or
+drafting, not just sourcing. Requires the **`ingest`** scope. The body is that
+module's own contract (`{"hooks": [...]}`, `{"drafts": [...]}`), and an optional
+`requireEvidence` boolean, which is stripped before the payload reaches the
+module's parser.
+
+This is the other half of the fan-out modes on Personalize and Draft: pick
+**Fan out (Claude Code)**, and the prompt you copy ends with the exact `curl` for
+this endpoint, addressed to that run. Nobody moves JSON by hand.
+
+Why those two stages still start in the UI: their configs come from database
+questions — which contacts lack a usable hook, which are draftable now — so
+there is nothing for an agent to decide. Sourcing can start itself because a
+region and a profile are enough to begin.
+
+Two behaviours worth knowing:
+
+- **`createdBy` comes from `runs.created_by`, not the token owner.** For drafting
+  that is load-bearing: it becomes `touches.created_by`, which is what the email
+  cron resolves the From: mailbox from, while the body was already rendered with
+  the run creator's sign-off (migrations 045/046). Stamping the token holder
+  would send a message signed by one person from another's mailbox.
+- **Evidence defaults per module** rather than being forced on. Sourcing's own
+  route hardcodes `requireEvidence: true`; here the module decides, because
+  drafting has no evidence to require.
+
+`200` = landed. `422` = **nothing was imported**; read `error` and `messages`.
 
 ### `POST /api/sourcing/runs/<runId>/ingest`
 
