@@ -41,6 +41,26 @@ export type WorkspaceVocab = {
   market: string;
   /** "managed IT" — the bare category, for subject lines. */
   marketShort: string;
+  /**
+   * "IT" — the FUNCTION inside a prospect that the provider is hired to carry.
+   *
+   * This is the one the prompts kept getting wrong, because it is not the
+   * provider under another name. `head_of_it` is the second persona at every
+   * customer we research, and describing them needs the function ("the person
+   * who leads IT"), not the vendor. A tenant whose providers administer
+   * retirement plans sets "HR or benefits" here; the persona KEY stays
+   * `head_of_it`, since it is a schema CHECK and a JSON contract literal.
+   */
+  customerFunction: string;
+  /**
+   * "IT provider" — how a customer casually names the provider they hired.
+   *
+   * Distinct from providerGeneric ("managed IT provider") only because the
+   * prompts already say the shorter thing, and moving Cohesium's bytes to reuse
+   * an existing key would fork prompt_versions for no behavioural gain. A TPA
+   * tenant sets "TPA" and both read correctly.
+   */
+  providerCasual: string;
 };
 
 /**
@@ -96,6 +116,28 @@ export const DEFAULT_IDENTITY: WorkspaceIdentity = {
     "we learn a market by talking with the experienced\n  people running it, about what matters and what pain points still need solving,\n  and it lets us build a network of sharp operators we can be useful to over time,\n  through intros, hiring, and advisor roles.",
 };
 
+/**
+ * "a" or "an" for a market term.
+ *
+ * English picks the article by SOUND, and the provider terms are the one place a
+ * tenant's vocabulary changes which one is right: "an MSP" (em) but "a TPA"
+ * (tee); "a managed IT service provider" but "an insurance brokerage". The
+ * prompts hardcoded "an", which is correct for Cohesium and produced "an TPA"
+ * throughout Ilium's — exactly the tell that makes outreach read as generated.
+ *
+ * An ALL-CAPS term is read letter by letter, so its article follows the first
+ * LETTER'S NAME: A, E, F, H, I, L, M, N, O, R, S and X start with a vowel sound.
+ * Anything else is an ordinary word, judged by its first letter. The irregular
+ * cases English keeps ("a university") are beyond a helper this size; a tenant
+ * that hits one can word around it in Settings.
+ */
+export function articleFor(term: string): "a" | "an" {
+  const first = term.trim().split(/[\s-]/)[0] ?? "";
+  if (!first) return "a";
+  if (/^[A-Z]{2,}$/.test(first)) return "AEFHILMNORSX".includes(first[0]) ? "an" : "a";
+  return /^[aeiou]/i.test(first) ? "an" : "a";
+}
+
 export const DEFAULT_VOCAB: WorkspaceVocab = {
   providerSingular: "managed IT service provider",
   providerPlural: "managed IT service providers",
@@ -104,6 +146,8 @@ export const DEFAULT_VOCAB: WorkspaceVocab = {
   providerGeneric: "managed IT provider",
   market: "managed IT market",
   marketShort: "managed IT",
+  customerFunction: "IT",
+  providerCasual: "IT provider",
 };
 
 /**

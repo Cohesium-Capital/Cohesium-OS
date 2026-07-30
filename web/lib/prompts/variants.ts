@@ -11,7 +11,17 @@ import {
   type DraftContact,
   type TrackKind,
 } from "../drafting/prompt";
-import { completeProfile, COHESIUM_COPY, type WorkspaceProfile } from "../workspace/identity";
+import {
+  completeProfile,
+  COHESIUM_COPY,
+  DEFAULT_PROFILE,
+  type WorkspaceProfile,
+} from "../workspace/identity";
+import {
+  personalizationModule,
+  type PersonalizationConfig,
+  type PersonalizationContact,
+} from "../modules/personalization";
 
 // Cohesium's profile: the built-in identity with their own worked examples,
 // which is exactly what migration 039 seeds into their workspace_profile. The
@@ -169,8 +179,83 @@ function draftingVariants(): { name: string; text: string }[] {
   return out;
 }
 
+/**
+ * Hook research, which had no golden coverage at all until the vocabulary
+ * reached it — so nothing proved that making its one market-specific line
+ * configurable left Cohesium's prompt alone.
+ *
+ * Rendered under two vocabularies rather than two example sets: unlike drafting,
+ * this prompt carries no worked examples, so the only thing a tenant changes in
+ * it is the vocabulary. `default_` is Cohesium's exact prior text; `tpa_` is the
+ * second tenant's market, and exists so a substitution that silently stops
+ * happening shows up as a diff instead of as fluent wrong output.
+ */
+function personalizationVariants(): { name: string; text: string }[] {
+  const contacts: PersonalizationContact[] = [
+    {
+      contact_id: "c-1",
+      full_name: "Ana Delgado",
+      title: "Practice Owner",
+      company_name: "Bright Harbor Clinics",
+      company_domain: "brightharbor.example",
+      current_msp: "Harbor IT",
+    },
+    {
+      contact_id: "c-2",
+      full_name: "Ravi Menon",
+      title: null,
+      company_name: "Cobalt Freight",
+      company_domain: null,
+      current_msp: null,
+    },
+  ];
+
+  const TPA = completeProfile({
+    vocab: {
+      ...DEFAULT_PROFILE.vocab,
+      providerSingular: "third-party administrator",
+      providerPlural: "third-party administrators",
+      providerAbbrev: "TPA",
+      providerAbbrevPlural: "TPAs",
+      providerGeneric: "TPA",
+      market: "retirement TPA market",
+      marketShort: "retirement TPA",
+      customerFunction: "HR or benefits",
+      providerCasual: "TPA",
+    },
+  });
+
+  const out: { name: string; text: string }[] = [];
+  for (const [prefix, profile] of [
+    ["default_", DEFAULT_PROFILE],
+    ["tpa_", TPA],
+  ] as const) {
+    for (const [label, learned] of [
+      ["no-learned", ""],
+      ["learned", LEARNED],
+    ] as const) {
+      const config: PersonalizationConfig = {
+        contacts,
+        profile,
+        ...(learned ? { learnedRules: learned } : {}),
+      };
+      out.push({
+        name: `personalization_${prefix}${label}_template`,
+        text: personalizationModule.templateText!(config),
+      });
+      out.push({
+        name: `personalization_${prefix}${label}_rendered`,
+        text: personalizationModule.renderPrompt(null, config),
+      });
+    }
+  }
+  return out;
+}
+
 export function allPromptVariants(): { name: string; text: string }[] {
-  return [...sourcingVariants(), ...draftingVariants()].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  return [
+    ...sourcingVariants(),
+    ...draftingVariants(),
+    ...personalizationVariants(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
 }

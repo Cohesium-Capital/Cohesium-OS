@@ -5,5 +5,7 @@
   "providerAbbrevPlural": "providers",
   "providerGeneric": "provider",
   "market": "market",
-  "marketShort": "market"
+  "marketShort": "market",
+  "customerFunction": "that function",
+  "providerCasual": "provider"
 }

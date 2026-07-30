@@ -4,6 +4,7 @@
 // instead of the metered API is the project's cost lever.
 
 import {
+  articleFor,
   DEFAULT_PROFILE,
   type WorkspaceProfile,
   type WorkspaceVocab,
@@ -140,7 +141,7 @@ const methodsText = (v: WorkspaceVocab) => `Where to look (highest-yield first):
 - LinkedIn win/onboarding posts: site:linkedin.com/posts "<${v.providerAbbrev}>" (welcome OR
   "new client" OR onboarded), and press releases, local business-journal news,
   and award announcements naming the ${v.providerAbbrev}.
-- If a source only gives an anonymized reference (e.g. "the IT Director at a
+- If a source only gives an anonymized reference (e.g. "the ${v.customerFunction} Director at a
   Richmond law firm"), resolve it: combine the clues (industry + city + title +
   first name) and search LinkedIn / company sites to name the real company and
   person. Only assert a match with two or more corroborating clues; otherwise
@@ -164,7 +165,7 @@ named contact at each.`;
 // The provider-relationship methods, offered as an optional bonus pass for
 // research_customers rather than the mode's main job.
 const providerLinkMethods = (v: WorkspaceVocab) =>
-  `If you want to try to identify a company's IT provider (optional, only when it
+  `If you want to try to identify a company's ${v.providerCasual} (optional, only when it
 is cheap to do), these are the highest-yield places: the ${v.providerAbbrev}'s own case
 studies, testimonials, and client logo walls; review sites like Clutch, G2,
 UpCity and TechBehemoths that name the reviewer's company; web-wide
@@ -233,7 +234,7 @@ export function buildTemplateText(params: PromptParams): string {
       `You are sourcing ${v.providerPlural} (${v.providerAbbrevPlural}) as potential acquisition targets.`,
       `Find up to {{count}} real ${v.providerAbbrevPlural} based in {{region}}.`,
       profile ? `Target profile: {{targetProfile}}.` : "",
-      `For each ${v.providerAbbrev}, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is an ${v.providerAbbrev}.`,
+      `For each ${v.providerAbbrev}, set "current_msp_name" to null and leave "contacts" as an empty array unless a leader is clearly named. Every organization you return is ${articleFor(v.providerAbbrev)} ${v.providerAbbrev}.`,
       "",
       viaApi ? checkViaApiText(v) : hasKnown ? EXCLUSIONS : "",
       contractText(v),
@@ -252,7 +253,7 @@ export function buildTemplateText(params: PromptParams): string {
       profile ? `Target profile: {{targetProfile}}.` : "",
       `Qualification is profile fit and geography — nothing else. A company qualifies if it matches the profile above and is based in the region.`,
       providerLinkOptional(v),
-      `Identify a contact at EVERY company you return: the owner/decision-maker ("owner") or the person who leads IT ("head_of_it"). A company with no contact is not usable, so put the search effort into finding a named person. Every organization you return is a customer (not an ${v.providerAbbrev}).`,
+      `Identify a contact at EVERY company you return: the owner/decision-maker ("owner") or the person who leads ${v.customerFunction} ("head_of_it"). A company with no contact is not usable, so put the search effort into finding a named person. Every organization you return is a customer (not ${articleFor(v.providerAbbrev)} ${v.providerAbbrev}).`,
       "",
       viaApi ? checkViaApiText(v) : hasKnown ? EXCLUSIONS : "",
       providerLinkMethods(v),
@@ -271,7 +272,7 @@ export function buildTemplateText(params: PromptParams): string {
     `You are finding the CUSTOMERS of specific ${v.providerPlural} (${v.providerAbbrevPlural}), so we can study how their clients work with them.`,
     `For each ${v.providerAbbrev} listed below, find up to {{count}} real companies that are its clients.`,
     profile ? `Prefer customers matching: {{targetProfile}}.` : "",
-    `Set each customer's "current_msp_name" to the EXACT ${v.providerAbbrev} name from this list it belongs to. Set "confidence" by how clearly that client relationship is documented. Identify an owner/decision-maker ("owner") or IT lead ("head_of_it") contact when findable. Every organization you return is a customer.`,
+    `Set each customer's "current_msp_name" to the EXACT ${v.providerAbbrev} name from this list it belongs to. Set "confidence" by how clearly that client relationship is documented. Identify an owner/decision-maker ("owner") or ${v.customerFunction} lead ("head_of_it") contact when findable. Every organization you return is a customer.`,
     "",
     `${v.providerAbbrevPlural}:`,
     `{{mspList}}`,

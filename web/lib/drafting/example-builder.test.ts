@@ -16,6 +16,8 @@ const STAFFING = completeProfile({
     providerGeneric: "staffing partner",
     market: "light industrial staffing market",
     marketShort: "staffing",
+    customerFunction: "hiring",
+    providerCasual: "staffing partner",
   },
 });
 

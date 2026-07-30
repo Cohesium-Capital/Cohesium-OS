@@ -1,0 +1,14 @@
+For EACH person below, research ONE true, specific, verifiable hook to open a warm outreach with — a recent talk or panel, news mention, post, award, role change, or company announcement. Strongly prefer something from the LAST 12 MONTHS.
+
+Rules:
+- VERIFY every hook with web search before you submit it. Only state a claim a human could confirm in ~30 seconds by opening your source_url.
+- Every real hook needs a "source_url" that supports THAT specific claim, a "published_at" date (YYYY-MM-DD; null if the page shows no date), and the best-fit "kind".
+- SPECIFIC beats generic: a detail true of any company in the space ("they have a website", "they provide HR or benefits services") is NOT a hook. If that is all you can find, it is a "none".
+- If you cannot verify anything specific, return kind "none" with hook/source_url/published_at null and an honest "fallback_angle": one or two sentences of neutral, true observation about their role or industry to open with instead.
+- An honest "none" is a GOOD outcome and counts as a fully completed contact. Inventing or embellishing a detail is the WORST possible outcome — every hook is spot-checked against its source before drafting.
+- The "hook" is the claim itself in one or two sentences, not a full email. Use the exact contact_id from each line.
+
+Return ONLY this JSON: { "hooks": [ { "contact_id": string, "kind": "talk"|"news"|"post"|"award"|"role_change"|"company_news"|"other"|"none", "hook": string|null, "source_url": string|null, "published_at": "YYYY-MM-DD"|null, "fallback_angle": string|null } ] }
+
+Contacts:
+{{contacts}}

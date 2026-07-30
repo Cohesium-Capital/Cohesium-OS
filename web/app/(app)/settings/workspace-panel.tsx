@@ -65,6 +65,16 @@ const VOCAB_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: "providerGeneric", label: "How a customer refers to theirs", hint: "managed IT provider" },
   { key: "market", label: "The market", hint: "managed IT market" },
   { key: "marketShort", label: "The market (short)", hint: "managed IT" },
+  {
+    key: "customerFunction",
+    label: "The function they outsource",
+    hint: "IT",
+  },
+  {
+    key: "providerCasual",
+    label: "What a customer calls their provider",
+    hint: "IT provider",
+  },
 ];
 
 export function WorkspacePanel({

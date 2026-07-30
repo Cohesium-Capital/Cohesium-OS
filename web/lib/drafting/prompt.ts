@@ -6,15 +6,18 @@
 //
 // Two tracks, one honest premise. The pipeline carries two audiences that need
 // different registers:
-//   - "customer": people who run or lead IT at a company that USES an MSP —
-//     the conversation is about how they work with their IT provider.
-//   - "msp": people who own or run an MSP — the acquisition targets. The
-//     conversation is about building and operating an MSP, from the operator's
-//     side. Never frame them as someone else's IT customer.
+//   - "customer": people who run or lead the function the provider is hired to
+//     carry (vocab.customerFunction — "IT" for Cohesium, "HR or benefits" for a
+//     retirement-plan tenant) at a company that USES a provider — the
+//     conversation is about how they work with that provider.
+//   - "msp": people who own or run a provider — the acquisition targets. The
+//     conversation is about building and operating one, from the operator's
+//     side. Never frame them as someone else's customer.
 // Batches are single-track by construction (the Draft page separates them), so
 // each generated prompt speaks one register throughout.
 
 import {
+  articleFor,
   DEFAULT_PROFILE,
   renderCopy,
   type WorkspaceProfile,
@@ -52,13 +55,13 @@ const headerFraming = (kind: TrackKind, p: WorkspaceProfile): string => {
   const v = p.vocab;
   return kind === "customer"
     ? `You draft warm first-touch outreach for ${p.senderName} at ${p.firmName}. Each recipient
-runs or leads IT at a company that uses a ${v.providerSingular} (an ${v.providerAbbrev}).
+runs or leads ${v.customerFunction} at a company that uses ${articleFor(v.providerSingular)} ${v.providerSingular} (${articleFor(v.providerAbbrev)} ${v.providerAbbrev}).
 The goal is an honest ask for a short conversation about how companies like
-theirs work with their IT provider. ${p.senderName} is genuinely researching the
+theirs work with their ${v.providerCasual}. ${p.senderName} is genuinely researching the
 ${v.market} and is not selling anything.`
     : `You draft warm first-touch outreach for ${p.senderName} at ${p.firmName}. Each recipient
-owns or helps run a ${v.providerSingular} (an ${v.providerAbbrev}). The goal is an honest
-ask for a short conversation about what it takes to build and operate an ${v.providerAbbrev}
+owns or helps run ${articleFor(v.providerSingular)} ${v.providerSingular} (${articleFor(v.providerAbbrev)} ${v.providerAbbrev}). The goal is an honest
+ask for a short conversation about what it takes to build and operate ${articleFor(v.providerAbbrev)} ${v.providerAbbrev}
 today, from the operator's side. ${p.senderName} is genuinely researching the
 ${v.market} and is not selling anything.`;
 };
@@ -192,7 +195,9 @@ function renderContactLines(contacts: DraftContact[], kind: TrackKind): string {
         c.city ? `city=${c.city}` : "",
         // The current_msp token is customer-track context (and its handling
         // rule only exists there). On the msp track a stray value would invite
-        // the model to frame an MSP owner as someone else's IT customer.
+        // the model to frame a provider's owner as someone else's customer.
+        // The token name stays `current_msp` in every market: it is a contract
+        // literal the importer and prompts agree on, like `mspIds`.
         kind === "customer" && c.current_msp ? `current_msp=${c.current_msp}` : "",
         // The personalization artifact: a verified hook claim (with its source
         // so the drafter can attribute naturally), or the honest no-hook angle.
@@ -264,8 +269,8 @@ export function buildDraftAgentPrompt(
   const chunks = Math.max(1, Math.ceil(n / chunkSize));
   const audience =
     kind === "msp"
-      ? `Every contact below owns or helps run a ${v.providerSingular} (an ${v.providerAbbrev}) — the outreach is about operating an ${v.providerAbbrev}, from the operator's side.`
-      : `Every contact below runs or leads IT at a company that uses a ${v.providerSingular} — the outreach is about how they work with their IT provider.`;
+      ? `Every contact below owns or helps run ${articleFor(v.providerSingular)} ${v.providerSingular} (${articleFor(v.providerAbbrev)} ${v.providerAbbrev}) — the outreach is about operating ${articleFor(v.providerAbbrev)} ${v.providerAbbrev}, from the operator's side.`
+      : `Every contact below runs or leads ${v.customerFunction} at a company that uses ${articleFor(v.providerSingular)} ${v.providerSingular} — the outreach is about how they work with their ${v.providerCasual}.`;
   const orchestration = `You are running a batch outreach drafting job in Claude Code for
 ${p.senderName} at ${p.firmName}. There are ${n} contacts below. ${audience}
 Do NOT draft them all yourself in one pass — fan the work out so each message
