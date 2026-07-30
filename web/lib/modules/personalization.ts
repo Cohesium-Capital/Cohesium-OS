@@ -100,6 +100,14 @@ export type PersonalizationConfig = {
   contacts: PersonalizationContact[];
   /** stamped onto hooks rows so hook_outcomes can split by pipeline track */
   track?: "msp" | "customer";
+  /**
+   * "single": one batch pasted into a chat window.
+   * "agent": the whole list handed to Claude Code, which fans it out to
+   * subagents of `chunkSize` each. Same contract and same rules either way — see
+   * fanOutPreamble for why the orchestration is not part of the hashed template.
+   */
+  mode?: "single" | "agent";
+  chunkSize?: number;
   /** Rules learned from rejected hooks (migration 025). */
   learnedRules?: string;
   /**
@@ -144,12 +152,57 @@ const templateFor = (v: WorkspaceVocab) => [
 const profileOf = (config: PersonalizationConfig): WorkspaceProfile =>
   config.profile ?? DEFAULT_PROFILE;
 
+/**
+ * Contacts per subagent in agent mode. Lower than drafting's 15 on purpose: a
+ * draft is writing from a line that already carries its facts, while a hook is
+ * several searches, a source to verify and a judgement about whether the claim
+ * is specific enough to use. Smaller slices keep that attention per contact.
+ */
+export const HOOK_CHUNK_SIZE = 8;
+
+/**
+ * The fan-out instructions, prepended to the same prompt single mode uses.
+ *
+ * Deliberately NOT part of templateText, exactly as in drafting: this is
+ * scaffolding for how the work is handed out, not the research brief. Hashing it
+ * would fork prompt_versions by execution style and split one prompt's error
+ * rate across two versions that ask for identical work.
+ *
+ * The one instruction that has no counterpart in drafting is web search. There,
+ * personalization is already done and subagents are told NOT to search; here
+ * searching IS the task, and a subagent that reasons from memory instead is the
+ * failure this stage exists to prevent.
+ */
+const fanOutPreamble = (p: WorkspaceProfile, n: number, chunkSize: number): string => {
+  const chunks = Math.max(1, Math.ceil(n / chunkSize));
+  return `You are running a batch hook-research job in Claude Code for ${p.senderName} at
+${p.firmName}. There are ${n} contacts below and each one needs ONE verified,
+sourced hook. Do NOT research them all yourself in one pass — fan the work out so
+every contact gets real search effort.
+
+Unlike drafting, this stage IS research: every subagent must use web search.
+
+1. Split the ${n} contacts into ${chunks} chunk(s) of up to ${chunkSize}.
+2. Spawn one subagent per chunk with the Task tool, running them in parallel.
+   Give each subagent its slice of contact lines and every rule below.
+3. Each subagent researches only its own slice, with web search, and returns the
+   JSON object described below carrying only its own contacts.
+4. When every subagent has returned, merge their "hooks" arrays into ONE JSON
+   object and print it as your FINAL message, with NO surrounding prose or
+   markdown, so it can be pasted straight back into the importer.
+
+The merged array must hold exactly one row per contact_id below: a fan-out's
+characteristic failure is a chunk going quietly missing. An honest "none" with a
+fallback_angle is a COMPLETED contact, not a gap to fill — dropping a contact, or
+padding a guess to avoid a "none", are the two worst outcomes available here.`;
+};
+
 export const personalizationModule: RunModule<PersonalizationConfig, HooksPayload> = {
   key: "personalization",
   label: "personalization hooks",
 
   renderPrompt(_template, config) {
-    const vocab = profileOf(config).vocab;
+    const profile = profileOf(config);
     const lines = (config.contacts ?? []).map((c, i) => {
       const company = c.company_domain ? `${c.company_name} (${c.company_domain})` : c.company_name;
       const parts = [
@@ -162,8 +215,13 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
       return parts.join("; ");
     });
     // Function replacement so contact data is inserted literally ($ not special).
-    const rendered = templateFor(vocab).replace("{{contacts}}", () => lines.join("\n"));
-    return config.learnedRules ? `${rendered}\n\n${config.learnedRules}` : rendered;
+    const rendered = templateFor(profile.vocab).replace("{{contacts}}", () => lines.join("\n"));
+    const brief = config.learnedRules ? `${rendered}\n\n${config.learnedRules}` : rendered;
+    // Agent mode prepends the hand-off to the SAME brief rather than rewording
+    // it, so the rules a subagent follows cannot drift from the pasted path's.
+    return config.mode === "agent"
+      ? `${fanOutPreamble(profile, lines.length, config.chunkSize ?? HOOK_CHUNK_SIZE)}\n\n${brief}`
+      : brief;
   },
 
   // Learned rules append to the template, so a rule change re-hashes into a
