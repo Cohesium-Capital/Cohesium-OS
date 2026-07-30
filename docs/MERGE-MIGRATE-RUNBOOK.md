@@ -145,7 +145,25 @@ forked `prompt_versions` for no behavioural gain.
 
 Vocabulary is word-substituted. Prose is not: gold examples and persona angles
 are written for one market, so a new workspace replaces the block wholesale via
-`copy` (which supports `{{tokens}}`). Those blocks are not yet editable in the UI.
+`copy` (which supports `{{tokens}}`). Gold examples are editable in Settings;
+the other blocks change only by migration.
+
+Two vocabulary terms arrived later than the rest (`047`) because no prompt asked
+for them until Ilium's read wrong, and the distinction they encode is the one to
+keep straight when adding a third:
+
+- `customerFunction` — the function inside a **prospect** that the provider is
+  hired to carry ("IT" / "HR or benefits"). It names the second persona. The
+  persona KEY stays `head_of_it` in every market: schema CHECK and contract
+  literal, like `mspIds`.
+- `providerCasual` — how a customer casually names the provider they hired
+  ("IT provider" / "TPA"). Distinct from `providerGeneric` only because the
+  prompts already said the shorter thing, and reusing the existing key would have
+  moved Cohesium's bytes for no gain.
+
+Articles follow the vocabulary too (`articleFor`): "an MSP" but "a TPA", read
+from the first letter's NAME for an initialism. Hardcoding "an" is what put
+"an TPA" through every Ilium prompt.
 
 **Phase 3 — administration.** Creating a workspace goes through the
 `create_workspace()` function, never a direct insert, so the workspace and its
@@ -194,12 +212,26 @@ trade.
 
 ## Still to come
 
-- **Reply capture is still single-mailbox.** It polls the one env mailbox, so it
-  cannot tell two tenants' replies apart. It no longer stops the cron: it skips,
-  records why, and sending continues per workspace. Only an *unmatched* reply is
-  at risk — one that resolves to a contact takes that contact's workspace.
-  Finishing this means looping capture over the configured IMAP identities.
-- The `copy` blocks (gold examples, persona angles) have no UI yet.
+- ~~**Reply capture is still single-mailbox.**~~ **Done.** Capture now loops the
+  configured identities: every `sending_identity` naming an inbox is polled, and
+  what it captures files under that identity's workspace. The env mailbox belongs
+  to the **operator workspace** — the oldest one — and to nobody else, the same
+  gate the send path uses.
+
+  Capture-before-send survives, per inbox rather than per instance, and the
+  keying is the part worth remembering: `capturedOk` is keyed on **inbox
+  (host|user), not workspace**, because since `043` a personal mailbox follows
+  its owner across workspaces, which makes "was this workspace's inbox captured?"
+  ill-formed. The send loop asks "was the inbox the RESOLVED IDENTITY sends from
+  captured this run?" so the two sides key on the same thing.
+
+  Consequence for a new tenant: **a workspace with no inbox cannot send at all.**
+  It cannot see an opt-out sitting in the mail, so its sends are held with an
+  error naming the fix. An SMTP-only identity is therefore a mailbox that never
+  sends — configure IMAP with it, or neither.
+- The `copy` blocks are **partly** editable now: `037`'s worked-examples panel
+  edits `goldCustomer` and `goldMsp`. The rest — persona angles, perspectives,
+  subject shapes — still have no UI and change only by migration.
 - ~~`034` promoted the four `ripley@*` accounts to workspace admin.~~ Reviewed
   and settled in `037`: `matt@cohesium.co` is an admin, and the typo account
   `ripley@cohersiumcap.com` was removed outright — it had never signed in and
