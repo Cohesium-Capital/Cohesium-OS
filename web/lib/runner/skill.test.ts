@@ -2,7 +2,13 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { RUNNER_SKILL, renderRunnerSkill, runnerEnvTemplate } from "./skill";
+import {
+  RUNNER_SKILL,
+  renderRunnerSkill,
+  runnerEnvTemplate,
+  publicRunnerSkill,
+  NEUTRAL_VOCAB,
+} from "./skill";
 import { DEFAULT_VOCAB } from "../workspace/identity";
 
 // skill.json is a build artefact of the canonical SKILL.md, and the app hands it
@@ -60,6 +66,31 @@ describe("runner skill bundle", () => {
     assert.match(tpa, /"mode":"research_customers"/);
     assert.match(tpa, /research_msps/);
     assert.match(tpa, /mspIds/);
+  });
+
+  test("the public repo copy belongs to no tenant and shows no raw tokens", () => {
+    // What publish-skill.mjs pushes. A collaborator reads this file directly, so
+    // both failure modes it sits between are asserted: leftover {{tokens}}, and
+    // Cohesium's market leaking into every tenant's copy.
+    const publicCopy = publicRunnerSkill().content;
+    assert.ok(!publicCopy.includes("{{"), "no unrendered tokens in the published copy");
+    assert.ok(!/\bMSPs?\b/.test(publicCopy), "the public copy must not name one tenant's market");
+    assert.match(publicCopy, /find providers themselves/);
+
+    // Every token the canonical file uses must have a neutral value, or the
+    // published copy would ship literal braces. This is what publish-skill.mjs
+    // re-checks at push time; here it fails in `npm test` instead.
+    for (const token of RUNNER_SKILL.content.match(/\{\{(\w+)\}\}/g) ?? []) {
+      const key = token.slice(2, -2);
+      assert.ok(
+        key in NEUTRAL_VOCAB,
+        `${token} has no entry in neutral-vocab.json — add one`,
+      );
+    }
+
+    // The API contract survives neutral rendering too.
+    assert.match(publicCopy, /research_msps/);
+    assert.match(publicCopy, /mspIds/);
   });
 
   test("the env template prefills the deployment origin and never a real token", () => {

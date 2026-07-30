@@ -92,6 +92,13 @@ export function RunnerSetup({
               the public runner repo. The skill comes with it — nothing to install, and no access
               to this codebase needed. It holds no credentials and no application code.
             </p>
+            <p className="text-muted-foreground">
+              That copy is worded generically (&ldquo;providers&rdquo;), because it is fetched
+              before anyone knows which workspace you work in. The download below is rendered in{" "}
+              <strong>this workspace&rsquo;s own vocabulary</strong> — take that one if the framing
+              matters to you. Either way the research brief itself arrives per run, already in your
+              market&rsquo;s language.
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
