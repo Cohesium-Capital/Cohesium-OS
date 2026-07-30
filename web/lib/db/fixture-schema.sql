@@ -3,9 +3,17 @@
 -- uuid keys, which are exactly what the adapter has to bind correctly) and the
 -- real RLS shape: auth.uid() driven by a GUC, policies gated on user_role().
 
+-- The role every policy below is granted TO, created FIRST because `create policy ... to
+-- authenticated` fails outright if the role does not yet exist. It lived at the
+-- END of this file until CI ran it against a container with no history: roles are
+-- CLUSTER-wide, so on a laptop the first run failed, left the role behind, and
+-- every run after it passed. A fresh database is the only place that shows.
+do $$ begin create role authenticated; exception when duplicate_object then null; end $$;
+
 create extension if not exists pgcrypto;
 
 create schema if not exists auth;
+grant usage on schema public, auth to authenticated;
 create table if not exists auth.users (id uuid primary key);
 
 create or replace function auth.uid() returns uuid language sql stable as $$
@@ -244,8 +252,6 @@ create policy "api_tokens owner only" on public.api_tokens
   for all to authenticated
   using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
-do $$ begin create role authenticated; exception when duplicate_object then null; end $$;
-grant usage on schema public, auth to authenticated;
 grant all on all tables in schema public to authenticated;
 
 -- Two workspaces so the tests can prove one cannot see the other.

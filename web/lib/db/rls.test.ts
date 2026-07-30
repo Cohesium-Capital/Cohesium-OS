@@ -95,9 +95,26 @@ before(async () => {
 } catch (e) {
     // Only "there is no Postgres here" is a legitimate skip. Anything else is a
     // real failure and must be visible, not silently turned into a green run.
-    const msg = e instanceof Error ? e.message : String(e);
-    if (!/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|password|authentication/i.test(msg)) throw e;
-    console.error(`[rls.test] skipping — no local Postgres: ${msg}`);
+    //
+    // Read the codes and the nested errors, not just the message. Node connects
+    // dual-stack, so a refused connection arrives as an AggregateError over
+    // ::1 and 127.0.0.1 — and AggregateError's own `message` is EMPTY. Matching
+    // on it alone therefore failed to recognise the one case this branch exists
+    // for: the rethrow aborted `before`, which cancelled all 17 tests and exited
+    // 1 on every machine without Postgres. A "loud skip" that fails the run is
+    // just a failure.
+    const reasons = (err: unknown): string[] => {
+      if (!(err instanceof Error)) return [String(err)];
+      const code = (err as { code?: unknown }).code;
+      return [
+        err.message,
+        typeof code === "string" ? code : "",
+        ...(err instanceof AggregateError ? err.errors.flatMap(reasons) : []),
+      ];
+    };
+    const why = reasons(e).filter(Boolean).join(" | ");
+    if (!/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|password|authentication/i.test(why)) throw e;
+    console.error(`[rls.test] skipping — no local Postgres: ${why}`);
   }
 });
 
