@@ -168,7 +168,23 @@ export function nextAction(run: FlowRun): { label: string; href: string } | null
     };
   if (run.sourced > run.reviewed)
     return { label: "Review the contacts", href: scoped("/review") };
-  if (run.reviewed > run.enriched) return { label: "Enrich via Clay", href: scoped("/review") };
+  // Clay has a permanent tail. Some contacts never write back at all — run 30-C
+  // pushed 20, saw 19 return within four minutes, and the twentieth never came —
+  // and some come back with nothing usable, which lands as `low_confidence` or
+  // `failed` rather than `enriched`. So "every reviewed contact is enriched" is a
+  // state an external service can withhold forever, and waiting on it is not an
+  // action anyone can take: the run stalls here with its remaining stages ready.
+  //
+  // Once anything has come back, enrichment counts as underway and the run moves
+  // on. Two cases this deliberately cannot see, both needing a count of contacts
+  // never pushed (`contacts.clay_pushed_at is null`) that flow_runs does not
+  // carry today:
+  //
+  //   - a PARTIAL push (10 of 20 sent) advances, with no reminder about the rest;
+  //   - a run whose every writeback was low_confidence still reads "Enrich via
+  //     Clay", while the enrich queue is empty because all of them were pushed.
+  if (run.reviewed > run.enriched && run.enriched === 0)
+    return { label: "Enrich via Clay", href: scoped("/review") };
   // A rejected draft outranks the pipeline's default order: the operator has
   // already looked at these and asked for them again, which is a more specific
   // instruction than "this stage usually comes next". Without this, a run whose
