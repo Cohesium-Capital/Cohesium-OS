@@ -1,0 +1,9 @@
+{
+  "providerSingular": "provider",
+  "providerPlural": "providers",
+  "providerAbbrev": "provider",
+  "providerAbbrevPlural": "providers",
+  "providerGeneric": "provider",
+  "market": "market",
+  "marketShort": "market"
+}

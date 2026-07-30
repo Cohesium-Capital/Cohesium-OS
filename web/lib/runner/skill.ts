@@ -1,4 +1,5 @@
 import skill from "./skill.json";
+import neutralVocab from "./neutral-vocab.json";
 import type { WorkspaceVocab } from "../workspace/identity";
 
 // The sourcing-runner skill, served to operators from Settings so onboarding a
@@ -41,6 +42,29 @@ export function renderRunnerSkill(vocab: WorkspaceVocab): {
   );
   return { ...RUNNER_SKILL, content };
 }
+
+/**
+ * Vocabulary for the copy published to the public runner repo.
+ *
+ * That copy is fetched by whoever selects the repo in Claude Code, so it belongs
+ * to no tenant and cannot be rendered for one. The two obvious alternatives are
+ * both wrong: publishing the canonical file leaves `{{providerAbbrevPlural}}`
+ * showing in a document a collaborator is meant to read, and rendering it with
+ * DEFAULT_VOCAB lends Cohesium's market ("MSPs") to every tenant — the thing
+ * migration 039 and this token substitution exist to stop.
+ *
+ * So the public copy says "provider(s)": generic, accurate for any market, and
+ * the words a reader would supply themselves. It costs nothing, because the
+ * per-run brief that actually governs the research is rendered from the
+ * workspace's own vocabulary server-side, and the skill's own text is procedure.
+ *
+ * `web/scripts/publish-skill.mjs` reads the same JSON, so the published bytes
+ * and this rendering cannot disagree.
+ */
+export const NEUTRAL_VOCAB: WorkspaceVocab = neutralVocab;
+
+/** Exactly what publish-skill.mjs pushes to the public repo. */
+export const publicRunnerSkill = () => renderRunnerSkill(NEUTRAL_VOCAB);
 
 /**
  * Public repository carrying only this skill.

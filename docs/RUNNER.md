@@ -139,6 +139,30 @@ export COHESIUM_API_TOKEN=cin_…
 5. Ask Claude Code to source — the `source-companies` skill
    (`.claude/skills/source-companies/SKILL.md`) carries the loop.
 
+### The skill exists in three places, worded two ways
+
+The canonical file carries `{{provider…}}` tokens so each tenant's copy names its
+own target universe. They resolve differently depending on where the copy comes
+from, and the difference is deliberate:
+
+| Copy | Wording |
+|---|---|
+| Canonical `.claude/skills/…/SKILL.md` + `web/lib/runner/skill.json` | tokens, unresolved |
+| **Settings → Runner setup** download | the **workspace's** vocabulary — "TPAs" for Ilium |
+| **Public `cohesium-runner` repo** | market-neutral — "providers" |
+
+The public repo is fetched by whoever selects it in Claude Code, before any
+workspace is known, so it cannot be rendered for one. Publishing the canonical
+file verbatim would show a reader raw `{{providerAbbrevPlural}}`, and rendering it
+with the code defaults would lend Cohesium's "MSPs" to every tenant — so
+`publish-skill.mjs` renders it with `NEUTRAL_VOCAB` (`web/lib/runner/
+neutral-vocab.json`) instead. Nothing is lost: the per-run brief that governs the
+research is rendered server-side from the workspace's own vocabulary, and the
+skill's own text is procedure.
+
+A tenant whose market vocabulary matters to the framing should therefore take the
+**Settings download**, not the repo.
+
 ## API
 
 All routes require `Authorization: Bearer <token>` with the `sourcing` scope.

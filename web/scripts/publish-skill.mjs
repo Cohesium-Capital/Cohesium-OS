@@ -8,7 +8,8 @@
 //
 // Two modes, chosen by whether a token is available:
 //
-//   token present  → publish. Pushes the canonical file to the public repo.
+//   token present  → publish. Pushes the market-neutral rendering of the
+//                    canonical file (see `published` below) to the public repo.
 //   no token       → verify. Exits non-zero on drift with instructions.
 //
 // So CI is useful the moment it is added (verification needs no credential),
@@ -32,6 +33,31 @@ const canonicalPath = join(root, ".claude", "skills", "source-companies", "SKILL
 const verifyOnly = process.argv.includes("--verify");
 
 const canonical = readFileSync(canonicalPath, "utf8");
+
+// What gets published is the canonical file with its {{provider…}} tokens
+// resolved to market-neutral words — see NEUTRAL_VOCAB in lib/runner/skill.ts
+// for why the public copy belongs to no tenant. Same JSON, same substitution
+// rule as renderRunnerSkill, so the two cannot drift; duplicated here rather
+// than imported because this script must stay runnable by plain `node`, with no
+// TypeScript loader in CI.
+//
+// Compare AND push the rendered form: verifying against the canonical file would
+// report drift on every run, since what is up there is deliberately not it.
+const neutral = JSON.parse(
+  readFileSync(join(root, "web", "lib", "runner", "neutral-vocab.json"), "utf8"),
+);
+const published = canonical.replace(/\{\{(\w+)\}\}/g, (m, key) => neutral[key] ?? m);
+
+if (published.includes("{{")) {
+  // A token with no entry in neutral-vocab.json would ship to collaborators as
+  // literal braces. Fail here, where the fix is one line of JSON.
+  console.error(
+    `✗ unresolved {{token}} in the skill after neutral rendering: ` +
+      `${[...new Set(published.match(/\{\{\w+\}\}/g))].join(", ")}\n` +
+      `  Add it to web/lib/runner/neutral-vocab.json.`,
+  );
+  process.exit(1);
+}
 
 // Prefer an explicit token (CI); fall back to the local gh session so the same
 // command works from a laptop without exporting anything.
@@ -119,7 +145,7 @@ async function push(token) {
     headers,
     body: JSON.stringify({
       message: "Sync sourcing runner skill from Cohesium-OS",
-      content: Buffer.from(canonical, "utf8").toString("base64"),
+      content: Buffer.from(published, "utf8").toString("base64"),
       branch: BRANCH,
       ...(sha ? { sha } : {}),
     }),
@@ -136,7 +162,7 @@ async function push(token) {
 const readToken = process.env.GITHUB_TOKEN?.trim() || null;
 const remote = await currentRemote(readToken);
 
-if (remote === canonical) {
+if (remote === published) {
   console.log(`✓ ${REPO} is in step with the canonical skill`);
   process.exit(0);
 }
@@ -161,4 +187,4 @@ if (!token) {
 }
 
 await push(token);
-console.log(`✓ published the canonical skill to ${REPO}`);
+console.log(`✓ published the skill to ${REPO} (market-neutral rendering)`);
