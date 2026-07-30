@@ -43,7 +43,14 @@ export async function createApiToken(input: {
       token_hash: hash,
       prefix,
       owner_id: user.id,
-      scopes: ["sourcing"],
+      // "sourcing": the three endpoints that start a sourcing run, check
+      // candidates and ingest it. "ingest": post a run's output back to a run
+      // started in the UI, for any module.
+      //
+      // Scopes are fixed at mint — there is no grant-later path — so a token
+      // created before a scope existed keeps working for what it already had
+      // and is refused, with that explanation, for what it does not.
+      scopes: ["sourcing", "ingest"],
       expires_at: expiresAt,
     })
     .select("id, name")

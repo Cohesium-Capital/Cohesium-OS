@@ -291,10 +291,13 @@ export function DraftBuilder({
       {runId && (
         <Card>
           <CardHeader>
-            <CardTitle>2. Paste the drafts JSON</CardTitle>
+            <CardTitle>{mode === "single" ? "2. Paste the drafts JSON" : "2. Or paste the drafts JSON"}</CardTitle>
             <CardDescription>
-              Bring back the JSON and import it. Drafts queue as planned touches — every one
-              starts unapproved and sends only after you approve it in the queue.
+              {mode === "agent"
+                ? "The fan-out prompt ends with a command that posts the result back on its own, so this box is the fallback — for a session without network access, or a token minted before the ingest scope existed."
+                : "Bring back the JSON and import it."}{" "}
+              Drafts queue as planned touches — every one starts unapproved and sends only after
+              you approve it in the queue.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
