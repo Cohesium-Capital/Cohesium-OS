@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import type { PersonalizationContact } from "@/lib/modules/personalization";
+import { HOOK_CHUNK_SIZE, type PersonalizationContact } from "@/lib/modules/personalization";
 import { startRun, submitRunOutput } from "@/lib/runs/actions";
 import type { IngestOutcome } from "@/lib/modules/types";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
 // a hook.
 
 type Track = "msp" | "customer";
+type Mode = "single" | "agent";
 
 const clampSize = (n: number, max: number) =>
   Math.max(1, Math.min(Number.isFinite(n) ? Math.round(n) : 1, Math.max(1, max)));
@@ -55,6 +56,13 @@ export function PersonalizeBuilder({
   const trackContacts = track === "msp" ? msp : customer;
   const trackLabel = track === "msp" ? "target-company" : "customer";
 
+  // How to hand the work off:
+  // - "single": one batch of `size` contacts pasted into a chat with web search
+  //   on. You repeat for the next batch.
+  // - "agent": the whole track handed to Claude Code, which fans it out to
+  //   subagents of `size` each. Faster over a long list; tune `size` down if the
+  //   hooks come back thin.
+  const [mode, setMode] = useState<Mode>("single");
   const [size, setSize] = useState(20);
 
   // Switching audience re-clamps the batch size, so the input never sits above
@@ -67,14 +75,18 @@ export function PersonalizeBuilder({
 
   const effSize = clampSize(size, trackContacts.length || 1);
   const batch = useMemo(() => trackContacts.slice(0, effSize), [trackContacts, effSize]);
+  // Single mode researches the front batch; agent mode takes the whole track and
+  // lets Claude Code chunk it, so `size` becomes contacts-per-subagent.
+  const runContacts = mode === "single" ? batch : trackContacts;
+  const chunks = Math.max(1, Math.ceil(trackContacts.length / effSize));
 
   function start() {
     startTransition(async () => {
       try {
         const created = await startRun({
           module: "personalization",
-          label: `Hooks · ${trackLabel} · ${batch.length} contact(s)`,
-          config: { track, contacts: batch },
+          label: `Hooks · ${trackLabel} · ${runContacts.length} contact(s)${mode === "agent" ? " · fan-out" : ""}`,
+          config: { track, mode, chunkSize: effSize, contacts: runContacts },
         });
         setRunId(created.runId);
         setPrompt(created.prompt);
@@ -82,7 +94,9 @@ export function PersonalizeBuilder({
         setOutcome(null);
         await navigator.clipboard.writeText(created.prompt).catch(() => {});
         toast.success(
-          "Run started and prompt copied. Paste into Claude/ChatGPT with web search on, then bring the JSON back.",
+          mode === "single"
+            ? "Run started and prompt copied. Paste into Claude/ChatGPT with web search on, then bring the JSON back."
+            : "Run started and prompt copied. Run it in Claude Code, then paste the combined JSON below.",
         );
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not start run.");
@@ -121,7 +135,9 @@ export function PersonalizeBuilder({
         <CardHeader>
           <CardTitle>1. Start a hook research run</CardTitle>
           <CardDescription>
-            {`Starts a tracked run over the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s) without a usable hook. The model must cite a source per claim — or return an honest "no hook" with a fallback angle, which is a valid outcome, never a failure.`}
+            {mode === "single"
+              ? `Starts a tracked run over the first ${batch.length} of ${trackContacts.length} ${trackLabel} contact(s) without a usable hook. The model must cite a source per claim — or return an honest "no hook" with a fallback angle, which is a valid outcome, never a failure.`
+              : `Starts a tracked run handing all ${trackContacts.length} ${trackLabel} contact(s) to Claude Code, which fans them out to ${chunks} subagent(s) of up to ${effSize} each and returns one combined JSON. Every subagent still cites a source per claim, and an honest "no hook" with a fallback angle is still a completed contact.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -148,8 +164,33 @@ export function PersonalizeBuilder({
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
+              <Label className="text-xs text-muted-foreground">Mode</Label>
+              <div className="flex gap-1">
+                <Button
+                  variant={mode === "single" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setMode("single")}
+                >
+                  Single batch (chat)
+                </Button>
+                <Button
+                  variant={mode === "agent" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setMode("agent");
+                    // Research is heavier per contact than drafting, so the
+                    // per-subagent default is smaller. Only nudge a size the
+                    // operator has not lowered themselves.
+                    setSize((n) => Math.min(n, HOOK_CHUNK_SIZE));
+                  }}
+                >
+                  Fan out (Claude Code)
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="hook-batch-size" className="text-xs text-muted-foreground">
-                Contacts in this batch
+                {mode === "single" ? "Contacts in this batch" : "Contacts per subagent"}
               </Label>
               <div className="flex items-center gap-2">
                 <Input

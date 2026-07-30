@@ -211,6 +211,12 @@ function personalizationVariants(): { name: string; text: string }[] {
   ];
 
   const TPA = completeProfile({
+    // Named, unlike the drafting variants' vocab-only profiles: the fan-out
+    // preamble interpolates the firm and sender, and a fixture that said
+    // "Ripley at Cohesium" under TPA vocabulary would read as a chimera to the
+    // next person diffing it.
+    firmName: "Ilium Holdings",
+    senderName: "Saagar",
     vocab: {
       ...DEFAULT_PROFILE.vocab,
       providerSingular: "third-party administrator",
@@ -246,6 +252,10 @@ function personalizationVariants(): { name: string; text: string }[] {
       out.push({
         name: `personalization_${prefix}${label}_rendered`,
         text: personalizationModule.renderPrompt(null, config),
+      });
+      out.push({
+        name: `personalization_${prefix}${label}_agent`,
+        text: personalizationModule.renderPrompt(null, { ...config, mode: "agent" }),
       });
     }
   }
