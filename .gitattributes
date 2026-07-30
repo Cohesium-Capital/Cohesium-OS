@@ -1,0 +1,15 @@
+# Line endings for the files that are compared BYTE FOR BYTE.
+#
+# Both suites below read a file and assert it equals a string the app rendered
+# with \n. On a Windows checkout with core.autocrlf=true, git hands the test
+# \r\n and the comparison fails for reasons that have nothing to do with the
+# content — 24 of the 96 prompt fixtures failed exactly this way, which reads as
+# "the prompts changed" and invites a re-capture that would commit a diff nobody
+# made. Pinning eol=lf makes the working tree match the index on every platform.
+
+web/lib/prompts/__fixtures__/** text eol=lf
+
+# skill.test.ts asserts skill.json matches this file byte for byte, and
+# publish-skill.mjs pushes its exact bytes to the public runner repo. This is
+# also why sync-skill.ts strips \r defensively.
+.claude/skills/source-companies/SKILL.md text eol=lf
