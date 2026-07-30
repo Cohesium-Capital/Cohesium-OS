@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { isSampled } from "../grading/math";
 import { learnedRuleBlock } from "../learning/rules";
+import { workspaceProfile } from "../workspace/profile";
+import { DEFAULT_PROFILE, type WorkspaceProfile, type WorkspaceVocab } from "../workspace/identity";
 import type { RunModule, IngestContext, IngestOutcome } from "./types";
 
 // Personalization as a pipeline module: research ONE durable, verifiable hook
@@ -100,17 +102,32 @@ export type PersonalizationConfig = {
   track?: "msp" | "customer";
   /** Rules learned from rejected hooks (migration 025). */
   learnedRules?: string;
+  /**
+   * The workspace's identity and market vocabulary (migration 032), loaded in
+   * prepareConfig for the same reason drafting loads it there: the vocabulary is
+   * part of the prompt, so changing the market must change the version too.
+   *
+   * This module went without one until now, which meant hook research was the
+   * only stage that could not speak a tenant's market — it asked every workspace
+   * for hooks that were not "they provide IT services".
+   */
+  profile?: WorkspaceProfile;
 };
 
 // The static instruction portion; the contact lines are the volatile config and
 // become {{contacts}}. Hashed by createRun for mechanical prompt versioning.
-const TEMPLATE = [
+//
+// A function of the vocabulary rather than a constant, so the one market-specific
+// line in it (the example of a detail too generic to be a hook) names the
+// tenant's own market. With DEFAULT_VOCAB it renders exactly the string it was
+// before, so Cohesium's prompt_version does not fork.
+const templateFor = (v: WorkspaceVocab) => [
   `For EACH person below, research ONE true, specific, verifiable hook to open a warm outreach with — a recent talk or panel, news mention, post, award, role change, or company announcement. Strongly prefer something from the LAST 12 MONTHS.`,
   ``,
   `Rules:`,
   `- VERIFY every hook with web search before you submit it. Only state a claim a human could confirm in ~30 seconds by opening your source_url.`,
   `- Every real hook needs a "source_url" that supports THAT specific claim, a "published_at" date (YYYY-MM-DD; null if the page shows no date), and the best-fit "kind".`,
-  `- SPECIFIC beats generic: a detail true of any company in the space ("they have a website", "they provide IT services") is NOT a hook. If that is all you can find, it is a "none".`,
+  `- SPECIFIC beats generic: a detail true of any company in the space ("they have a website", "they provide ${v.customerFunction} services") is NOT a hook. If that is all you can find, it is a "none".`,
   `- If you cannot verify anything specific, return kind "none" with hook/source_url/published_at null and an honest "fallback_angle": one or two sentences of neutral, true observation about their role or industry to open with instead.`,
   `- An honest "none" is a GOOD outcome and counts as a fully completed contact. Inventing or embellishing a detail is the WORST possible outcome — every hook is spot-checked against its source before drafting.`,
   `- The "hook" is the claim itself in one or two sentences, not a full email. Use the exact contact_id from each line.`,
@@ -121,11 +138,18 @@ const TEMPLATE = [
   `{{contacts}}`,
 ].join("\n");
 
+// Mirrors drafting's profileOf: a config that predates the profile field (an old
+// run replayed from its stored config) falls back to the code default rather
+// than crashing, and the default is Cohesium's exact prior wording.
+const profileOf = (config: PersonalizationConfig): WorkspaceProfile =>
+  config.profile ?? DEFAULT_PROFILE;
+
 export const personalizationModule: RunModule<PersonalizationConfig, HooksPayload> = {
   key: "personalization",
   label: "personalization hooks",
 
   renderPrompt(_template, config) {
+    const vocab = profileOf(config).vocab;
     const lines = (config.contacts ?? []).map((c, i) => {
       const company = c.company_domain ? `${c.company_name} (${c.company_domain})` : c.company_name;
       const parts = [
@@ -138,27 +162,33 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
       return parts.join("; ");
     });
     // Function replacement so contact data is inserted literally ($ not special).
-    const rendered = TEMPLATE.replace("{{contacts}}", () => lines.join("\n"));
+    const rendered = templateFor(vocab).replace("{{contacts}}", () => lines.join("\n"));
     return config.learnedRules ? `${rendered}\n\n${config.learnedRules}` : rendered;
   },
 
   // Learned rules append to the template, so a rule change re-hashes into a
   // new prompt_version exactly like an edit to the template itself would.
   async prepareConfig(supabase, config, ctx) {
+    // The profile is loaded unconditionally, unlike the learned-rule block: a
+    // workspace always has a vocabulary (its own or the code default), and the
+    // prompt cannot be rendered honestly without it.
+    const profile = await workspaceProfile(supabase, ctx.workspaceId);
     const { block, rules } = await learnedRuleBlock(
       supabase,
       "personalization",
       ctx.workspaceId,
     );
-    if (!block) return { config };
     return {
-      config: { ...config, learnedRules: block },
-      notes: [`Prompt carries ${rules.length} rule(s) learned from rejected hooks.`],
+      config: { ...config, profile, ...(block ? { learnedRules: block } : {}) },
+      notes: block
+        ? [`Prompt carries ${rules.length} rule(s) learned from rejected hooks.`]
+        : [],
     };
   },
 
   templateText(config) {
-    return config.learnedRules ? `${TEMPLATE}\n\n${config.learnedRules}` : TEMPLATE;
+    const template = templateFor(profileOf(config).vocab);
+    return config.learnedRules ? `${template}\n\n${config.learnedRules}` : template;
   },
 
   parse(rawText) {

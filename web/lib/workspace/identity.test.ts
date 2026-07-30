@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { completeProfile, renderCopy, DEFAULT_PROFILE } from "./identity";
+import { articleFor, completeProfile, renderCopy, DEFAULT_PROFILE } from "./identity";
 import { buildDraftPrompt, buildTemplateText as draftTemplate } from "../drafting/prompt";
 import { buildPrompt as sourcingPrompt } from "../sourcing/prompts";
 
@@ -21,6 +21,8 @@ const STAFFING = completeProfile({
     providerGeneric: "staffing partner",
     market: "light industrial staffing market",
     marketShort: "staffing",
+    customerFunction: "hiring",
+    providerCasual: "staffing partner",
   },
 });
 
@@ -127,5 +129,75 @@ describe("workspace profile", () => {
     );
     assert.match(text, /Sign emails as Dana/);
     assert.ok(!text.includes("Ripley"));
+  });
+});
+
+describe("articleFor", () => {
+  test("an initialism follows its first letter's NAME, not its spelling", () => {
+    // The bug this exists for: the prompts hardcoded "an", correct for "an MSP"
+    // (em) and wrong for every Ilium prompt, which read "an TPA" (tee).
+    assert.equal(articleFor("MSP"), "an");
+    assert.equal(articleFor("TPA"), "a");
+    assert.equal(articleFor("HR"), "an");
+    assert.equal(articleFor("CPA"), "a");
+  });
+
+  test("an ordinary word goes by its first letter", () => {
+    assert.equal(articleFor("managed IT service provider"), "a");
+    assert.equal(articleFor("third-party administrator"), "a");
+    assert.equal(articleFor("agency"), "an");
+    assert.equal(articleFor("insurance brokerage"), "an");
+  });
+
+  test("degrades to \"a\" rather than throwing on nothing", () => {
+    assert.equal(articleFor(""), "a");
+    assert.equal(articleFor("   "), "a");
+  });
+});
+
+describe("customer-side vocabulary", () => {
+  // customerFunction is the function a PROSPECT outsources, and providerCasual
+  // is what that prospect calls the provider. Conflating either with the
+  // provider terms is what put "the person who leads IT" in a retirement-plan
+  // tenant's brief, so both tracks are pinned here.
+  const TPA = completeProfile({
+    vocab: {
+      ...DEFAULT_PROFILE.vocab,
+      providerSingular: "third-party administrator",
+      providerPlural: "third-party administrators",
+      providerAbbrev: "TPA",
+      providerAbbrevPlural: "TPAs",
+      providerGeneric: "TPA",
+      providerCasual: "TPA",
+      customerFunction: "HR or benefits",
+      // Overridden so the no-IT assertions below mean what they say: leaving
+      // these at the defaults ("managed IT market") makes "IT" appear for an
+      // honest reason and the test fails on its own fixture.
+      market: "retirement TPA market",
+      marketShort: "retirement TPA",
+    },
+  });
+
+  test("sourcing asks for the tenant's function, keeping the persona key", () => {
+    const text = sourcingPrompt({ mode: "research_customers", region: "Chicago", workspace: TPA });
+    assert.match(text, /the person who leads HR or benefits \("head_of_it"\)/);
+    assert.ok(!/leads IT\b/.test(text), "no IT wording survives for a TPA workspace");
+    // The persona key is a schema CHECK and a JSON contract literal: it moves for
+    // nobody, whatever the market is called.
+    assert.match(text, /"persona": "owner" \| "head_of_it" \| "other"/);
+  });
+
+  test("drafting frames the recipient by function and the provider casually", () => {
+    const text = draftTemplate("customer", "", TPA);
+    assert.match(text, /runs or leads HR or benefits at a company that uses a third-party administrator \(a TPA\)/);
+    assert.match(text, /work with their TPA/);
+    assert.ok(!/\bIT\b/.test(text), "no IT wording survives for a TPA workspace");
+  });
+
+  test("Cohesium's defaults still render the exact prior wording", () => {
+    // The golden fixtures are the real guard; this states the intent in one place.
+    const text = draftTemplate("customer", "", DEFAULT_PROFILE);
+    assert.match(text, /runs or leads IT at a company that uses a managed IT service provider \(an MSP\)/);
+    assert.match(text, /work with their IT provider/);
   });
 });
