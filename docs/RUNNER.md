@@ -155,8 +155,8 @@ The public repo is fetched by whoever selects it in Claude Code, before any
 workspace is known, so it cannot be rendered for one. Publishing the canonical
 file verbatim would show a reader raw `{{providerAbbrevPlural}}`, and rendering it
 with the code defaults would lend Cohesium's "MSPs" to every tenant — so
-`publish-skill.mjs` renders it with `NEUTRAL_VOCAB` (`web/lib/runner/
-neutral-vocab.json`) instead. Nothing is lost: the per-run brief that governs the
+`publish-skill.mjs` renders it with the neutral vocabulary in
+`web/lib/runner/neutral-vocab.json` instead. Nothing is lost: the brief that governs the
 research is rendered server-side from the workspace's own vocabulary, and the
 skill's own text is procedure.
 

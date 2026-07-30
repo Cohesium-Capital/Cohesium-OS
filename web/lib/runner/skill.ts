@@ -58,8 +58,10 @@ export function renderRunnerSkill(vocab: WorkspaceVocab): {
  * per-run brief that actually governs the research is rendered from the
  * workspace's own vocabulary server-side, and the skill's own text is procedure.
  *
- * `web/scripts/publish-skill.mjs` reads the same JSON, so the published bytes
- * and this rendering cannot disagree.
+ * `web/scripts/publish-skill.mjs` reads this same JSON — it cannot be run through
+ * a TypeScript loader in CI, so it re-applies the one-line substitution rather
+ * than importing `publicRunnerSkill`. The vocabulary therefore has one home, but
+ * the substitution has two: change the regex in one and change it in both.
  */
 export const NEUTRAL_VOCAB: WorkspaceVocab = neutralVocab;
 
