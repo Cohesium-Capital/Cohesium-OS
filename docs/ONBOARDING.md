@@ -84,7 +84,22 @@ an admin's; writes go through `set_sending_secret()`, which treats a null as
 "leave that one alone" so re-saving a form with a blank password does not wipe
 it. The cron reads secrets as `service_role`.
 
-## 3. The runner (optional)
+## 3. LinkedIn, if they will use it
+
+Email and LinkedIn are separate setups, and LinkedIn is the one people assume is
+included. It runs through **HeyReach**, and there are two routes:
+
+- **They bring their own HeyReach account**, and connect their LinkedIn profile
+  to it, or
+- **You add them as a seat on yours**, and they connect their LinkedIn profile
+  there.
+
+Either way the LinkedIn profile is theirs and they connect it themselves —
+HeyReach sends from a real account, so there is no version of this where someone
+else's messages go out under their name. Until it is connected, LinkedIn touches
+draft normally and simply never send.
+
+## 4. The runner (optional)
 
 1. **Settings → API tokens → Create.** Shown once. Pinned to the workspace it
    was minted in, so it can only ever write there.
@@ -107,7 +122,7 @@ Personalize and Draft also offer **Fan out (Claude Code)**, which chunks the
 work across subagents and POSTs the result back to `/api/runs/<id>/ingest` — no
 JSON changes hands. See `RUNNER.md` for the API and its scopes.
 
-## 4. What to tell them about the gates
+## 5. What to tell them about the gates
 
 Three stages do not advance without a human, and a new user reads all three as
 the app being stuck unless told otherwise:
@@ -122,28 +137,35 @@ the app being stuck unless told otherwise:
 not a failure. Worth saying explicitly: it is what stops the model inventing a
 flattering detail, and it looks like an error to anyone who has not been told.
 
-## 5. Check what is already in the workspace
+## 6. Check what is already in the workspace
 
-Whoever prepared the tenant has usually run a batch or two. Look before handing
-over: research produced before a prompt fix may carry the wrong market's
-wording, and re-running the stage is much cheaper than editing by hand.
+Whoever prepared the tenant has usually run a batch or two. Worth looking before
+handing over — but read the output, don't infer it from the prompt's history.
 
-Ilium's handover, for reference: 38 companies, 20 contacts, 19 hooks and 34
-drafts existed at sign-up, and 23 of those drafts mentioned "IT" — written hours
-before migration 047 and the vocabulary fixes landed. The instruction was to
-re-run Draft rather than edit them.
+Ilium's handover: 38 companies, 20 contacts, 19 hooks and 34 drafts existed at
+sign-up, all written before migration 047 fixed the market vocabulary. The
+drafts were fine anyway. The prompt's framing sentence said "IT", but the hooks,
+persona angles and worked examples were all retirement-specific, and the model
+followed those — **zero** drafts contained "IT", "managed IT", "IT provider" or
+"MSP". A stale prompt is a reason to check the output, not to assume it is
+wrong.
 
 ```sql
--- Drafts carrying another market's wording
-select count(*) filter (where t.body ~* '\mIT\M|managed IT') as mentions_it,
-       count(*) as total
+-- Case SENSITIVE on purpose: `~*` also matches the ordinary word "it", which
+-- appears in most sentences ever written. Getting this wrong once produced a
+-- confident report that 23 of 34 drafts were contaminated. None were.
+select count(*) filter (where t.body ~ '\mIT\M')                       as it_the_industry,
+       count(*) filter (where t.body ~* 'managed IT|IT provider|\mMSP') as msp_phrases,
+       count(*)                                                          as total
   from public.touches t
  where t.workspace_id = (select id from public.workspaces where name = '<tenant>');
 ```
 
 ## Known gaps to mention up front
 
-- Persona angles, perspectives and subject-line shapes change only by migration.
-  Worked examples and market vocabulary are editable in Settings.
-- LinkedIn sending needs its own HeyReach setup.
+- `approachInline` and `approachBullet` change only by migration — they are
+  wrapped renderings of `approach`, and their line breaks are part of the prompt
+  hash. Everything else in a workspace's prose (worked examples, persona angles,
+  perspectives, subject-line shapes) and its whole vocabulary is editable in
+  Settings.
 - No billing or usage view anywhere.

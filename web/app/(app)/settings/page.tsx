@@ -6,7 +6,8 @@ import { WorkspacePanel, type MemberRow, type InviteRow } from "./workspace-pane
 import { workspaceRoster, sendingIdentities } from "@/lib/workspace/admin-actions";
 import { SendingPanel } from "./sending-panel";
 import { WorkedExamplesPanel } from "./worked-examples-panel";
-import { currentWorkedExamples } from "@/lib/workspace/admin-actions";
+import { currentWorkedExamples, currentFramingCopy } from "@/lib/workspace/admin-actions";
+import { FramingPanel } from "./framing-panel";
 import { SenderPanel } from "./sender-panel";
 import { myMemberSender } from "@/lib/settings/actions";
 import { senderOverridesFor } from "@/lib/workspace/sender";
@@ -44,12 +45,13 @@ export default async function SettingsPage() {
   // (Invites are claimed in the app layout, before the membership gate — a
   // workspace-less invitee never reaches this page.)
   const workspace = await currentWorkspace();
-  const [roster, profile, identities, operator, examples] = await Promise.all([
+  const [roster, profile, identities, operator, examples, framing] = await Promise.all([
     workspaceRoster(),
     workspaceProfile(supabase, workspaceId),
     sendingIdentities(),
     isInstanceOperator(),
     currentWorkedExamples(),
+    currentFramingCopy(),
   ]);
   // Only whoever runs this deployment sees other firms' requests to join it.
   const accessRequests = operator ? await pendingAccessRequests() : [];
@@ -172,6 +174,13 @@ export default async function SettingsPage() {
         goldCustomer={examples.goldCustomer}
         goldMsp={examples.goldMsp}
         isDefault={examples.isDefault}
+        isAdmin={workspace?.role === "admin"}
+      />
+      <FramingPanel
+        key={`framing-${workspaceId}`}
+        copy={framing.copy}
+        defaults={framing.defaults}
+        overridden={framing.overridden}
         isAdmin={workspace?.role === "admin"}
       />
       <SendingPanel
