@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isAllowedEmail } from "@/lib/auth/allowlist";
 
 // OAuth redirect target. Exchanges the code for a session, then enforces the
 // email allowlist before letting the user in.
@@ -22,20 +23,15 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
-  const allowed = (process.env.ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (allowed.length) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const email = user?.email?.toLowerCase();
-    if (!email || !allowed.includes(email)) {
-      await supabase.auth.signOut();
-      return NextResponse.redirect(`${origin}/login?error=not_allowed`);
-    }
+  // Fail fast at sign-in. The binding check is in the proxy, on every request —
+  // this one only means a blocked address never gets a session in the first
+  // place, rather than one that is refused on its next page load.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!isAllowedEmail(user?.email)) {
+    await supabase.auth.signOut();
+    return NextResponse.redirect(`${origin}/login?error=not_allowed`);
   }
 
   return NextResponse.redirect(`${origin}${next}`);

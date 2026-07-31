@@ -16,6 +16,13 @@ import {
 
 const URL_ERRORS: Record<string, string> = {
   not_allowed: "That account is not on the access list. Ask an admin to add it.",
+  // Distinct from `auth` on purpose. This is the failure a WORKING link produces
+  // when it is opened somewhere else — mail apps routinely open their own
+  // browser, whose storage does not hold the verifier this exchange needs. It
+  // was reported as "invalid or expired", which sends people to request another
+  // link, which fails identically, forever.
+  same_browser:
+    "This link has to be opened in the browser you requested it from — mail apps often open their own. Request a new link below, then open your email in THIS browser and click it there.",
   auth: "Sign-in link was invalid or expired. Request a new one.",
   missing_code: "Sign-in did not complete. Request a new link.",
 };
@@ -39,7 +46,7 @@ function LoginInner() {
     // set, then a full reload lets the server see the session.
     const supabase = createClient();
     supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-      window.location.replace(error ? "/login?error=auth" : "/");
+      window.location.replace(error ? "/login?error=same_browser" : "/");
     });
   }, [code]);
 
