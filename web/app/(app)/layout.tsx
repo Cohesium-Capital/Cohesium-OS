@@ -1,13 +1,5 @@
 import { getProfile, requireUser } from "@/lib/auth";
 import { signOut } from "@/lib/auth-actions";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { SideNav } from "./side-nav";
 import { currentWorkspace, myWorkspaces } from "@/lib/workspace/context";
 import { claimInvites } from "@/lib/workspace/admin-actions";
@@ -44,38 +36,6 @@ export default async function AppLayout({
   // read nothing — every table is gated on membership (028) — so rather than a
   // dead end, they get the front door: tell us who you are, and the operator
   // provisions a workspace for your firm.
-  //
-  // ALLOWED_EMAILS still applies where it is set, but as an instance-level
-  // gate rather than the access model: someone outside it never reaches the
-  // request form, which is what you want during a closed beta and what you
-  // must clear to let strangers in at all.
-  const allowed = (process.env.ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  const userEmail = user.email?.toLowerCase();
-  const blockedByAllowlist = allowed.length > 0 && (!userEmail || !allowed.includes(userEmail));
-
-  if (blockedByAllowlist) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-6">
-        <Card className="w-full max-w-sm">
-          <CardHeader>
-            <CardTitle>No access</CardTitle>
-            <CardDescription>{user.email} is not on the access list.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form action={signOut}>
-              <Button type="submit" variant="outline">
-                Sign out
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   if (!workspace) {
     return (
       <RequestAccess

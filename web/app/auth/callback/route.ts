@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { isAllowedEmail } from "@/lib/auth/allowlist";
 
-// OAuth redirect target. Exchanges the code for a session, then enforces the
-// email allowlist before letting the user in.
+// OAuth redirect target. Exchanges the code for a session.
+//
+// No instance-level gate here: workspace membership IS the access model (028),
+// and every table is gated on it, so a signed-in stranger reads nothing and is
+// offered the request-access form rather than a dead end.
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
@@ -21,17 +23,6 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(`${origin}/login?error=auth`);
-  }
-
-  // Fail fast at sign-in. The binding check is in the proxy, on every request —
-  // this one only means a blocked address never gets a session in the first
-  // place, rather than one that is refused on its next page load.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!isAllowedEmail(user?.email)) {
-    await supabase.auth.signOut();
-    return NextResponse.redirect(`${origin}/login?error=not_allowed`);
   }
 
   return NextResponse.redirect(`${origin}${next}`);

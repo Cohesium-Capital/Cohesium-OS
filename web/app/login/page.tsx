@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/card";
 
 const URL_ERRORS: Record<string, string> = {
-  not_allowed: "That account is not on the access list. Ask an admin to add it.",
   // Distinct from `auth` on purpose. This is the failure a WORKING link produces
   // when it is opened somewhere else — mail apps routinely open their own
   // browser, whose storage does not hold the verifier this exchange needs. It
@@ -31,7 +30,8 @@ function LoginInner() {
   const params = useSearchParams();
   const urlError = params.get("error");
   // Magic-link code can land here if Supabase's Site URL points at /login.
-  // Forward it to the real callback (which exchanges it and enforces the allowlist).
+  // Supabase's Site URL points here, so the code lands on /login rather than
+  // /auth/callback. It is exchanged below, in the browser.
   const code = params.get("code");
 
   const [email, setEmail] = useState("");
