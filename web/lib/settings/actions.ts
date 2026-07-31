@@ -5,8 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { currentWorkspaceId } from "@/lib/workspace/context";
 
-// Settings + prompt-version management. Admin/member only (RLS enforces; the
-// allowlist layout gates the page). Prompt versions are immutable snapshots —
+// Settings + prompt-version management. Admin/member only, enforced by RLS on
+// workspace membership. Prompt versions are immutable snapshots —
 // you add a new version rather than editing, so error rates stay comparable
 // across versions.
 //
