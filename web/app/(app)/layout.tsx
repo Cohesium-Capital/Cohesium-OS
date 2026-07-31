@@ -26,11 +26,21 @@ export default async function AppLayout({
   // funnel them into request-access — whose approval mints a separate empty
   // tenant instead of the seat they were invited to. It matches on the
   // caller's own JWT email and is a cheap no-op when nothing is waiting.
-  await claimInvites();
+  const claimed = await claimInvites();
 
   // Scoping context for the whole shell. RLS already limits what this user can
   // reach; this decides which of their workspaces is on screen.
-  const [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);
+  let [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);
+
+  // A claim that just created this user's FIRST membership has to be visible to
+  // the reads above, or the shell renders request-access to someone who now has
+  // a seat — and tells an invitee they have no workspace one second after
+  // giving them one. Re-read rather than trusting the ordering: whatever the
+  // cause, the invariant worth holding is that these two lines cannot disagree
+  // with a claim that returned in the same request.
+  if (claimed > 0 && !workspace) {
+    [workspaces, workspace] = await Promise.all([myWorkspaces(), currentWorkspace()]);
+  }
 
   // MEMBERSHIP is the gate. Someone signed in with no workspace can already
   // read nothing — every table is gated on membership (028) — so rather than a

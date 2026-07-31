@@ -162,7 +162,15 @@ function friendlyAdminError(message: string): string {
 export async function claimInvites(): Promise<number> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("claim_workspace_invites");
-  if (error) return 0;
+  if (error) {
+    // Returning 0 quietly makes a BROKEN claim indistinguishable from "no
+    // invite was waiting" — the caller renders request-access either way, and
+    // the invitee is told they have no workspace while their seat sits unclaimed.
+    // The call still resolves rather than throwing: a failed claim must not
+    // take down the shell for a user who already has a workspace.
+    console.error("[claimInvites] claim_workspace_invites failed:", error.message);
+    return 0;
+  }
   return (data as number) ?? 0;
 }
 
