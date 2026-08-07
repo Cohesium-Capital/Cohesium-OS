@@ -174,11 +174,19 @@ export async function importPayload(
     persona: c.persona,
     title: c.title ?? null,
     linkedin_url: c.linkedin_url ?? null,
+    email: c.email ?? null,
+    phone: c.phone ?? null,
     source_url: c.source_url ?? null,
     confidence: c.confidence,
     source: "sourced",
     stage: "sourced",
-    enrichment_status: "pending",
+    // A sourced contact that already has an email needs nothing from Clay, and
+    // Clay eligibility keys off this field alone (see enrichment/pending.ts) —
+    // leaving it 'pending' would spend a credit re-finding an address we were
+    // handed. Note this turns on EMAIL only, not "any detail found" the way
+    // enrichment ingest does: a contact with a LinkedIn URL but no address is
+    // exactly who Clay is for, and most sourced contacts have one.
+    enrichment_status: c.email ? "enriched" : "pending",
     reviewed: false,
     // Eval-layer tagging. batch_id/run_id are null on the legacy direct path;
     // run_id is the contact's sourcing lineage. sampled defaults true and
