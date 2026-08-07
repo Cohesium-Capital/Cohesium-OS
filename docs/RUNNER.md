@@ -165,10 +165,44 @@ A tenant whose market vocabulary matters to the framing should therefore take th
 
 ## API
 
-All routes require `Authorization: Bearer <token>`. The three `/api/sourcing/*`
-routes need the `sourcing` scope; `/api/runs/<id>/ingest` needs `ingest`.
+All routes require `Authorization: Bearer <token>`. The `/api/sourcing/*` routes
+need the `sourcing` scope; `/api/runs/<id>/ingest` needs `ingest`.
 **Scopes are fixed when a token is minted** — a token created before a scope
 existed cannot be granted it, so a 403 there means minting a new one.
+
+### `GET /api/sourcing/targets`
+
+Every target company the workspace holds, ordered by name. This is how
+`mspIds` gets filled.
+
+```jsonc
+// GET /api/sourcing/targets?limit=500&offset=0
+{ "targets": [ { "id": "…", "name": "Nova 401(k) Associates",
+                 "domain": "nova401k.com", "confidence": "high",
+                 "reviewed": false } ],
+  "counts": { "returned": 118, "limit": 500, "offset": 0, "hasMore": false } }
+```
+
+It exists because `find_customers_for_msps` takes UUIDs and nothing else in
+this API returned one. `/api/sourcing/known` matches a name against every org
+we hold, but its verdict reports the matched org's **name** — for a human to
+sanity-check — not its id. So an agent asked to source customers for a named
+firm could not start the run, and the operator had to read ids out of the
+database by hand and paste them in.
+
+Two shapes worth knowing:
+
+- **`hasMore`, not a total.** The runner reaches this through the RLS adapter,
+  which refuses `count`/`head` selects — they return a number where it hands
+  back rows, the one unsupported call that could pass quietly. A short page
+  means the end, the same convention `loadOrgIndex` pages by. `limit` is capped
+  at 1000; a `limit`/`offset` that is not a plain integer falls back to the
+  default rather than erroring, since a 400 would only strand an agent that
+  guessed a parameter name.
+- **Scoped to the token's workspace**, on top of RLS, like every other route
+  here. RLS alone spans every workspace the owner belongs to — and here that
+  would not merely leak another tenant's company names, it would hand an agent
+  run-ready ids for them.
 
 ### `POST /api/sourcing/runs`
 
