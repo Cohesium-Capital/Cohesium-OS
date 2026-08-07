@@ -26,11 +26,29 @@ const persona = z
   .default("other");
 const confidence = z.enum(CONFIDENCE).catch("low").default("low");
 
+// Email is stored lowercased at rest. Reply capture matches an incoming sender
+// address (already lowercased by the IMAP poll) against contacts.email, so a
+// mixed-case value silently drops the reply and the drip keeps sending —
+// migration 018 normalized the rows that already existed, and this keeps sourced
+// ones in line. A value with no "@" cannot be an address, so it falls back to
+// null rather than failing the row (same posture as persona/confidence above):
+// a missing email costs one Clay lookup, an invalid one costs a bounce.
+const optEmail = z.preprocess((v) => {
+  if (typeof v !== "string") return v;
+  const e = v.trim().toLowerCase();
+  return e && e.includes("@") ? e : null;
+}, z.string().trim().nullish());
+
 export const SourcedContactSchema = z.object({
   full_name: optStr,
   persona,
   title: optStr,
   linkedin_url: optStr,
+  // Optional because most sourcing never surfaces them — Clay is the usual way
+  // these get filled. When research DOES already have them (a hand-built target
+  // list, say), carrying them through spares a paid enrichment round-trip.
+  email: optEmail,
+  phone: optStr,
   source_url: optStr,
   confidence,
 });
