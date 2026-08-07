@@ -28,14 +28,25 @@ export type Guarded<T> =
   | { ok: true; auth: RunnerAuth; body: T }
   | { ok: false; response: NextResponse };
 
+export type Authorized =
+  | { ok: true; auth: RunnerAuth }
+  | { ok: false; response: NextResponse };
+
 const fail = (error: string, status: number, hint?: string) =>
   NextResponse.json({ error, ...(hint ? { hint } : {}) }, { status });
 
-export async function guard<T>(
+/**
+ * Authenticate a bearer token without reading a body.
+ *
+ * Split out of `guard` for the GET routes: `guard` always parses JSON, so a
+ * request with no body would fail as "invalid JSON body" — a misleading 400 on
+ * a request that was perfectly well formed. The token diagnostics live here so
+ * both paths give the agent the same actionable message.
+ */
+export async function authorize(
   req: Request,
-  schema: z.ZodType<T>,
   scope: string = SOURCING_SCOPE,
-): Promise<Guarded<T>> {
+): Promise<Authorized> {
   const auth = await authenticateRunner(req, scope);
   if (isAuthFailure(auth)) {
     return {
@@ -53,6 +64,17 @@ export async function guard<T>(
       ),
     };
   }
+  return { ok: true, auth };
+}
+
+export async function guard<T>(
+  req: Request,
+  schema: z.ZodType<T>,
+  scope: string = SOURCING_SCOPE,
+): Promise<Guarded<T>> {
+  const authorized = await authorize(req, scope);
+  if (!authorized.ok) return { ok: false, response: authorized.response };
+  const { auth } = authorized;
 
   let raw: unknown;
   try {

@@ -66,6 +66,34 @@ that makes this path worth using.
 
 ## The loop
 
+### 0. Resolve target companies to ids — `find_customers_for_msps` only
+
+That mode takes `mspIds`, and they are **UUIDs**: a name is rejected. Ask for
+the list rather than guessing, or asking the operator to look ids up by hand.
+
+```bash
+curl -sS "$COHESIUM_API_URL/api/sourcing/targets" \
+  -H "Authorization: Bearer $COHESIUM_API_TOKEN"
+```
+
+```jsonc
+{ "targets": [ { "id": "…", "name": "Nova 401(k) Associates",
+                 "domain": "nova401k.com", "confidence": "high",
+                 "reviewed": false } ],
+  "counts": { "returned": 118, "limit": 500, "offset": 0, "hasMore": false } }
+```
+
+Every {{providerAbbrev}} the workspace holds, ordered by name. `?limit=` and
+`?offset=` page it; `hasMore` true means fetch the next page. Match the
+operator's wording against `name` yourself — and when a name is ambiguous or
+matches nothing, **ask**, rather than starting a run against a target they did
+not mean. A run points at one company; picking the wrong one wastes the whole
+run.
+
+`confidence: "low"` marks a row nobody has confirmed yet — often missing a
+domain, which is most of what research keys off. Worth flagging to the operator
+before spending a run on one.
+
 ### 1. Start the run
 
 ```bash
@@ -81,7 +109,14 @@ curl -sS -X POST "$COHESIUM_API_URL/api/sourcing/runs" \
 - `research_msps` — find {{providerAbbrevPlural}} themselves
 - `research_customers` — find companies that use a {{providerGeneric}}
 - `find_customers_for_msps` — find the clients of specific {{providerAbbrevPlural}} (requires
-  `mspIds: [...]`)
+  `mspIds: [...]`, resolved in step 0)
+
+**Pass exactly one id in `mspIds`, and loop for more than one.** A single target
+is what lets the run record `new_for_target`, and it is what scopes the
+already-known check in step 3 to *that* {{providerAbbrev}}'s client list. Pass several and
+you lose both at once: the run cannot report yield, and a company already held
+as another {{providerAbbrev}}'s client is wrongly treated as known — which is exactly the
+overlap worth finding.
 
 The response carries `runId`, `batchId`, `prompt`, and `checkKnown`
 (`{kind, mspId}`). **Read `prompt` and follow it** — it is the versioned

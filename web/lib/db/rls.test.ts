@@ -6,6 +6,7 @@ import { Client } from "pg";
 import { withRls, asSupabase, resetPoolForTests } from "./rls";
 import { createRun, ingestRun } from "../runs/lifecycle";
 import { loadOrgIndex, partitionCandidates } from "../sourcing/known";
+import { listTargets } from "../sourcing/targets";
 
 // Integration test for the runner's transport. The adapter stands between the
 // shared ingest pipeline and Postgres, so the only test worth writing runs that
@@ -27,6 +28,11 @@ const USER_B = "bbbbbbbb-0000-0000-0000-00000000000b";
 // a stranger to A so the isolation tests keep testing isolation, while the
 // admin tests need someone who IS a member and still gets refused.
 const USER_C = "cccccccc-0000-0000-0000-00000000000c";
+// A member of BOTH workspaces — the case RLS cannot catch on its own. For
+// everyone above, forgetting a workspace filter is invisible because RLS already
+// hides the other tenant; for D it is the filter, and nothing else, standing
+// between a query and another tenant's rows.
+const USER_D = "dddddddd-0000-0000-0000-00000000000d";
 
 let available = false;
 
@@ -55,14 +61,16 @@ before(async () => {
     await c.connect();
     try {
       await c.query(schema);
-      await c.query(`insert into auth.users (id) values ($1), ($2), ($3)`, [
+      await c.query(`insert into auth.users (id) values ($1), ($2), ($3), ($4)`, [
         USER_A,
         USER_B,
         USER_C,
+        USER_D,
       ]);
       await c.query(
-        `insert into public.profiles (id, role) values ($1,'member'), ($2,'member'), ($3,'member')`,
-        [USER_A, USER_B, USER_C],
+        `insert into public.profiles (id, role)
+         values ($1,'member'), ($2,'member'), ($3,'member'), ($4,'member')`,
+        [USER_A, USER_B, USER_C, USER_D],
       );
       await c.query(
         `insert into public.workspace_members (workspace_id, user_id, role, is_default)
@@ -76,6 +84,13 @@ before(async () => {
         `insert into public.workspace_members (workspace_id, user_id, role, is_default)
          values ($1,$2,'member',true)`,
         [WORKSPACE_A, USER_C],
+      );
+      // D belongs to both, which is the only way to test that a query filters by
+      // workspace rather than relying on RLS to have done it.
+      await c.query(
+        `insert into public.workspace_members (workspace_id, user_id, role, is_default)
+         values ($1,$2,'member',true), ($3,$2,'member',false)`,
+        [WORKSPACE_A, USER_D, WORKSPACE_B],
       );
       // Every seeded row names its workspace: migration 031 removed the
       // defaults, so an omission here is a NOT NULL violation exactly as it
@@ -544,6 +559,60 @@ describe("the shared pipeline over the adapter", () => {
     );
     assert.equal(second.ok, false);
     assert.match(second.error ?? "", /already ingested/i);
+  });
+
+  test("listTargets returns run-ready ids, scoped to one workspace", async (t) => {
+    if (unavailable(t)) return;
+
+    // The endpoint behind this hands an agent ids it can immediately start a
+    // find_customers_for_msps run with, so a workspace leak here is not a leak
+    // of names — it is another tenant's targets becoming researchable.
+    await withRls(USER_A, async (db) => {
+      await asSupabase(db).from("organizations").insert({
+        name: "Zeta Target A", kind: "msp", domain: "zeta-a.test", workspace_id: WORKSPACE_A,
+      });
+    });
+    await withRls(USER_B, async (db) => {
+      await asSupabase(db).from("organizations").insert({
+        name: "Zeta Target B", kind: "msp", domain: "zeta-b.test", workspace_id: WORKSPACE_B,
+      });
+    });
+
+    const namesFor = async (workspaceId: string) =>
+      withRls(USER_D, async (db) =>
+        (await listTargets(asSupabase(db), workspaceId)).targets.map((r) => r.name),
+      );
+
+    const inA = await namesFor(WORKSPACE_A);
+    const inB = await namesFor(WORKSPACE_B);
+
+    assert.ok(inA.includes("Zeta Target A"), "A's target should be listed for A");
+    assert.ok(!inA.includes("Zeta Target B"), "B's target must not appear under A");
+    assert.ok(inB.includes("Zeta Target B"), "B's target should be listed for B");
+    assert.ok(!inB.includes("Zeta Target A"), "A's target must not appear under B");
+
+    // The assertion that proves the filter is load-bearing: D can legitimately
+    // read both, so an unscoped select returns both. Every other user in this
+    // fixture would pass the checks above with the filter deleted.
+    const bothVisible = await withRls(USER_D, async (db) => {
+      const { data } = await asSupabase(db).from("organizations").select("name").eq("kind", "msp");
+      return ((data ?? []) as { name: string }[]).map((r) => r.name);
+    });
+    assert.ok(
+      bothVisible.includes("Zeta Target A") && bothVisible.includes("Zeta Target B"),
+      "RLS alone lets D see both — so the workspace filter is what scoped listTargets",
+    );
+
+    // kind='msp' only: customers are not targets, and the isolation tests above
+    // seeded exactly such a row into A.
+    assert.ok(!inA.includes("A CO"), "a customer must not be listed as a target");
+
+    const page = await withRls(USER_D, (db) =>
+      listTargets(asSupabase(db), WORKSPACE_A, { limit: 1 }),
+    );
+    assert.equal(page.targets.length, 1, "limit is honoured");
+    assert.equal(page.counts.limit, 1);
+    assert.equal(page.counts.hasMore, true, "a full page reports more may follow");
   });
 
   test("loadOrgIndex + partitionCandidates see the imported rows", async (t) => {
