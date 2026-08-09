@@ -115,23 +115,54 @@ export async function importPayload(
   }
 
   // 2. Resolve current_msp_name -> MSP id (creating flagged stubs for unknowns).
-  const mspIdByName = new Map<string, string>();
+  //
+  // Matched on nameKey, the SAME key the organization dedupe uses. This used to
+  // compare name.toLowerCase(), which is a different rule, and the two disagreed
+  // exactly where it hurt: nameKey collapses "The Retirement Advantage", "The
+  // Retirement Advantage Inc" and "The Retirement Advantage (TRA)" to one key,
+  // lowercase keeps all three apart. A customer naming its provider a shade
+  // differently from the row we already held therefore minted a SECOND target
+  // and split that provider's client list across the two — invisibly, because
+  // both rows look reasonable on the Target Companies page.
+  //
+  // It bit within a single payload too: `names` de-duplicates raw strings, so
+  // two customers citing the same provider from two Schedule C filings arrived
+  // as two names and left as two stubs.
+  const mspKey = (name: string): string =>
+    // A name made entirely of noise words ("The Group") has an empty nameKey.
+    // Falling back to the raw string keeps those distinct instead of collapsing
+    // every one of them onto a single shared key.
+    nameKey(name) || `raw:${name.trim().toLowerCase()}`;
+  const mspIdByKey = new Map<string, string>();
   if (input.kind === "customer") {
     const names = [
       ...new Set(orgs.map((o) => o.current_msp_name).filter(Boolean)),
     ] as string[];
     if (names.length) {
+      // loadOrgIndex rather than a bespoke select, for three reasons: it is the
+      // very index the dedupe consults, so the stub rule and the merge rule
+      // cannot drift apart again; it keys on nameKey with first-wins; and it
+      // PAGES. The select this replaced was unbounded, and PostgREST silently
+      // caps those at ~1000 rows — past that, providers we already held would
+      // read as missing and mint duplicate stubs on every ingest.
+      //
       // Scoped to the ingesting workspace: a name collision with another
       // workspace's MSP must create this workspace's own stub, not a
       // cross-tenant current_msp_id link.
-      const { data: existingMsps } = await supabase
-        .from("organizations")
-        .select("id, name")
-        .eq("workspace_id", workspaceId)
-        .eq("kind", "msp");
-      existingMsps?.forEach((m) => mspIdByName.set(m.name.toLowerCase(), m.id));
+      const mspIndex = await loadOrgIndex(supabase, "msp", workspaceId);
+      mspIndex.byName.forEach((row, key) => mspIdByKey.set(key, row.id));
 
-      const missing = names.filter((n) => !mspIdByName.has(n.toLowerCase()));
+      // Collapse the incoming names by the same key before creating anything,
+      // or the same-payload case above just mints its duplicates here instead.
+      // First spelling wins and becomes the stub's name.
+      const missing: string[] = [];
+      const claimed = new Set<string>();
+      for (const n of names) {
+        const k = mspKey(n);
+        if (mspIdByKey.has(k) || claimed.has(k)) continue;
+        claimed.add(k);
+        missing.push(n);
+      }
       if (missing.length) {
         const stubRows = missing.map((n) => ({
           name: n,
@@ -146,7 +177,7 @@ export async function importPayload(
           .insert(stubRows)
           .select("id, name");
         if (error) return fail(`Failed creating target company references: ${error.message}`);
-        stubs?.forEach((s) => mspIdByName.set(s.name.toLowerCase(), s.id));
+        stubs?.forEach((s) => mspIdByKey.set(mspKey(s.name), s.id));
         report.inserted.organizations += stubs?.length ?? 0;
         report.messages.push(
           `Created ${stubs?.length ?? 0} new target company reference(s) from customer links — unconfirmed, low confidence until someone reviews them on the Target Companies page.`,
@@ -156,7 +187,7 @@ export async function importPayload(
   }
   const resolvedMspId = (o: (typeof orgs)[number]): string | null =>
     input.kind === "customer" && o.current_msp_name
-      ? mspIdByName.get(o.current_msp_name.toLowerCase()) ?? null
+      ? mspIdByKey.get(mspKey(o.current_msp_name)) ?? null
       : null;
 
   const nameKeyOf = (o: (typeof orgs)[number]): string =>
