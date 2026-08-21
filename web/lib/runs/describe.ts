@@ -55,6 +55,7 @@ const MODE_LABEL: Record<SourcingMode, string> = {
   research_msps: "Target companies",
   research_customers: "Customers",
   find_customers_for_msps: "Customers of target companies",
+  find_advisors_for_msps: "Referral partners of target companies",
 };
 
 function namedMsps(config: Record<string, unknown>): string[] {
@@ -71,11 +72,12 @@ export function runTypeLabel(run: Pick<FlowRun, "module" | "config">): string {
   if (run.module !== "sourcing") return MODULE_LABEL[run.module] ?? run.module;
 
   const mode = config.mode as SourcingMode | undefined;
-  if (mode === "find_customers_for_msps") {
+  if (mode === "find_customers_for_msps" || mode === "find_advisors_for_msps") {
+    const noun = mode === "find_advisors_for_msps" ? "Referral partners" : "Customers";
     const names = namedMsps(config);
-    if (!names.length) return "Customers of target companies";
-    if (names.length <= 3) return `Customers of ${names.join(", ")}`;
-    return `Customers of ${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+    if (!names.length) return `${noun} of target companies`;
+    if (names.length <= 3) return `${noun} of ${names.join(", ")}`;
+    return `${noun} of ${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
   }
   return mode ? MODE_LABEL[mode] ?? MODULE_LABEL.sourcing : MODULE_LABEL.sourcing;
 }

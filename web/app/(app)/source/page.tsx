@@ -22,7 +22,7 @@ export default async function SourcePage({
   // targets, and its holdings must not inflate the exclusion-list counts.
   const workspaceId = await currentWorkspaceId();
 
-  const [{ data }, mspCount, customerCount] = await Promise.all([
+  const [{ data }, mspCount, customerCount, advisorCount] = await Promise.all([
     supabase
       .from("organizations")
       .select("id, name, domain")
@@ -39,13 +39,22 @@ export default async function SourcePage({
       .select("id", { count: "exact", head: true })
       .eq("workspace_id", workspaceId)
       .eq("kind", "customer"),
+    supabase
+      .from("organizations")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("kind", "advisor"),
   ]);
 
   return (
     <RunSourceBuilder
       msps={(data as Msp[]) ?? []}
       initialMspId={sp.msp ?? null}
-      knownCounts={{ msp: mspCount.count ?? 0, customer: customerCount.count ?? 0 }}
+      knownCounts={{
+        msp: mspCount.count ?? 0,
+        customer: customerCount.count ?? 0,
+        advisor: advisorCount.count ?? 0,
+      }}
     />
   );
 }

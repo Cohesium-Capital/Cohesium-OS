@@ -53,6 +53,21 @@ export type WorkspaceVocab = {
    */
   customerFunction: string;
   /**
+   * "referral partner" — the CHANNEL population: firms that sit alongside our
+   * targets and can refer their owners to us.
+   *
+   * Not a target and never becomes one. Ilium's channel is the investment
+   * advisors and brokers of record on a TPA's plans; a tenant with no channel
+   * layer simply never runs the advisor mode and these go unused.
+   */
+  channelSingular: string;
+  /** "referral partners" */
+  channelPlural: string;
+  /** "partner" — the short form used inside a sentence. */
+  channelAbbrev: string;
+  /** "partners" — stored, not derived. */
+  channelAbbrevPlural: string;
+  /**
    * "IT provider" — how a customer casually names the provider they hired.
    *
    * Distinct from providerGeneric ("managed IT provider") only because the
@@ -96,6 +111,17 @@ export type DraftCopy = {
   perspectiveMsp: string;
   subjectShapesCustomer: string;
   subjectShapesMsp: string;
+  /**
+   * The channel track (048). A separate block rather than a substitution of the
+   * MSP one because the OFFER is different, not the vocabulary: the msp track
+   * asks an operator for their read on the market, and this one proposes a
+   * two-way referral relationship. Word-swapping the msp copy would produce a
+   * fluent message that makes the wrong ask.
+   */
+  goldAdvisor: string;
+  personaAnglesAdvisor: string;
+  perspectiveAdvisor: string;
+  subjectShapesAdvisor: string;
 };
 
 export type WorkspaceProfile = WorkspaceIdentity & {
@@ -148,7 +174,63 @@ export const DEFAULT_VOCAB: WorkspaceVocab = {
   marketShort: "managed IT",
   customerFunction: "IT",
   providerCasual: "IT provider",
+  channelSingular: "referral partner",
+  channelPlural: "referral partners",
+  channelAbbrev: "partner",
+  channelAbbrevPlural: "partners",
 };
+
+/**
+ * The channel track's copy, shared by every tenant that has not overridden it.
+ *
+ * Unlike the msp/customer blocks this is NOT market-specific prose. The ask —
+ * "we buy firms like the ones you advise, and we can send owners back to you" —
+ * has the same shape in any market, and the market words arrive through the
+ * vocabulary tokens. So one block serves as both the neutral default and
+ * Cohesium's, which also keeps the leak detector honest: a tenant that has not
+ * written its own channel example has nothing to leak.
+ */
+const CHANNEL_COPY = {
+  goldAdvisor: `Gold examples (imitate this voice and shape, never copy the facts)
+
+Email —
+Subject: {{firmName}} + your {{providerAbbrev}} relationships
+
+Hi Dana,
+
+Your name came up alongside a couple of the {{providerAbbrevPlural}} we know well, and the
+overlap seemed worth a note.
+
+{{senderIntro}}. We buy {{providerPlural}} outright, so if an owner you advise ever
+raises succession or liquidity, there is a real home for that firm. And when we
+do acquire one, that owner walks away liquid and looking for advice.
+
+Worth a short call to see whether this is useful in either direction?
+
+Thanks,
+{{senderName}}
+
+LinkedIn —
+Hi Alex, {{senderIntro}}. We buy {{providerPlural}} outright, and it looks like we
+work around some of the same firms. If an owner you advise ever raises
+succession, there is a home for that business. Worth a quick chat?`,
+
+  personaAnglesAdvisor: `Persona angle (the relevance hook)
+Everyone on this track is {{channelSingular}} or a principal at one of these firms. The
+persona key is a schema literal, not a description of the person, so read it as
+seniority within the practice rather than as a job function:
+- owner: a principal or partner of the practice. This is the main audience. The
+  angle is what a succession conversation with an owner they advise looks
+  like, and what that owner is looking for on the other side of a sale.
+- head_of_it: someone at the firm who is not a principal, or whoever runs the
+  relationships day to day. Same proposition, one level down.
+- other: a neutral version of the owner angle.`,
+
+  perspectiveAdvisor: "how a {{channelSingular}} and a buyer of {{providerPlural}} can be useful to each other",
+
+  subjectShapesAdvisor: `"{{firmName}} + your {{providerAbbrev}} relationships", "succession on the {{providerAbbrev}} side",
+  "{{firmName}} + <company>"`,
+} as const;
 
 /**
  * Cohesium's own prose — the text that was inline in lib/drafting/prompt.ts and
@@ -242,6 +324,7 @@ to a quick chat? Not selling anything.`,
   "{{firmName}} + <company>"`,
   subjectShapesMsp: `"your take on the MSP market", "the state of managed IT",
   "{{firmName}} + <company>"`,
+  ...CHANNEL_COPY,
 };
 
 /**
@@ -337,6 +420,7 @@ to a quick chat? Not selling anything.`,
   "{{firmName}} + <company>"`,
   subjectShapesMsp: `"your take on the {{market}}", "the state of {{marketShort}}",
   "{{firmName}} + <company>"`,
+  ...CHANNEL_COPY,
 };
 
 /**

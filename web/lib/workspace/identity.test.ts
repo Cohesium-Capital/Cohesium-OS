@@ -23,6 +23,10 @@ const STAFFING = completeProfile({
     marketShort: "staffing",
     customerFunction: "hiring",
     providerCasual: "staffing partner",
+    channelSingular: "recruiting consultant",
+    channelPlural: "recruiting consultants",
+    channelAbbrev: "consultant",
+    channelAbbrevPlural: "consultants",
   },
 });
 

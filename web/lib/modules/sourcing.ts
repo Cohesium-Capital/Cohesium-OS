@@ -35,6 +35,10 @@ export type SourcingConfig = PromptParams & {
 //   find_customers_for_msps → only the known clients OF the selected MSPs, since
 //                             the same company under a different MSP is a real
 //                             find, not a duplicate
+//   find_advisors_for_msps  → same rule, one table over: the advisors already
+//                             LINKED to the selected MSPs. An advisor we hold
+//                             is only "known" for the MSPs it already reaches,
+//                             so finding it against another is a new edge.
 async function loadKnownOrgs(
   supabase: SupabaseClient,
   config: SourcingConfig,
@@ -66,6 +70,36 @@ async function loadKnownOrgs(
       domain: (o.domain as string | null) ?? null,
       mspName: nameById.get(o.current_msp_id as string) ?? null,
     }));
+    return { known, omitted: Math.max(0, (count ?? known.length) - known.length) };
+  }
+
+  if (config.mode === "find_advisors_for_msps") {
+    const mspIds = (config.msps ?? []).map((m) => m.id).filter(Boolean) as string[];
+    if (!mspIds.length) return empty;
+    const nameById = new Map(
+      (config.msps ?? []).filter((m) => m.id).map((m) => [m.id as string, m.name]),
+    );
+    // Read the EDGES, not the advisor rows: what makes an advisor known here is
+    // that we already have it against this MSP.
+    const { data, count } = await supabase
+      .from("advisor_tpa_links")
+      .select("tpa_org_id, organizations!advisor_tpa_links_advisor_org_id_fkey(name, domain)", {
+        count: "exact",
+      })
+      .eq("workspace_id", workspaceId)
+      .in("tpa_org_id", mspIds)
+      .range(0, KNOWN_LIMIT - 1);
+    type LinkRow = {
+      tpa_org_id: string;
+      organizations: { name: string; domain: string | null } | null;
+    };
+    const known = ((data ?? []) as unknown as LinkRow[])
+      .filter((r) => r.organizations)
+      .map((r) => ({
+        name: r.organizations!.name,
+        domain: r.organizations!.domain,
+        mspName: nameById.get(r.tpa_org_id) ?? null,
+      }));
     return { known, omitted: Math.max(0, (count ?? known.length) - known.length) };
   }
 

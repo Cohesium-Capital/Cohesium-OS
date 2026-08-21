@@ -1,4 +1,10 @@
-import { renderCopy, DEFAULT_COPY, type WorkspaceProfile } from "../workspace/identity";
+import {
+  renderCopy,
+  DEFAULT_COPY,
+  type DraftCopy,
+  type WorkspaceProfile,
+} from "../workspace/identity";
+import type { TrackKind } from "./prompt";
 
 // Did a draft copy the worked example instead of imitating it?
 //
@@ -62,9 +68,19 @@ export type LeakFinding = {
  */
 export function exampleLeakDetector(
   profile: WorkspaceProfile,
-  track: "customer" | "msp" = "customer",
+  track: TrackKind = "customer",
 ): (draftBody: string, contactContext: string) => LeakFinding[] {
-  const customer = track === "customer";
+  // Pick the pair of blocks this track actually drafts from. Comparing a
+  // channel-track draft against the msp example would flag nothing it borrowed
+  // and flag things it did not.
+  const pickCopy = (c: DraftCopy) =>
+    track === "advisor"
+      ? { gold: c.goldAdvisor, persona: c.personaAnglesAdvisor }
+      : track === "msp"
+        ? { gold: c.goldMsp, persona: c.personaAnglesMsp }
+        : { gold: c.goldCustomer, persona: c.personaAnglesCustomer };
+  const neutral = pickCopy(DEFAULT_COPY);
+  const own = pickCopy(profile.copy);
 
   // The subtlety this whole function turns on: MOST of a worked example is
   // meant to be reused. "I've been digging into how", "I'm a cofounder of
@@ -80,26 +96,13 @@ export function exampleLeakDetector(
   // A workspace still on the default therefore has nothing to leak, which is
   // correct — that is the point of the default being neutral.
   const baseline = new Set([
-    ...distinctivePhrases(
-      renderCopy(customer ? DEFAULT_COPY.goldCustomer : DEFAULT_COPY.goldMsp, profile),
-    ),
-    ...distinctivePhrases(
-      renderCopy(
-        customer ? DEFAULT_COPY.personaAnglesCustomer : DEFAULT_COPY.personaAnglesMsp,
-        profile,
-      ),
-    ),
+    ...distinctivePhrases(renderCopy(neutral.gold, profile)),
+    ...distinctivePhrases(renderCopy(neutral.persona, profile)),
   ]);
 
   const sources: [LeakFinding["source"], string][] = [
-    ["gold", renderCopy(customer ? profile.copy.goldCustomer : profile.copy.goldMsp, profile)],
-    [
-      "persona",
-      renderCopy(
-        customer ? profile.copy.personaAnglesCustomer : profile.copy.personaAnglesMsp,
-        profile,
-      ),
-    ],
+    ["gold", renderCopy(own.gold, profile)],
+    ["persona", renderCopy(own.persona, profile)],
   ];
 
   // Phrases unique to THIS workspace's examples, deduped across both sources.
@@ -126,7 +129,7 @@ export function findExampleLeaks(
   draftBody: string,
   profile: WorkspaceProfile,
   contactContext: string,
-  track: "customer" | "msp" = "customer",
+  track: TrackKind = "customer",
 ): LeakFinding[] {
   return exampleLeakDetector(profile, track)(draftBody, contactContext);
 }

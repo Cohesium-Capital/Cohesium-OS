@@ -4,6 +4,7 @@ import { learnedRuleBlock } from "../learning/rules";
 import { workspaceProfile } from "../workspace/profile";
 import { DEFAULT_PROFILE, type WorkspaceProfile, type WorkspaceVocab } from "../workspace/identity";
 import type { RunModule, IngestContext, IngestOutcome } from "./types";
+import { TRACK_KINDS, type TrackKind } from "../drafting/prompt";
 
 // Personalization as a pipeline module: research ONE durable, verifiable hook
 // per contact — {claim, source_url, published date, kind} — checkable by a
@@ -99,7 +100,7 @@ export type PersonalizationContact = {
 export type PersonalizationConfig = {
   contacts: PersonalizationContact[];
   /** stamped onto hooks rows so hook_outcomes can split by pipeline track */
-  track?: "msp" | "customer";
+  track?: TrackKind;
   /**
    * "single": one batch pasted into a chat window.
    * "agent": the whole list handed to Claude Code, which fans it out to
@@ -333,8 +334,12 @@ export const personalizationModule: RunModule<PersonalizationConfig, HooksPayloa
       for (const row of found ?? []) known.add(row.id as string);
     }
 
-    const track = ctx.config?.track === "msp" || ctx.config?.track === "customer"
-      ? (ctx.config.track as "msp" | "customer")
+    // Validated against the union rather than a hand-written pair, so a track
+    // added to the pipeline is not silently stamped null here — which would
+    // leave hook_outcomes unable to tell the new track's results from the rows
+    // that predate tracking at all.
+    const track = TRACK_KINDS.includes(ctx.config?.track as TrackKind)
+      ? (ctx.config.track as TrackKind)
       : null;
 
     let unknown = 0;

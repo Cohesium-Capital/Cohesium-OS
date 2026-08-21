@@ -66,10 +66,11 @@ that makes this path worth using.
 
 ## The loop
 
-### 0. Resolve target companies to ids — `find_customers_for_msps` only
+### 0. Resolve target companies to ids — the two per-target modes only
 
-That mode takes `mspIds`, and they are **UUIDs**: a name is rejected. Ask for
-the list rather than guessing, or asking the operator to look ids up by hand.
+`find_customers_for_msps` and `find_advisors_for_msps` both take `mspIds`, and
+those are **UUIDs**: a name is rejected. Ask for the list rather than guessing,
+or asking the operator to look ids up by hand.
 
 ```bash
 curl -sS "$COHESIUM_API_URL/api/sourcing/targets" \
@@ -110,6 +111,8 @@ curl -sS -X POST "$COHESIUM_API_URL/api/sourcing/runs" \
 - `research_customers` — find companies that use a {{providerGeneric}}
 - `find_customers_for_msps` — find the clients of specific {{providerAbbrevPlural}} (requires
   `mspIds: [...]`, resolved in step 0)
+- `find_advisors_for_msps` — find the {{channelPlural}} on record alongside specific
+  {{providerAbbrevPlural}} (requires `mspIds: [...]`, resolved in step 0)
 
 **Pass exactly one id in `mspIds`, and loop for more than one.** A single target
 is what lets the run record `new_for_target`, and it is what scopes the

@@ -561,6 +561,94 @@ describe("the shared pipeline over the adapter", () => {
     assert.match(second.error ?? "", /already ingested/i);
   });
 
+  test("provider-name variants resolve to ONE target, not a stub each", async (t) => {
+    if (unavailable(t)) return;
+
+    // From the field: a Chicago ingest took provider names verbatim from two
+    // Schedule C filings — "The Retirement Advantage" and "The Retirement
+    // Advantage Inc" — and minted a target for each, splitting that provider's
+    // client list in two. The stub resolver was matching on toLowerCase() while
+    // the organization dedupe matched on nameKey; nameKey collapses the pair,
+    // lowercase does not.
+    //
+    // Three spellings here, and the third already exists as a real target, so
+    // this pins both halves: the variants must collapse onto EACH OTHER and
+    // onto the row already on file, rather than any of them minting a stub.
+    await withRls(USER_A, async (db) => {
+      await asSupabase(db).from("organizations").insert({
+        name: "Ridgeline Retirement Group, Inc.",
+        kind: "msp",
+        domain: "ridgeline-retire.test",
+        workspace_id: WORKSPACE_A,
+      });
+    });
+
+    const created = await withRls(USER_A, (db) =>
+      createRun(asSupabase(db), {
+        module: "sourcing",
+        workspaceId: WORKSPACE_A,
+        executor: "runner",
+        createdBy: USER_A,
+        label: "provider-name variants",
+        config: { mode: "research_customers", kind: "customer", msps: [] },
+      }),
+    );
+
+    const customer = (name: string, provider: string) => ({
+      name,
+      domain: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "")}.test`,
+      current_msp_name: provider,
+      source_url: `https://example.test/${name.replace(/\W+/g, "-")}`,
+      confidence: "high",
+      contacts: [],
+    });
+
+    const outcome = await withRls(USER_A, (db) =>
+      ingestRun(asSupabase(db), {
+        runId: created.runId,
+        expectedWorkspaceId: WORKSPACE_A,
+        rawText: JSON.stringify({
+          organizations: [
+            customer("Alpha Manufacturing", "Ridgeline Retirement Group, Inc."),
+            customer("Beta Logistics", "Ridgeline Retirement Group Inc"),
+            customer("Gamma Clinics", "The Ridgeline Retirement Group"),
+          ],
+        }),
+      }),
+    );
+    assert.equal(outcome.ok, true, outcome.error ?? "");
+
+    const c = new Client({ connectionString: TEST_URL });
+    await c.connect();
+    try {
+      const targets = await c.query(
+        `select id, name, domain from public.organizations
+          where kind = 'msp' and name ilike '%ridgeline%'`,
+      );
+      assert.equal(
+        targets.rows.length,
+        1,
+        `expected one target, got ${targets.rows.map((r) => r.name).join(" | ")}`,
+      );
+      // And it is the pre-existing row, identified by its domain — not a stub
+      // that happens to be alone because the others also failed to insert.
+      assert.equal(targets.rows[0].domain, "ridgeline-retire.test");
+
+      const clients = await c.query(
+        `select c.name from public.organizations c
+          where c.current_msp_id = $1 and c.kind = 'customer' order by c.name`,
+        [targets.rows[0].id],
+      );
+      assert.deepEqual(
+        clients.rows.map((r) => r.name),
+        ["Alpha Manufacturing", "Beta Logistics", "Gamma Clinics"],
+        "all three customers belong to the one provider",
+      );
+    } finally {
+      await c.end();
+    }
+  });
+
   test("listTargets returns run-ready ids, scoped to one workspace", async (t) => {
     if (unavailable(t)) return;
 

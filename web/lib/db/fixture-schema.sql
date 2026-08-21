@@ -107,7 +107,23 @@ create table public.organizations (
     confidence      text,
     reviewed        boolean not null default false,
     evidence        jsonb not null default '[]',
+    advisor_firm_type text,
     created_at      timestamptz not null default now()
+);
+
+-- The advisor -> TPA edge (048). Both sides are organizations; the workspace
+-- column is what RLS gates on, which is the property these tests exercise.
+create table public.advisor_tpa_links (
+    workspace_id      uuid not null references public.workspaces(id),
+    id                uuid primary key default gen_random_uuid(),
+    advisor_org_id    uuid not null references public.organizations(id),
+    tpa_org_id        uuid not null references public.organizations(id),
+    join_source       text not null default 'schedule_c',
+    shared_plan_count integer not null default 0,
+    relation          text,
+    evidence          jsonb not null default '[]',
+    created_at        timestamptz not null default now(),
+    updated_at        timestamptz not null default now()
 );
 
 create table public.batches (
@@ -238,7 +254,8 @@ do $$
 declare t text;
 begin
   foreach t in array array['organizations','contacts','batches','runs','prompt_versions',
-                           'settings','rejected_ingest','sourcing_runs'] loop
+                           'settings','rejected_ingest','sourcing_runs',
+                           'advisor_tpa_links'] loop
     execute format('alter table public.%I enable row level security;', t);
     execute format(
       'create policy "workspace members" on public.%I for all to authenticated '

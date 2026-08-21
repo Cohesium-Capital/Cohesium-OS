@@ -14,13 +14,19 @@ import { MODE_RUN_LABEL } from "@/lib/sourcing/prompts";
 // the typing, not whether the work is accounted for.
 
 const BodySchema = z.object({
-  mode: z.enum(["research_msps", "research_customers", "find_customers_for_msps"]),
+  mode: z.enum([
+    "research_msps",
+    "research_customers",
+    "find_customers_for_msps",
+    "find_advisors_for_msps",
+  ]),
   region: z.string().trim().optional(),
   profile: z.string().trim().optional(),
   count: z.number().int().positive().max(500).optional(),
   countPer: z.number().int().positive().max(500).optional(),
-  /** MSP ids to target (find_customers_for_msps). Resolved to names here so the
-   *  caller never has to carry our identifiers around. */
+  /** MSP ids to target (find_customers_for_msps / find_advisors_for_msps).
+   *  Resolved to names here so the caller never has to carry our identifiers
+   *  around. */
   mspIds: z.array(z.string().uuid()).optional(),
   label: z.string().trim().max(200).optional(),
 });
@@ -36,11 +42,19 @@ export async function POST(req: Request) {
   if (!g.ok) return g.response;
   const { auth, body } = g;
 
-  const kind = body.mode === "research_msps" ? "msp" : "customer";
+  const kind =
+    body.mode === "research_msps"
+      ? "msp"
+      : body.mode === "find_advisors_for_msps"
+        ? "advisor"
+        : "customer";
 
-  if (body.mode === "find_customers_for_msps" && !body.mspIds?.length) {
+  if (
+    (body.mode === "find_customers_for_msps" || body.mode === "find_advisors_for_msps") &&
+    !body.mspIds?.length
+  ) {
     return NextResponse.json(
-      { error: "find_customers_for_msps requires at least one entry in mspIds" },
+      { error: `${body.mode} requires at least one entry in mspIds` },
       { status: 400 },
     );
   }

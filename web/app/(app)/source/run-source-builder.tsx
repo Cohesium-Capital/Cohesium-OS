@@ -31,7 +31,12 @@ const MODE_LABELS: Record<SourcingMode, string> = {
   research_msps: "Research Target Companies (find acquisition targets)",
   research_customers: "Research Customers (then estimate their provider)",
   find_customers_for_msps: "Find Customers for Specific Target Companies",
+  find_advisors_for_msps: "Find Referral Partners for Specific Target Companies",
 };
+
+// The two modes that take a list of target companies rather than a region.
+const isPerTargetMode = (m: SourcingMode) =>
+  m === "find_customers_for_msps" || m === "find_advisors_for_msps";
 
 function parseMspLines(text: string): Msp[] {
   return text
@@ -150,7 +155,7 @@ export function RunSourceBuilder({
   initialMspId: string | null;
   /** How many companies we already hold per kind — the pool the pasted
    *  prompt's do-not-research list is drawn from, and capped at KNOWN_LIMIT. */
-  knownCounts: { msp: number; customer: number };
+  knownCounts: { msp: number; customer: number; advisor: number };
 }) {
   const [mode, setMode] = useState<SourcingMode>(
     initialMspId ? "find_customers_for_msps" : "research_msps",
@@ -184,16 +189,19 @@ export function RunSourceBuilder({
     [pickedFromList, extraMsps],
   );
 
-  const kind = mode === "research_msps" ? "msp" : "customer";
+  const kind =
+    mode === "research_msps" ? "msp" : mode === "find_advisors_for_msps" ? "advisor" : "customer";
   const targetMspId =
-    mode === "find_customers_for_msps" && pickedFromList.length === 1
+    isPerTargetMode(mode) && pickedFromList.length === 1
       ? pickedFromList[0].id ?? null
       : null;
 
   function start() {
     startTransition(async () => {
       try {
-        const label = `${kind === "msp" ? "Target Companies" : "Customers"} · ${MODE_RUN_LABEL[mode]}`;
+        const label = `${
+          kind === "msp" ? "Target Companies" : kind === "advisor" ? "Referral Partners" : "Customers"
+        } · ${MODE_RUN_LABEL[mode]}`;
         const created = await startRun({
           module: "sourcing",
           label,
@@ -250,7 +258,15 @@ export function RunSourceBuilder({
         </div>
       </div>
 
-      <SourcingPaths knownCount={mode === "research_msps" ? knownCounts.msp : knownCounts.customer} />
+      <SourcingPaths
+        knownCount={
+          mode === "research_msps"
+            ? knownCounts.msp
+            : mode === "find_advisors_for_msps"
+              ? knownCounts.advisor
+              : knownCounts.customer
+        }
+      />
 
       <Card data-tour="source-modes">
         <CardHeader>
@@ -288,15 +304,15 @@ export function RunSourceBuilder({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="count">
-                {mode === "find_customers_for_msps" ? "Customers per target company" : "How many"}
+                {isPerTargetMode(mode) ? "Results per target company" : "How many"}
               </Label>
               <Input
                 id="count"
                 type="number"
                 min={1}
-                value={mode === "find_customers_for_msps" ? countPer : count}
+                value={isPerTargetMode(mode) ? countPer : count}
                 onChange={(e) =>
-                  mode === "find_customers_for_msps"
+                  isPerTargetMode(mode)
                     ? setCountPer(Number(e.target.value))
                     : setCount(Number(e.target.value))
                 }
@@ -314,7 +330,7 @@ export function RunSourceBuilder({
             />
           </div>
 
-          {mode === "find_customers_for_msps" && (
+          {isPerTargetMode(mode) && (
             <div className="grid gap-3">
               <Label>Target companies</Label>
               {msps.length > 0 && (

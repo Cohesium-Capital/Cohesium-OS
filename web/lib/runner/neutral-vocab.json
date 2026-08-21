@@ -7,5 +7,9 @@
   "market": "market",
   "marketShort": "market",
   "customerFunction": "that function",
-  "providerCasual": "provider"
+  "providerCasual": "provider",
+  "channelSingular": "referral partner",
+  "channelPlural": "referral partners",
+  "channelAbbrev": "partner",
+  "channelAbbrevPlural": "partners"
 }
