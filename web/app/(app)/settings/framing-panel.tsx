@@ -41,6 +41,11 @@ const FIELDS: { key: FramingKey; label: string; hint: string }[] = [
     hint: "The same, for people who run the firms you may acquire.",
   },
   {
+    key: "personaAnglesAdvisor",
+    label: "Persona angles — referral partners",
+    hint: "The same, for firms that advise your targets. The persona keys are schema literals here: read owner as a principal of the practice and head_of_it as someone below that, not as job functions.",
+  },
+  {
     key: "perspectiveCustomer",
     label: "Credit their perspective on — customers",
     hint: "Completes “credit their perspective on …”. A phrase, not a sentence.",
@@ -51,6 +56,11 @@ const FIELDS: { key: FramingKey; label: string; hint: string }[] = [
     hint: "The same, from the operator's side.",
   },
   {
+    key: "perspectiveAdvisor",
+    label: "Credit their perspective on — referral partners",
+    hint: "The same, from the adviser's side of the relationship.",
+  },
+  {
     key: "subjectShapesCustomer",
     label: "Subject-line shapes — customers",
     hint: "Examples of the shape a subject should take, not lines to reuse verbatim.",
@@ -59,6 +69,11 @@ const FIELDS: { key: FramingKey; label: string; hint: string }[] = [
     key: "subjectShapesMsp",
     label: "Subject-line shapes — target companies",
     hint: "The same, for outreach to operators.",
+  },
+  {
+    key: "subjectShapesAdvisor",
+    label: "Subject-line shapes — referral partners",
+    hint: "The same, for outreach that proposes a referral relationship rather than research.",
   },
 ];
 

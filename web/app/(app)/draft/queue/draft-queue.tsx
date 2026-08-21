@@ -488,7 +488,9 @@ export function DraftQueue({
                 ? " · target company"
                 : editing?.org_kind === "customer"
                   ? " · customer"
-                  : ""}
+                  : editing?.org_kind === "advisor"
+                    ? " · referral partner"
+                    : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">

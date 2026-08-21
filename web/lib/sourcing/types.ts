@@ -1,7 +1,7 @@
 // Shared types for the import flow. Kept out of the "use server" module so that
 // module can export only async actions (a Next.js requirement).
 
-export type ImportKind = "msp" | "customer";
+export type ImportKind = "msp" | "customer" | "advisor";
 
 export type ImportReport = {
   ok: boolean;
@@ -13,6 +13,10 @@ export type ImportReport = {
   rejected: number; // evidence-less rows logged to rejected_ingest (run path)
   sampledCount: number; // inserted contacts selected for grading
   batchId?: string | null; // batch the run's records were written into
+  // Advisor imports only (048).
+  advisorLinks: number; // advisor -> TPA edges written or refreshed
+  advisorLinksUnmatched: number; // named a TPA this workspace does not hold
+  advisorIsTpa: number; // advisor firm is already an acquisition target — held, not inserted
   messages: string[];
 };
 
@@ -24,6 +28,9 @@ export const EMPTY_REPORT: ImportReport = {
   skippedDuplicates: 0,
   rejected: 0,
   sampledCount: 0,
+  advisorLinks: 0,
+  advisorLinksUnmatched: 0,
+  advisorIsTpa: 0,
   messages: [],
 };
 
@@ -40,7 +47,7 @@ export type ReviewRow = {
   enrichment_status: string;
   org_name: string;
   org_domain: string | null;
-  org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'unknown' (legacy default)
+  org_kind: string | null; // 'msp' (acquisition target) | 'customer' | 'advisor' | 'unknown' (legacy default)
   estimated_msp: string | null;
   // Which run produced this record (migration 024). Null only for rows with no
   // resolvable lineage — legacy direct imports carry neither run nor batch.

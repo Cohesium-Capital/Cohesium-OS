@@ -20,7 +20,7 @@ import { loadOrgIndex, partitionCandidates } from "@/lib/sourcing/known";
 // suppress researching companies only that other workspace holds.
 
 const BodySchema = z.object({
-  kind: z.enum(["msp", "customer"]),
+  kind: z.enum(["msp", "customer", "advisor"]),
   candidates: z
     .array(
       z.object({

@@ -21,6 +21,8 @@ export type OrgIndexRow = {
   hq_state: string | null;
   source_url: string | null;
   evidence: { url?: string; via?: string }[] | null;
+  /** Advisor rows only (048): the classifier's verdict, null until one runs. */
+  advisor_firm_type: string | null;
 };
 
 // PostgREST caps an unbounded select at its max-rows setting (Supabase defaults
@@ -30,7 +32,8 @@ export type OrgIndexRow = {
 // returned so it stays correct if the server cap is below our page size.
 const PAGE = 1000;
 
-const SELECT = "id, name, domain, current_msp_id, hq_city, hq_state, source_url, evidence";
+const SELECT =
+  "id, name, domain, current_msp_id, hq_city, hq_state, source_url, evidence, advisor_firm_type";
 
 export type OrgIndex = {
   kind: ImportKind;

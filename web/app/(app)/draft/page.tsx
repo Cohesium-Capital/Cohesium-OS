@@ -11,6 +11,7 @@ import { currentWorkspaceId } from "@/lib/workspace/context";
 
 type Row = {
   id: string;
+  organization_id: string;
   full_name: string | null;
   persona: string | null;
   title: string | null;
@@ -49,7 +50,7 @@ export default async function DraftPage({
     ? await supabase
         .from("contacts")
         .select(
-          "id, full_name, persona, title, city, email, linkedin_url, organizations(name, domain, kind, current_msp_id)",
+          "id, organization_id, full_name, persona, title, city, email, linkedin_url, organizations(name, domain, kind, current_msp_id)",
         )
         .in("id", ids)
         .is("deleted_at", null)
@@ -66,6 +67,40 @@ export default async function DraftPage({
       .select("id, name")
       .in("id", mspIds);
     m?.forEach((x) => mspName.set(x.id, x.name));
+  }
+
+  // Advisor contacts carry their referral basis: which target companies they
+  // are on record alongside, strongest relationship first. Loaded here rather
+  // than joined into the select above because it is a separate table and only
+  // the advisor track reads it — a customer batch pays nothing for it.
+  const advisorOrgIds = [
+    ...new Set(
+      rows
+        .filter((r) => r.organizations?.kind === "advisor")
+        .map((r) => r.organization_id)
+        .filter(Boolean),
+    ),
+  ] as string[];
+  const tpasByOrg = new Map<string, string[]>();
+  if (advisorOrgIds.length) {
+    const { data: links } = await supabase
+      .from("advisor_tpa_links")
+      .select(
+        "advisor_org_id, shared_plan_count, organizations!advisor_tpa_links_tpa_org_id_fkey(name)",
+      )
+      .eq("workspace_id", workspaceId)
+      .in("advisor_org_id", advisorOrgIds)
+      .order("shared_plan_count", { ascending: false });
+    type LinkRow = {
+      advisor_org_id: string;
+      organizations: { name: string } | null;
+    };
+    ((links ?? []) as unknown as LinkRow[]).forEach((l) => {
+      if (!l.organizations?.name) return;
+      const arr = tpasByOrg.get(l.advisor_org_id) ?? [];
+      arr.push(l.organizations.name);
+      tpasByOrg.set(l.advisor_org_id, arr);
+    });
   }
 
   // Each contact's latest usable hook (canonical definition in
@@ -90,6 +125,7 @@ export default async function DraftPage({
           ? mspName.get(r.organizations.current_msp_id) ?? null
           : null,
         org_kind: r.organizations?.kind ?? null,
+        linked_tpas: tpasByOrg.get(r.organization_id) ?? [],
         channels: [
           ...(r.email ? (["email"] as const) : []),
           ...(r.linkedin_url ? (["linkedin"] as const) : []),

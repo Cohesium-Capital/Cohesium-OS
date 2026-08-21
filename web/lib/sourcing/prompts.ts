@@ -13,7 +13,8 @@ import {
 export type SourcingMode =
   | "research_msps"
   | "research_customers"
-  | "find_customers_for_msps";
+  | "find_customers_for_msps"
+  | "find_advisors_for_msps";
 
 // Human, market-neutral phrasing for a mode — used in run/batch labels shown in
 // the UI. The mode KEYS above stay fixed (API contract); this is only how a run
@@ -23,6 +24,7 @@ export const MODE_RUN_LABEL: Record<SourcingMode, string> = {
   research_msps: "research target companies",
   research_customers: "research customers",
   find_customers_for_msps: "find customers for target companies",
+  find_advisors_for_msps: "find referral partners for target companies",
 };
 
 export type Msp = { id?: string; name: string; domain: string | null };
@@ -106,6 +108,79 @@ before or after it. The object must match this shape exactly:
     }
   ]
 }`;
+
+// The channel mode returns a DIFFERENT shape: no current_msp_name (a partner
+// firm does not have a provider), and a tpa_links array instead, because the
+// relation is many-to-many and each edge carries its own evidence.
+const advisorContractText = (v: WorkspaceVocab) => `Return ONLY a single JSON object. No markdown, no code fences, no commentary
+before or after it. The object must match this shape exactly:
+
+{
+  "organizations": [
+    {
+      "name": string,                     // the ${v.channelSingular}'s firm name
+      "domain": string | null,            // primary website host, e.g. "acme.com" (no https://, no path)
+      "hq_city": string | null,           // the firm's OWN office, not an address copied from a filing
+      "hq_state": string | null,          // 2-letter state/province code where applicable
+      "advisor_firm_type": string | null, // your classification of the firm (see below)
+      "source_url": string | null,        // a URL that backs this row
+      "confidence": "high" | "medium" | "low",
+      "tpa_links": [
+        {
+          "tpa_name": string,             // the EXACT ${v.providerAbbrev} name from the list below
+          "join_source": "schedule_c" | "schedule_a" | "both",
+          "shared_plan_count": number,    // DISTINCT plans linking the two, deduped across routes
+          "relation": string | null,      // the filed relationship description, verbatim
+          "source_url": string | null
+        }
+      ],
+      "contacts": [
+        {
+          "full_name": string | null,
+          "persona": "owner" | "head_of_it" | "other",
+          "title": string | null,
+          "linkedin_url": string | null,
+          "source_url": string | null,
+          "confidence": "high" | "medium" | "low"
+        }
+      ]
+    }
+  ]
+}`;
+
+// The four ways this mode produces confident garbage. Each one has cost a real
+// run, so they are stated as prohibitions rather than tips.
+const advisorTrapsText = (v: WorkspaceVocab) => `Traps, in the order they bite:
+
+1. USE EVERY ROUTE FROM ${v.providerAbbrev.toUpperCase()} TO FIRM, NOT ONE. Where a market has authoritative
+   filings, they usually name an affiliated firm in more than one place, and
+   those populations barely overlap — commonly under 10% of firms appear in
+   both. Working from a single route silently halves your universe and you
+   cannot tell from the output that it happened. Enumerate the routes first,
+   run all of them, then merge and dedupe by firm.
+2. ${v.providerAbbrevPlural.toUpperCase()} APPEAR AS THEIR OWN AFFILIATED FIRM, OFTEN. A ${v.providerAbbrev} that names
+   itself in the affiliation field is not ${articleFor(v.channelSingular)} ${v.channelSingular} — it is the same
+   company on both sides. Detect this properly: build the set of EVERY firm that
+   appears anywhere as ${articleFor(v.providerAbbrev)} ${v.providerAbbrev}, then flag any candidate whose name matches
+   it. Expect this to reclassify a large minority of rows, not a handful.
+3. NOT EVERY FIRM IN THE FIELD IS ONE. Large institutional filers — recordkeepers,
+   index providers, research houses — appear in exactly the same field as a
+   local practice and never refer anyone. No pattern match can separate them:
+   READ the firm's website and its regulatory registration and decide. Set
+   "advisor_firm_type" to your verdict and drop the ones that plainly cannot
+   refer business.
+4. THE FILED ADDRESS IS OFTEN NOT THE FIRM'S. Filings frequently carry a parent
+   or carrier's corporate address, which clusters dozens of unrelated firms into
+   one city. Never take hq_city/hq_state from the filing — take them from the
+   firm's own site, or leave them null.
+5. NAME MATCHING MUST NOT TREAT INDUSTRY WORDS AS NOISE. Dropping the words that
+   name the industry leaves two different companies looking identical and
+   matching at a perfect score. Require the distinguishing word to match, and
+   confirm with a domain or an address before you assert two names are one firm.
+
+A thin result is a normal result here. Most ${v.providerAbbrevPlural} have a small number of
+genuinely referable firms around them, so returning fewer well-evidenced rows is
+the job — do not pad the list to make it look complete.`;
 
 const rulesText = (v: WorkspaceVocab) => `Rules:
 - Use web search to ground every row. Do NOT invent a company, person, domain,
@@ -267,6 +342,28 @@ export function buildTemplateText(params: PromptParams): string {
       .join("\n");
   }
 
+  if (params.mode === "find_advisors_for_msps") {
+    return [
+      `You are finding the ${v.channelPlural} attached to specific ${v.providerPlural} (${v.providerAbbrevPlural}), so we can reach those ${v.providerAbbrevPlural} through the people who already advise them.`,
+      `For each ${v.providerAbbrev} listed below, find the ${v.channelPlural} that are on record alongside it, and a named contact at each.`,
+      profile ? `Prefer firms matching: {{targetProfile}}.` : "",
+      `Every organization you return is ${articleFor(v.channelSingular)} ${v.channelSingular} — NOT ${articleFor(v.providerAbbrev)} ${v.providerAbbrev} and NOT a customer. Set "tpa_links" to every ${v.providerAbbrev} from the list below that this firm is on record with, using the EXACT name as listed. A firm with no link to any ${v.providerAbbrev} on the list is not a result; leave it out.`,
+      "",
+      `${v.providerAbbrevPlural}:`,
+      `{{mspList}}`,
+      "",
+      viaApi ? checkViaApiText(v) : hasKnown ? exclusionsPerProvider(v) : "",
+      advisorTrapsText(v),
+      "",
+      advisorContractText(v),
+      "",
+      rulesText(v),
+      params.learnedRules ? `\n${params.learnedRules}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   // find_customers_for_msps
   return [
     `You are finding the CUSTOMERS of specific ${v.providerPlural} (${v.providerAbbrevPlural}), so we can study how their clients work with them.`,
@@ -297,7 +394,8 @@ const substitute = (template: string, values: Record<string, string>): string =>
 const orgLine = (o: KnownOrg): string => `- ${o.name}${o.domain ? ` (${o.domain})` : ""}`;
 
 // Renders the do-not-research list. Flat for the two research modes; grouped by
-// MSP for find_customers_for_msps, where exclusion is per (company, MSP).
+// MSP for the two per-provider modes, where exclusion is per (company, MSP) —
+// the same firm found under a DIFFERENT provider is a new find in both.
 // knownOmitted is stated rather than hidden: the list is capped to keep the
 // prompt workable, and a silently truncated exclusion list would read as "this
 // is everything we have" when it isn't.
@@ -306,7 +404,10 @@ function buildKnownList(params: PromptParams): string {
   if (!known.length) return "";
 
   let body: string;
-  if (params.mode === "find_customers_for_msps") {
+  if (
+    params.mode === "find_customers_for_msps" ||
+    params.mode === "find_advisors_for_msps"
+  ) {
     const byMsp = new Map<string, KnownOrg[]>();
     for (const o of known) {
       const key = o.mspName?.trim() || `(${vocabOf(params).providerAbbrev} not recorded)`;

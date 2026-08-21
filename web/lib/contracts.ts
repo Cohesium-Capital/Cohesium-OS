@@ -7,7 +7,13 @@ import { z } from "zod";
 
 export const CONFIDENCE = ["high", "medium", "low"] as const;
 export const PERSONA = ["owner", "head_of_it", "other"] as const;
-export const ORG_KIND = ["msp", "customer"] as const;
+export const ORG_KIND = ["msp", "customer", "advisor"] as const;
+
+// Which Form 5500 join produced an advisor -> TPA edge. Schedule C names the
+// plan's investment adviser (the fee-based population); Schedule C -> Schedule A
+// names the insurance broker of record. They overlap on under 10% of firms, so
+// "both" is a genuinely stronger edge rather than a redundant one.
+export const JOIN_SOURCE = ["schedule_c", "schedule_a", "both"] as const;
 
 export type Confidence = (typeof CONFIDENCE)[number];
 
@@ -53,6 +59,20 @@ export const SourcedContactSchema = z.object({
   confidence,
 });
 
+// One advisor -> TPA edge as the runner reports it. The TPA is named, not
+// id'd: the join runs over Form 5500 filings, which carry firm names, and
+// import-core resolves the name against the TPAs this workspace already holds.
+export const SourcedTpaLinkSchema = z.object({
+  tpa_name: z.string().trim().min(1, "tpa_name is required"),
+  join_source: z.enum(JOIN_SOURCE).catch("schedule_c").default("schedule_c"),
+  // Distinct plans linking the two, deduped across both joins upstream. Coerced
+  // because a JSON payload may quote it; a garbage value falls back to 0 rather
+  // than failing the row, matching the persona/confidence posture above.
+  shared_plan_count: z.coerce.number().int().min(0).catch(0).default(0),
+  relation: optStr,
+  source_url: optStr,
+});
+
 export const SourcedOrganizationSchema = z.object({
   name: z.string().trim().min(1, "name is required"),
   // Normalized in import (lowercase, strip protocol/path). Optional because
@@ -66,6 +86,13 @@ export const SourcedOrganizationSchema = z.object({
   current_msp_name: optStr,
   source_url: optStr,
   confidence,
+  // Advisor rows only. The classifier's verdict on the firm, free text by
+  // design — see migration 048.
+  advisor_firm_type: optStr,
+  // Advisor rows only: every TPA in our pipeline this firm reaches. Empty on
+  // msp/customer imports, and an advisor arriving with none is useless as a
+  // referral path, which import-core reports rather than hides.
+  tpa_links: z.array(SourcedTpaLinkSchema).default([]),
   contacts: z.array(SourcedContactSchema).default([]),
 });
 
@@ -73,6 +100,7 @@ export const SourcingPayloadSchema = z.object({
   organizations: z.array(SourcedOrganizationSchema).min(1, "no organizations"),
 });
 
+export type SourcedTpaLink = z.infer<typeof SourcedTpaLinkSchema>;
 export type SourcedContact = z.infer<typeof SourcedContactSchema>;
 export type SourcedOrganization = z.infer<typeof SourcedOrganizationSchema>;
 export type SourcingPayload = z.infer<typeof SourcingPayloadSchema>;

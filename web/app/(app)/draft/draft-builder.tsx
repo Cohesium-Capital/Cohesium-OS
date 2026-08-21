@@ -50,23 +50,35 @@ export function DraftBuilder({
   const [mode, setMode] = useState<Mode>("single");
   const [size, setSize] = useState(20);
 
-  // Two campaigns share this page: MSP acquisition targets and MSP customers
-  // need different framing, so a batch never mixes them. organizations.kind is
-  // tri-state ('msp' | 'customer' | 'unknown', the legacy default): unknowns
-  // ride the customer track, which keeps the original framing — reclassify the
-  // org if that's wrong.
+  // Three campaigns share this page: acquisition targets, their customers, and
+  // the referral channel. Each needs different framing, so a batch never mixes
+  // them. organizations.kind is four-state ('msp' | 'customer' | 'advisor' |
+  // 'unknown', the legacy default): unknowns ride the customer track, which
+  // keeps the original framing — reclassify the org if that's wrong.
+  //
+  // The advisor filter is EXPLICIT rather than falling out of "not msp". It used
+  // to, and that was wrong in the worst direction: an advisor swept into the
+  // customer bucket gets drafted as someone who buys the service we are asking
+  // them to refer, and the run's explicit track= would override the batch-shape
+  // fallback that might otherwise have caught it.
   const mspContacts = useMemo(
     () => contacts.filter((c) => c.org_kind === "msp"),
     [contacts],
   );
-  const customerContacts = useMemo(
-    () => contacts.filter((c) => c.org_kind !== "msp"),
+  const advisorContacts = useMemo(
+    () => contacts.filter((c) => c.org_kind === "advisor"),
     [contacts],
   );
-  const [track, setTrackState] = useState<TrackKind>(
-    customerContacts.length ? "customer" : "msp",
+  const customerContacts = useMemo(
+    () => contacts.filter((c) => c.org_kind !== "msp" && c.org_kind !== "advisor"),
+    [contacts],
   );
-  const trackContacts = track === "msp" ? mspContacts : customerContacts;
+  const contactsForTrack = (t: TrackKind) =>
+    t === "msp" ? mspContacts : t === "advisor" ? advisorContacts : customerContacts;
+  const [track, setTrackState] = useState<TrackKind>(
+    customerContacts.length ? "customer" : mspContacts.length ? "msp" : "advisor",
+  );
+  const trackContacts = contactsForTrack(track);
 
   // Hook coverage for the selected track. Contacts arrive with their latest
   // usable hook already resolved server-side; kind='none' rows are the honest
@@ -82,10 +94,10 @@ export function DraftBuilder({
   // its own max showing a number the generated prompt doesn't use.
   function setTrack(next: TrackKind) {
     setTrackState(next);
-    const len = (next === "msp" ? mspContacts : customerContacts).length;
-    setSize((s) => clampSize(s, len || 1));
+    setSize((s) => clampSize(s, contactsForTrack(next).length || 1));
   }
-  const trackLabel = track === "msp" ? "target-company" : "customer";
+  const trackLabel =
+    track === "msp" ? "target-company" : track === "advisor" ? "referral-partner" : "customer";
 
   const effSize = clampSize(size, trackContacts.length || 1);
   const batch = useMemo(() => trackContacts.slice(0, effSize), [trackContacts, effSize]);
@@ -207,6 +219,14 @@ export function DraftBuilder({
                       onClick={() => setTrack("customer")}
                     >
                       Customers ({customerContacts.length})
+                    </Button>
+                    <Button
+                      variant={track === "advisor" ? "default" : "outline"}
+                      size="sm"
+                      disabled={advisorContacts.length === 0}
+                      onClick={() => setTrack("advisor")}
+                    >
+                      Referral partners ({advisorContacts.length})
                     </Button>
                   </div>
                 </div>

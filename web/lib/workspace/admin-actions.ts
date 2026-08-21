@@ -692,10 +692,13 @@ export async function currentWorkedExamples(): Promise<{
 const FRAMING_KEYS = [
   "personaAnglesCustomer",
   "personaAnglesMsp",
+  "personaAnglesAdvisor",
   "subjectShapesCustomer",
   "subjectShapesMsp",
+  "subjectShapesAdvisor",
   "perspectiveCustomer",
   "perspectiveMsp",
+  "perspectiveAdvisor",
 ] as const;
 
 export type FramingKey = (typeof FRAMING_KEYS)[number];

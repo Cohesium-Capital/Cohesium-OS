@@ -91,10 +91,53 @@ const CONTACTS: DraftContact[] = [
   },
 ];
 
+// The channel track's own contacts. Separate from CONTACTS because the track is
+// selected by org_kind being uniform, and because the tpas= token — the whole
+// reason the track exists — only renders from linked_tpas.
+const ADVISOR_CONTACTS: DraftContact[] = [
+  {
+    contact_id: "a-1",
+    full_name: "Dana Whitfield",
+    persona: "owner",
+    title: "Managing Principal",
+    company_name: "Keel Point Advisory",
+    company_domain: "keelpoint.example",
+    city: "Harborview",
+    current_msp: null,
+    linked_tpas: ["Nova Plan Services", "Cedar Ridge Administrators"],
+    org_kind: "advisor",
+    channels: ["email", "linkedin"],
+    hook_text: "Wrote a client note on what changes when a plan administrator is acquired.",
+    hook_source_url: "https://keelpoint.example/notes/administrator-transitions",
+    hook_kind: "post",
+    fallback_angle: null,
+  },
+  {
+    contact_id: "a-2",
+    full_name: "Alex Moreau",
+    persona: "head_of_it",
+    title: null,
+    company_name: "Fairlane Benefits Group",
+    company_domain: null,
+    city: null,
+    current_msp: null,
+    // Deliberately empty: the prompt has a rule for this case and a fixture
+    // that never exercises it would not protect the rule.
+    linked_tpas: [],
+    org_kind: "advisor",
+    channels: ["linkedin"],
+    hook_text: null,
+    hook_source_url: null,
+    hook_kind: "none",
+    fallback_angle: "Runs plan relationships for a regional benefits practice.",
+  },
+];
+
 const MODES: SourcingMode[] = [
   "research_msps",
   "research_customers",
   "find_customers_for_msps",
+  "find_advisors_for_msps",
 ];
 
 /** Every (mode, exclusion-shape, profile) combination the sourcing prompt has. */
@@ -156,7 +199,8 @@ function draftingVariants(): { name: string; text: string }[] {
     ["cohesium_", COHESIUM],
   ];
   for (const [prefix, profile] of profiles) {
-    for (const kind of ["customer", "msp"] as TrackKind[]) {
+    for (const kind of ["customer", "msp", "advisor"] as TrackKind[]) {
+      const contacts = kind === "advisor" ? ADVISOR_CONTACTS : CONTACTS;
       for (const [label, learned] of [
         ["no-learned", ""],
         ["learned", LEARNED],
@@ -167,11 +211,11 @@ function draftingVariants(): { name: string; text: string }[] {
         });
         out.push({
           name: `${prefix}drafting_${kind}_${label}_single`,
-          text: buildDraftPrompt(CONTACTS, kind, learned, profile),
+          text: buildDraftPrompt(contacts, kind, learned, profile),
         });
         out.push({
           name: `${prefix}drafting_${kind}_${label}_agent`,
-          text: buildDraftAgentPrompt(CONTACTS, 15, kind, learned, profile),
+          text: buildDraftAgentPrompt(contacts, 15, kind, learned, profile),
         });
       }
     }
